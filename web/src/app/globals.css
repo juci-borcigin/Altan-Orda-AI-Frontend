@@ -1,0 +1,1089 @@
+@import "tailwindcss";
+
+/* Altan Orda UI theme (Phase 1) */
+
+:root {
+  --ao-navy: #0b2340;
+  --ao-navy2: #0d2a4a;
+  --ao-navy3: #122d52;
+  /* サブヘッダー（ゲルバー）：さらに薄いネイビー（CR #16） */
+  --ao-navy-gelbar: #143d5e;
+  /* 検索ボックス背景（CR #25） */
+  --ao-navy-search-bg: #ffffff;
+  /* 入力フッター帯の周囲（CR #27: #143D5E）／テキストボックス内は白（CR #24） */
+  --ao-navy-footer: #143d5e;
+  --ao-navy-input: #ffffff;
+  --ao-input-fg: #1a1208;
+  --ao-brown: #1a0d04;
+  --ao-brown2: #140a03;
+  --ao-gold: #c9922a;
+  --ao-gold-l: #e8c060;
+  --ao-gold-d: #8a6018;
+  --ao-gold-dim: #3a2008;
+  --ao-gold-dimmer: #1e0e02;
+  --ao-white: #f5f0e8;
+  --ao-muted: #b89565;
+  --ao-muted2: #8a7048;
+  --ao-muted3: #5c4830;
+  --ao-chat-bg: #ffffff;
+  --ao-bubble-ai: #f4f0e7;
+  --ao-bubble-user: #ddd4c4;
+  --ao-bubble-user-text: #1a1208;
+  --ao-rail-w: 44px;
+  --ao-panel-w: 210px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: Georgia, serif;
+  background: var(--ao-navy);
+  color: var(--ao-white);
+  overflow: hidden;
+  min-height: 540px;
+  font-size: 13px;
+}
+
+.ao-header {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  background: var(--ao-navy);
+  border-bottom: 2px solid var(--ao-gold);
+  flex-shrink: 0;
+  padding: 0 12px;
+  gap: 10px;
+}
+
+.ao-h-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.ao-h-logo-icon {
+  width: 22px;
+  height: 22px;
+}
+.ao-h-logo-text {
+  font-size: 11px;
+  color: var(--ao-gold-l);
+  letter-spacing: 2px;
+  line-height: 1.2;
+}
+.ao-h-logo-sub {
+  font-size: 8px;
+  color: var(--ao-muted);
+  letter-spacing: 1px;
+}
+.ao-h-spacer {
+  flex: 1;
+}
+.ao-h-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ao-navy-search-bg);
+  border: 1px solid var(--ao-gold-dim);
+  border-radius: 3px;
+  padding: 4px 10px;
+  transition: border-color 0.15s;
+}
+.ao-h-search:focus-within {
+  border-color: var(--ao-gold-d);
+}
+.ao-h-search svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ao-navy);
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.ao-h-search input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--ao-input-fg);
+  font-size: 12px;
+  font-family: inherit;
+  width: 130px;
+  font-weight: 600;
+}
+.ao-h-search input::placeholder {
+  color: #786040;
+}
+
+.ao-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.ao-rail {
+  width: var(--ao-rail-w);
+  min-width: var(--ao-rail-w);
+  background: var(--ao-brown2);
+  border-right: 1px solid var(--ao-gold-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 2px;
+  z-index: 30;
+  flex-shrink: 0;
+}
+.ao-r-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ao-muted2);
+  transition: all 0.15s;
+  position: relative;
+}
+.ao-r-btn:hover {
+  background: rgba(201, 146, 42, 0.1);
+  border-color: var(--ao-gold-dim);
+  color: var(--ao-gold-l);
+}
+.ao-r-btn.ao-active {
+  background: rgba(201, 146, 42, 0.2);
+  border-color: var(--ao-gold-d);
+  color: var(--ao-gold-l);
+}
+.ao-r-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.ao-r-tip {
+  position: absolute;
+  left: 40px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #0f2f52;
+  border: 1px solid var(--ao-gold-dim);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 7px;
+  color: var(--ao-gold-l);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 200;
+  letter-spacing: 0.5px;
+}
+.ao-r-btn:hover .ao-r-tip {
+  opacity: 1;
+}
+.ao-r-spacer {
+  flex: 1;
+}
+.ao-r-div {
+  width: 24px;
+  height: 1px;
+  background: var(--ao-gold-dim);
+  margin: 3px 0;
+}
+
+.ao-panel {
+  width: var(--ao-panel-w);
+  min-width: var(--ao-panel-w);
+  background: var(--ao-brown);
+  border-right: 1px solid var(--ao-gold-dim);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ao-panel-hdr {
+  padding: 9px 12px 7px;
+  border-bottom: 1px solid var(--ao-gold-dim);
+  font-size: 10px;
+  color: var(--ao-muted);
+  letter-spacing: 2px;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+/* CR #14: 2段目メニュー見出しは Bold（Regular 禁止） */
+.ao-side-panel .ao-panel-hdr,
+.ao-side-panel .ao-panel-sec {
+  font-weight: 700;
+}
+
+/* CR #60：「＋新規議事」と議事タイトルで同一の書体・サイズ・色（明朝系＋金茶 #b89565） */
+.ao-gel-new-thread,
+.ao-side-thread-title {
+  font-family:
+    "Yu Mincho",
+    "Hiragino Mincho ProN",
+    "Hiragino Mincho Pro",
+    "MS PMincho",
+    Georgia,
+    "Times New Roman",
+    serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ao-muted);
+  line-height: 1.35;
+}
+
+.ao-gel-new-thread:hover {
+  color: var(--ao-gold-l);
+}
+
+.ao-side-thread-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* サイド：見出し・区切りラベル（CR #14 Bold） */
+.ao-panel-sec {
+  font-size: 9px;
+  color: var(--ao-muted3);
+  letter-spacing: 1.5px;
+  padding: 7px 4px 3px;
+  font-weight: 700;
+}
+
+/* 補足・件数など（CR #15：ゴシック系で本文と馴染ませる） */
+.ao-panel-caption {
+  font-family: ui-sans-serif, system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  font-size: 9px;
+  color: var(--ao-muted);
+  line-height: 1.35;
+}
+
+/* CR #62：議事一覧ボタン内の「ゲル名／日付」は Regular（button 既定の太字を打ち消す） */
+.ao-side-panel button .ao-panel-caption.ao-side-thread-meta {
+  font-weight: 400;
+}
+
+.ao-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
+  min-height: 0;
+}
+
+/* ゲル：左パネル内でゲル名クリックによりアコーディオン（新規／議事一覧）を展開 */
+.ao-gel-layout {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ao-panel-gel-primary {
+  flex: 0 0 var(--ao-panel-w);
+  align-self: stretch;
+}
+
+/* ゲル議事一覧：上→下に展開／閉じる（grid 0fr→1fr） */
+.ao-gel-accordion-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.34s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.ao-gel-accordion-shell--open {
+  grid-template-rows: 1fr;
+}
+
+.ao-gel-accordion-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ao-gel-accordion-shell {
+    transition: none;
+  }
+}
+
+.ao-chat-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  align-self: stretch;
+}
+
+@media (max-width: 767px) {
+  .ao-gel-layout {
+    flex-direction: column;
+  }
+
+  .ao-panel-gel-primary {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 52%;
+  }
+
+  .ao-chat-stack {
+    flex: 1;
+    min-height: 0;
+  }
+}
+.ao-panel-body::-webkit-scrollbar {
+  width: 3px;
+}
+.ao-panel-body::-webkit-scrollbar-thumb {
+  background: var(--ao-gold-dim);
+}
+
+.ao-chat-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ao-chat-bg);
+  position: relative;
+  align-self: stretch;
+}
+
+/* メイン議事：スクロール領域＋最下部ジャンプ（Phase 2 改修） */
+.ao-chat-messages-col {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.ao-gelbar {
+  background: var(--ao-navy-gelbar);
+  border-bottom: 1.5px solid var(--ao-gold-dim);
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.ao-gelbar-btns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.ao-gelbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+.ao-drive-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--ao-muted);
+  line-height: 1.2;
+  max-width: 140px;
+}
+.ao-drive-status--ok {
+  color: var(--ao-gold-l);
+}
+.ao-drive-status--idle {
+  color: var(--ao-muted2);
+}
+.ao-drive-status--unset {
+  color: var(--ao-muted3);
+}
+.ao-drive-ic {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.95;
+}
+.ao-drive-hint {
+  font-size: 10px;
+  color: var(--ao-muted);
+  max-width: 220px;
+  line-height: 1.35;
+}
+.ao-panel-sec-slg {
+  font-weight: 700;
+}
+.ao-panel-sec--mark {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.ao-panel-sec--mark-top {
+  align-items: flex-start;
+}
+.ao-panel-sec--mark-top .ao-panel-sec-mark {
+  margin-top: 2px;
+}
+.ao-panel-sec-mark {
+  display: flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.ao-panel-sec-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--ao-gold-l);
+  opacity: 0.92;
+}
+.ao-panel-sec-external .ao-panel-sec-sub {
+  display: block;
+  font-weight: 400;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: var(--ao-muted3);
+  margin-top: 2px;
+  opacity: 0.85;
+}
+.ao-gelinfo {
+  flex: 1;
+  min-width: 0;
+}
+
+/* CR #67–68：サブヘッダー2行（ゲル名 左上70%／議事タイトル 中央120%） */
+.ao-gelinfo--stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.ao-gelbar-gel-only {
+  font-size: 9.8px;
+  line-height: 1.3;
+  color: var(--ao-gold-l);
+  letter-spacing: 1.2px;
+  font-weight: 700;
+  text-align: left;
+  width: 100%;
+}
+.ao-gelbar-title-row {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+}
+.ao-gelbar-title-btn {
+  background: none;
+  border: none;
+  padding: 2px 8px;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ao-muted);
+  font-size: 13.2px;
+  font-weight: 700;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ao-gelbar-title-static {
+  color: var(--ao-muted);
+  font-size: 13.2px;
+  font-weight: 700;
+  text-align: center;
+  padding: 2px 8px;
+}
+.ao-gelbar-title-input {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 13.2px;
+  font-weight: 700;
+  color: var(--ao-muted);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--ao-gold-dim);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-family: inherit;
+}
+.ao-gellbl {
+  font-size: 9px;
+  color: var(--ao-muted);
+  letter-spacing: 1.5px;
+  margin-bottom: 2px;
+}
+.ao-gelname {
+  font-size: 14px;
+  color: var(--ao-gold-l);
+  letter-spacing: 1.5px;
+  font-weight: 700;
+}
+.ao-gelthread {
+  font-size: 11px;
+  color: var(--ao-muted);
+  font-weight: 700;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ao-gelinfo-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 2px;
+  min-width: 0;
+  margin-top: 0;
+}
+.ao-gelinfo-line-main .ao-gelthread {
+  margin-top: 0;
+}
+.ao-gelinfo-sep {
+  color: var(--ao-gold-l);
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.ao-gelthread-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  max-width: 100%;
+}
+.ao-savebtn {
+  background: none;
+  border: 1px solid var(--ao-gold-dim);
+  border-radius: 3px;
+  color: var(--ao-muted);
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.ao-savebtn:hover {
+  border-color: var(--ao-gold);
+  color: var(--ao-gold-l);
+}
+.ao-savebtn svg {
+  width: 11px;
+  height: 11px;
+}
+
+.ao-messages {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 146, 42, 0.5) rgba(0, 0, 0, 0.08);
+}
+.ao-messages::-webkit-scrollbar {
+  width: 8px;
+}
+.ao-messages::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+}
+.ao-messages::-webkit-scrollbar-thumb {
+  background: rgba(201, 146, 42, 0.45);
+  border-radius: 4px;
+}
+.ao-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 146, 42, 0.65);
+}
+
+.ao-msg {
+  display: flex;
+  gap: 8px;
+}
+.ao-msg.ao-user {
+  flex-direction: row-reverse;
+  align-self: flex-end;
+  max-width: 72%;
+}
+.ao-msg.ao-ai {
+  max-width: 84%;
+}
+.ao-face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.ao-face-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  background: var(--ao-navy2);
+  border: 1px solid var(--ao-gold-d);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+}
+.ao-face-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+.ao-msg.ao-user .ao-face-img {
+  border-color: rgba(201, 146, 42, 0.35);
+}
+.ao-face-name {
+  font-size: 9px;
+  color: var(--ao-gold-d);
+  letter-spacing: 0.3px;
+  text-align: center;
+  font-weight: 600;
+}
+.ao-msg.ao-user .ao-face-name {
+  color: var(--ao-muted2);
+}
+.ao-bubble {
+  padding: 8px 13px;
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+.ao-bubble:has(.ao-md-body) {
+  white-space: normal;
+}
+.ao-msg.ao-ai .ao-bubble {
+  background: var(--ao-bubble-ai);
+  color: #2a1a08;
+  border: 1px solid rgba(201, 146, 42, 0.2);
+  border-left: 2px solid var(--ao-gold-d);
+  border-radius: 2px 6px 6px 6px;
+}
+.ao-msg.ao-user .ao-bubble {
+  background: var(--ao-bubble-user);
+  color: var(--ao-bubble-user-text);
+  border: 1px solid rgba(201, 146, 42, 0.25);
+  border-radius: 6px 2px 6px 6px;
+}
+.ao-spk {
+  font-size: 9px;
+  color: var(--ao-gold-d);
+  letter-spacing: 1.5px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+.ao-spk.ao-k {
+  color: #a05540;
+}
+.ao-msg.ao-user .ao-spk {
+  color: #6a4a1a;
+}
+
+/* 待機：左寄せ・AI 吹き出し背景に近いが左アクセント線なし・本文と同色（#2a1a08） */
+.ao-thinking-inline-row {
+  display: flex;
+  justify-content: flex-start;
+  align-self: flex-start;
+  width: 100%;
+  max-width: 84%;
+  padding: 4px 0 2px;
+  flex-shrink: 0;
+}
+.ao-thinking-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.25;
+  background: var(--ao-bubble-ai);
+  color: #2a1a08;
+  border: 1px solid rgba(201, 146, 42, 0.22);
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.ao-thinking-dots-text {
+  display: inline-block;
+  min-width: 3ch;
+  font-size: inherit;
+  font-weight: 500;
+  color: #2a1a08;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* （↓）帯：余白・背景帯を廃止し、ボタン（矢印）分の高さのみ */
+.ao-jump-bottom-strip {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 22;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  height: auto;
+  min-height: 0;
+  line-height: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ao-jump-bottom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 12px;
+  min-width: 44px;
+  height: auto;
+  min-height: 0;
+  line-height: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #2a1a08;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  transition: transform 0.12s ease-out, opacity 0.15s;
+}
+.ao-jump-bottom-btn-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(201, 146, 42, 0.45);
+  background: linear-gradient(
+    180deg,
+    rgba(244, 240, 231, 0.95) 0%,
+    rgba(255, 255, 255, 0.98) 45%,
+    rgba(244, 240, 231, 0.88) 100%
+  );
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+.ao-jump-bottom-btn-inner svg {
+  width: 8px;
+  height: 8px;
+}
+.ao-jump-bottom-btn:hover .ao-jump-bottom-btn-inner {
+  border-color: var(--ao-gold);
+  box-shadow:
+    0 1px 5px rgba(0, 0, 0, 0.12),
+    0 0 8px rgba(201, 146, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.ao-jump-bottom-btn:hover {
+  transform: translateY(0.5px);
+}
+.ao-jump-bottom-btn:focus-visible {
+  outline: 2px solid var(--ao-gold);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.ao-typewriter-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* CR #64：メイン吹き出し内 Markdown */
+.ao-md-body {
+  font-size: inherit;
+  line-height: 1.55;
+}
+.ao-md-body .ao-md-h1 {
+  font-size: 1.35em;
+  font-weight: 700;
+  margin: 0.5em 0 0.3em;
+  line-height: 1.25;
+}
+.ao-md-body .ao-md-h2 {
+  font-size: 1.2em;
+  font-weight: 700;
+  margin: 0.45em 0 0.25em;
+  line-height: 1.28;
+}
+.ao-md-body .ao-md-h3 {
+  font-size: 1.08em;
+  font-weight: 700;
+  margin: 0.4em 0 0.2em;
+  line-height: 1.3;
+}
+.ao-md-body .ao-md-p {
+  margin: 0.35em 0;
+}
+.ao-md-body .ao-md-p:first-child {
+  margin-top: 0;
+}
+.ao-md-body .ao-md-p:last-child {
+  margin-bottom: 0;
+}
+.ao-md-body .ao-md-ul,
+.ao-md-body .ao-md-ol {
+  margin: 0.35em 0;
+  padding-left: 1.35em;
+}
+.ao-md-body .ao-md-li {
+  margin: 0.12em 0;
+}
+.ao-md-body .ao-md-strong {
+  font-weight: 700;
+}
+.ao-md-body .ao-md-em {
+  font-style: italic;
+}
+.ao-md-body :not(pre) > code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+  background: rgba(0, 0, 0, 0.07);
+  padding: 0.12em 0.38em;
+  border-radius: 3px;
+}
+.ao-md-body .ao-md-pre {
+  margin: 0.5em 0;
+  padding: 0.55em 0.7em;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(201, 146, 42, 0.2);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.88em;
+  line-height: 1.45;
+}
+.ao-md-body .ao-md-pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ao-md-body .ao-md-blockquote {
+  margin: 0.4em 0;
+  padding: 0.2em 0 0.2em 0.75em;
+  border-left: 3px solid var(--ao-gold-dim);
+  color: var(--ao-muted2);
+}
+.ao-md-body .ao-md-hr {
+  border: none;
+  border-top: 1px solid rgba(201, 146, 42, 0.35);
+  margin: 0.75em 0;
+}
+.ao-md-body .ao-md-a {
+  color: var(--ao-gold-d);
+  text-decoration: underline;
+}
+.ao-md-body .ao-md-table-wrap {
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.ao-md-body .ao-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+.ao-md-body .ao-md-table th,
+.ao-md-body .ao-md-table td {
+  border: 1px solid rgba(201, 146, 42, 0.25);
+  padding: 0.25em 0.5em;
+  text-align: left;
+}
+.ao-md-body .ao-md-table th {
+  font-weight: 700;
+  background: rgba(201, 146, 42, 0.08);
+}
+
+.ao-pbreak {
+  border-top: 1px dashed rgba(201, 146, 42, 0.2);
+  margin: 7px 0 6px;
+}
+
+.ao-input-area {
+  padding: 9px 12px;
+  background: var(--ao-navy-footer);
+  border-top: 2px solid var(--ao-gold);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.ao-input-area textarea {
+  flex: 1;
+  min-height: 46px;
+  max-height: 160px;
+  background: var(--ao-navy-input);
+  color: var(--ao-input-fg);
+  border: 1px solid var(--ao-gold-dim);
+  border-radius: 3px;
+  padding: 8px 11px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  line-height: 1.6;
+  transition: border-color 0.15s;
+  font-weight: 500;
+}
+.ao-input-area textarea:focus {
+  border-color: var(--ao-gold-d);
+}
+.ao-input-area textarea::placeholder {
+  color: #786040;
+}
+.ao-send-btn {
+  width: 38px;
+  height: 38px;
+  background: var(--ao-gold-d);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--ao-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.ao-send-btn:hover {
+  background: var(--ao-gold);
+}
+
+/* 設定モーダル（ログ・バックアップ） */
+.ao-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.ao-modal {
+  width: 100%;
+  max-width: 380px;
+  background: var(--ao-brown);
+  border: 1px solid var(--ao-gold-dim);
+  border-radius: 4px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.ao-modal-hdr {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ao-gold-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--ao-gold-l);
+}
+.ao-modal-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ao-modal-p {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ao-muted);
+  margin: 0;
+}
+.ao-modal-btn {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 3px;
+  border: 1px solid var(--ao-gold-d);
+  background: rgba(201, 146, 42, 0.15);
+  color: var(--ao-gold-l);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ao-modal-btn:hover {
+  background: rgba(201, 146, 42, 0.25);
+}
+.ao-modal-btn-secondary {
+  border-color: var(--ao-gold-dim);
+  background: transparent;
+  color: var(--ao-muted);
+  font-weight: 600;
+}
+.ao-modal-btn-secondary:hover {
+  border-color: var(--ao-gold-d);
+  color: var(--ao-gold-l);
+}
+.ao-modal-close {
+  align-self: flex-end;
+  margin-top: 4px;
+  background: none;
+  border: none;
+  color: var(--ao-muted2);
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+}
+.ao-modal-close:hover {
+  color: var(--ao-gold-l);
+}
+
+@media (max-width: 767px) {
+  .ao-r-tip {
+    display: none;
+  }
+  .ao-msg.ao-ai {
+    max-width: 92%;
+  }
+  .ao-msg.ao-user {
+    max-width: 85%;
+  }
+}
