@@ -6,7 +6,9 @@ import {
   FOUR_LORDS,
 } from "@/lib/ao-prompts";
 import type { ProjectId } from "@/lib/ao-types";
+import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
 import { resolvePersonaModelId } from "@/lib/persona-llm-map";
+import { buildRagInjectionBlock } from "@/lib/rag-context";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type InMsg = {
@@ -356,19 +358,19 @@ export async function POST(req: Request) {
   const casualMode = lastUser.includes("雑談");
   const namedSpeaker = detectNamedSpeaker(lastUser);
 
-  let system = buildAoSystemPrompt({
-    projectId,
-    lastUserText: lastUser,
-    isFirstUserTurn,
-    casualMode,
-    namedSpeaker,
-  });
-
   const tavilyEnabled = Boolean(process.env.TAVILY_API_KEY?.trim());
-  if (tavilyEnabled) {
-    system +=
-      "\n\n【ツール】最新の事実・ニュース・数値の確認などに必要なときのみ `web_search` を使う（引数は query のみ）。不要な検索はしない。";
-  }
+  const tavilySuffix = tavilyEnabled
+    ? "\n\n【ツール】最新の事実・ニュース・数値の確認などに必要なときのみ `web_search` を使う（引数は query のみ）。不要な検索はしない。"
+    : "";
+
+  let system =
+    buildAoSystemPrompt({
+      projectId,
+      lastUserText: lastUser,
+      isFirstUserTurn,
+      casualMode,
+      namedSpeaker,
+    }) + tavilySuffix;
 
   if (dryRunMode) {
     const provider = baseUrl.includes("openrouter.ai") ? "openrouter" : "openai_direct";
@@ -426,6 +428,30 @@ export async function POST(req: Request) {
   }
 
   const supa = getSupabaseAdmin();
+  let injectionBlock = "";
+  if (supa) {
+    try {
+      injectionBlock = await buildRagInjectionBlock({
+        supa,
+        userMessage: lastUser,
+        isFirstUserTurn,
+        openAiKey: process.env.OPENAI_API_KEY,
+      });
+    } catch (e) {
+      console.error("[chat] rag injection", e);
+    }
+  }
+
+  system =
+    buildAoSystemPrompt({
+      projectId,
+      lastUserText: lastUser,
+      isFirstUserTurn,
+      casualMode,
+      namedSpeaker,
+      injectionBlock: injectionBlock || undefined,
+    }) + tavilySuffix;
+
   let persistedThreadUuid: string | null = null;
   let lastCompletionJson: CompletionJson | null = null;
 
@@ -573,12 +599,24 @@ export async function POST(req: Request) {
         model_id: resolvePersonaModelId(c.speaker, model),
         raw_response: i === 0 ? rawPayload : null,
       }));
-      const { error: ae } = await supa.from("messages").insert(rows);
+      const { data: insertedRows, error: ae } = await supa
+        .from("messages")
+        .insert(rows)
+        .select("id, text");
       if (ae) console.error("[chat] persist assistant messages:", ae.message);
       await supa
         .from("threads")
         .update({ updated_at: new Date().toISOString() })
         .eq("id", persistedThreadUuid);
+
+      const oai = process.env.OPENAI_API_KEY?.trim();
+      if (oai && insertedRows?.length) {
+        void storeEmbeddingsForMessageTexts(
+          supa,
+          insertedRows.map((r: { id: string; text: string }) => ({ id: r.id, text: r.text })),
+          oai,
+        ).catch((e) => console.error("[chat] embedding pipeline", e));
+      }
     } catch (e) {
       console.error("[chat] supabase assistant persist", e);
     }

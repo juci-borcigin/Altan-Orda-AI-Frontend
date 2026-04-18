@@ -178,6 +178,8 @@ export type PromptContext = {
   casualMode: boolean;
   /** 名指し検出（null でなし） */
   namedSpeaker: string | null;
+  /** Step 7: profile_entries +（初回のみ）RAG を連結したブロック */
+  injectionBlock?: string;
 };
 
 function lorebookBundle(): string {
@@ -233,6 +235,10 @@ export function buildAoSystemPrompt(ctx: PromptContext): string {
       NAME_OVERRIDE_RULE,
       `【このターンの名指し先】${ctx.namedSpeaker}（出力の speaker は原則この名のみ）`,
     );
+  }
+
+  if (ctx.injectionBlock?.trim()) {
+    parts.push(ctx.injectionBlock.trim());
   }
 
   return parts.filter(Boolean).join("\n\n");

@@ -8,6 +8,10 @@ const allowedDevOrigins =
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  /** モノレポ化したリポジトリ直下の package-lock がある場合の警告抑止（npm run は web/ で実行） */
+  turbopack: {
+    root: ".",
+  },
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 };
 

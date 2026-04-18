@@ -1,0 +1,13 @@
+{
+  "name": "altan-orda-ai-frontend-repo",
+  "private": true,
+  "description": "Root scripts (import-logs). App lives in web/",
+  "type": "module",
+  "scripts": {
+    "import-logs": "node scripts/import-logs.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5"
+  }
+}
