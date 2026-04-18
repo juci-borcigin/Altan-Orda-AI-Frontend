@@ -178,7 +178,7 @@ export type PromptContext = {
   casualMode: boolean;
   /** 名指し検出（null でなし） */
   namedSpeaker: string | null;
-  /** Step 7: profile_entries +（初回のみ）RAG を連結したブロック */
+  /** Step 7:（初回ユーザーターンのみ）embeddings 由来の RAG 追記。Profile は ao-prompts 側のハードコード */
   injectionBlock?: string;
 };
 

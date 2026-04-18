@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 /**
- * Step 6: 既存ログを Supabase に流し込む（初回一括用）
+ * Step 6: 既存ログを Supabase に流し込む（初回一括・手元ファイルのみ）
+ *
+ * 各サービスからの「取得」は公式エクスポートを手動で行い、ZIP/HTML を解凍したうえで
+ * 本スクリプトに --file で渡す（繰り返し自動取得はしない想定）。
+ *
+ * 公式手順（参考）:
+ *   ChatGPT: https://help.openai.com/ja-jp/articles/7260999-how-do-i-export-my-chatgpt-history-and-data
+ *   Gemini:  https://takeout.google.com/ （Gemini / Bard 等を含む Takeout を取得）
+ *   Claude:  https://support.claude.com/ja/articles/9450526-claude-%E3%81%AE%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E3%82%A8%E3%82%AF%E3%82%B9%E3%83%9D%E3%83%BC%E3%83%88%E3%81%99%E3%82%8B%E3%81%AB%E3%81%AF%E3%81%A9%E3%81%86%E3%81%99%E3%82%8C%E3%81%B0%E3%82%88%E3%81%84%E3%81%A7%E3%81%99%E3%81%8B
+ *            メールのダウンロードリンクから取得したアーカイブ内の JSON 形状に合わせて
+ *            必要なら adaptClaude() を拡張する。
  *
  * 使い方:
  *   (リポジトリルートで) npm install
- *   export $(grep -v '^#' web/.env | xargs)   # または dotenv が web/.env を読む
  *   node scripts/import-logs.mjs --provider chatgpt --file ./conversations.json
  *
  *   --project-id 軍議ゲル | 執務ゲル | …（任意。未指定は gungi）
