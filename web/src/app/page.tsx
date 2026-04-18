@@ -8,7 +8,10 @@ import {
   type AppState,
   type Msg,
   type Thread,
+  aoUid,
   downloadBackupFile,
+  isAppStateCore,
+  makeDefaultAppState,
   parseAppStateJson,
 } from "@/lib/ao-state";
 
@@ -164,10 +167,6 @@ const AVATAR_SRC: Record<string, string> = {
   ジュチ: "/personas/juci.png",
 };
 
-function uid(prefix: string) {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
-}
-
 function now() {
   return Date.now();
 }
@@ -185,48 +184,15 @@ function defaultNewThreadTitle(projectLabel: string) {
   return `新規議事（${projectLabel}）ー ${dt}`;
 }
 
-function makeInitialState(): AppState {
-  const t0: Thread = {
-    id: uid("th"),
-    projectId: "gungi",
-    title: "作戦AO — Phase 1 MVP",
-    createdAt: now(),
-    updatedAt: now(),
-    messages: [
-      {
-        id: uid("m"),
-        side: "ai",
-        speaker: "モンケウール",
-        text: "モンケウールです、殿下。まずはPhase 1として、UIの骨組みをNext.jsへ移植しました。次はゲル／議事の状態管理とOpenAI接続です。",
-        createdAt: now(),
-      },
-      {
-        id: uid("m"),
-        side: "user",
-        speaker: "ジュチ",
-        text: "よし。続けよう。",
-        createdAt: now(),
-      },
-    ],
-  };
-
-  return {
-    version: 1,
-    currentProjectId: "gungi",
-    currentThreadId: t0.id,
-    threads: [t0],
-  };
-}
-
 function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return makeInitialState();
+    if (!raw) return makeDefaultAppState();
     const parsed = parseAppStateJson(raw);
-    if (!parsed) return makeInitialState();
+    if (!parsed) return makeDefaultAppState();
     return parsed;
   } catch {
-    return makeInitialState();
+    return makeDefaultAppState();
   }
 }
 
@@ -260,10 +226,30 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
-  // localStorage はクライアント専用のため SSR では出さない。useLayoutEffect でペイント前に復帰し、余計な「読み込み中」フレームを減らす
+  // Supabase を優先し、失敗時は localStorage。useLayoutEffect でペイント前に復帰し、余計な「読み込み中」フレームを減らす
   useLayoutEffect(() => {
     setMounted(true);
-    setState(loadState());
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/state");
+        if (cancelled) return;
+        if (r.ok) {
+          const data = (await r.json()) as { state?: unknown };
+          if (data.state && isAppStateCore(data.state)) {
+            setState(data.state);
+            saveState(data.state);
+            return;
+          }
+        }
+      } catch {
+        /* localStorage fallback */
+      }
+      if (!cancelled) setState(loadState());
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /** 待機表示：「.」「..」「...」「.」をテキストでループ */
@@ -473,7 +459,7 @@ export default function Home() {
     const title = defaultNewThreadTitle(project.label);
 
     const t: Thread = {
-      id: uid("th"),
+      id: aoUid("th"),
       projectId,
       title,
       createdAt: now(),
@@ -505,7 +491,7 @@ export default function Home() {
       if (idx < 0) return null;
       const th = state.threads[idx];
       const nextMsg: Msg = {
-        id: uid("m"),
+        id: aoUid("m"),
         side: "user",
         speaker: "ジュチ",
         text,
@@ -540,6 +526,9 @@ export default function Home() {
         body: JSON.stringify({
           projectId: snapshot.nextThread.projectId,
           messages: history,
+          clientThreadId: snapshot.nextThread.id,
+          threadTitle: snapshot.nextThread.title,
+          supabaseThreadId: snapshot.nextThread.supabaseThreadId ?? null,
         }),
       });
 
@@ -549,6 +538,7 @@ export default function Home() {
             rawContent?: string;
             error?: string;
             detail?: string;
+            supabaseThreadId?: string;
           }
         | null;
 
@@ -556,7 +546,7 @@ export default function Home() {
         await ensureMinThinkingVisible();
         const errText = data?.detail || data?.error || `HTTP ${res.status}`;
         const errMsg: Msg = {
-          id: uid("m"),
+          id: aoUid("m"),
           side: "ai",
           speaker: "不明",
           text: `（エラー）${errText}`,
@@ -578,6 +568,20 @@ export default function Home() {
         return;
       }
 
+      const sid =
+        typeof data.supabaseThreadId === "string" ? data.supabaseThreadId : undefined;
+      if (sid) {
+        const cid = snapshot.nextThread.id;
+        setState((prev) => {
+          if (!prev) return prev;
+          const ti = prev.threads.findIndex((t) => t.id === cid);
+          if (ti < 0) return prev;
+          const nextThreads = [...prev.threads];
+          nextThreads[ti] = { ...nextThreads[ti], supabaseThreadId: sid };
+          return { ...prev, threads: nextThreads };
+        });
+      }
+
       const threadId = snapshot.nextThread.id;
       await ensureMinThinkingVisible();
       setIsThinking(false);
@@ -588,7 +592,7 @@ export default function Home() {
         const rawMsg: Msg | null =
           raw.trim().length > 0
             ? {
-                id: uid("m"),
+                id: aoUid("m"),
                 side: "ai",
                 speaker: "AO内部",
                 text: raw,
@@ -602,7 +606,7 @@ export default function Home() {
           if (currentThreadIdRef.current !== threadId) break;
           const full = c.text || "";
           const speaker = c.speaker || "不明";
-          const msgId = uid("m");
+          const msgId = aoUid("m");
           const shell: Msg = {
             id: msgId,
             side: "ai",

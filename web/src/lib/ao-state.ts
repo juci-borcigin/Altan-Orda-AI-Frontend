@@ -24,6 +24,8 @@ export type Thread = {
   createdAt: number;
   updatedAt: number;
   messages: Msg[];
+  /** Supabase `threads.id`（uuid）。未同期の議事では未設定 */
+  supabaseThreadId?: string;
 };
 
 export type AppState = {
@@ -80,10 +82,13 @@ function isThread(x: unknown): x is Thread {
   ) {
     return false;
   }
+  if (o.supabaseThreadId !== undefined && typeof o.supabaseThreadId !== "string") {
+    return false;
+  }
   return o.messages.every(isMsg);
 }
 
-function isAppStateCore(x: unknown): x is AppState {
+export function isAppStateCore(x: unknown): x is AppState {
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
   if (o.version !== 1) return false;
@@ -159,4 +164,42 @@ export function downloadBackupFile(state: AppState): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/** localStorage 用の初期議事（page.tsx と GET /api/state の空DB時のフォールバックで共通） */
+export function aoUid(prefix: string): string {
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+}
+
+export function makeDefaultAppState(): AppState {
+  const t0: Thread = {
+    id: aoUid("th"),
+    projectId: "gungi",
+    title: "作戦AO — Phase 1 MVP",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    messages: [
+      {
+        id: aoUid("m"),
+        side: "ai",
+        speaker: "モンケウール",
+        text: "モンケウールです、殿下。まずはPhase 1として、UIの骨組みをNext.jsへ移植しました。次はゲル／議事の状態管理とOpenAI接続です。",
+        createdAt: Date.now(),
+      },
+      {
+        id: aoUid("m"),
+        side: "user",
+        speaker: "ジュチ",
+        text: "よし。続けよう。",
+        createdAt: Date.now(),
+      },
+    ],
+  };
+
+  return {
+    version: 1,
+    currentProjectId: "gungi",
+    currentThreadId: t0.id,
+    threads: [t0],
+  };
 }

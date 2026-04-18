@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildAoSystemPrompt,
   detectNamedSpeaker,
   FOUR_LORDS,
 } from "@/lib/ao-prompts";
 import type { ProjectId } from "@/lib/ao-types";
+import { resolvePersonaModelId } from "@/lib/persona-llm-map";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type InMsg = {
   role: "user" | "assistant";
@@ -14,6 +17,11 @@ type InMsg = {
 type ReqBody = {
   projectId: ProjectId;
   messages: InMsg[];
+  /** クライアント議事 ID（th_*）。永続化時に必須 */
+  clientThreadId?: string;
+  threadTitle?: string;
+  /** Supabase threads.id（uuid） */
+  supabaseThreadId?: string | null;
 };
 
 type OutChunk = { speaker: string; text: string };
@@ -255,6 +263,70 @@ async function postChatCompletion(
   }
 }
 
+async function resolveOrCreateThread(
+  supa: SupabaseClient,
+  opts: {
+    clientThreadId: string;
+    threadTitle: string;
+    projectId: ProjectId;
+    supabaseThreadId?: string | null;
+  },
+): Promise<{ threadUuid: string } | { error: string }> {
+  const title = opts.threadTitle.trim() || "議事";
+  const cid = opts.clientThreadId.trim();
+
+  if (opts.supabaseThreadId) {
+    const sid = opts.supabaseThreadId.trim();
+    const { data: byPk, error: e1 } = await supa
+      .from("threads")
+      .select("id")
+      .eq("id", sid)
+      .maybeSingle();
+    if (e1) return { error: e1.message };
+    if (byPk?.id) {
+      await supa
+        .from("threads")
+        .update({
+          title,
+          client_thread_id: cid,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", byPk.id);
+      return { threadUuid: byPk.id as string };
+    }
+  }
+
+  const { data: byClient, error: e2 } = await supa
+    .from("threads")
+    .select("id")
+    .eq("client_thread_id", cid)
+    .maybeSingle();
+  if (e2) return { error: e2.message };
+  if (byClient?.id) {
+    await supa
+      .from("threads")
+      .update({
+        title,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", byClient.id);
+    return { threadUuid: byClient.id as string };
+  }
+
+  const { data: ins, error: e3 } = await supa
+    .from("threads")
+    .insert({
+      title,
+      project_id: opts.projectId,
+      client_thread_id: cid,
+    })
+    .select("id")
+    .single();
+
+  if (e3 || !ins?.id) return { error: e3?.message ?? "thread insert failed" };
+  return { threadUuid: ins.id as string };
+}
+
 export async function POST(req: Request) {
   const { baseUrl, apiKey, model } = resolveLlmConfig();
   const maxTokens = resolveMaxTokens();
@@ -353,6 +425,36 @@ export async function POST(req: Request) {
     });
   }
 
+  const supa = getSupabaseAdmin();
+  let persistedThreadUuid: string | null = null;
+  let lastCompletionJson: CompletionJson | null = null;
+
+  if (supa && body.clientThreadId?.trim()) {
+    try {
+      const resolved = await resolveOrCreateThread(supa, {
+        clientThreadId: body.clientThreadId,
+        threadTitle: body.threadTitle?.trim() || "議事",
+        projectId,
+        supabaseThreadId: body.supabaseThreadId,
+      });
+      if ("error" in resolved) {
+        console.error("[chat] resolve thread:", resolved.error);
+      } else {
+        persistedThreadUuid = resolved.threadUuid;
+        const { error: ue } = await supa.from("messages").insert({
+          thread_id: persistedThreadUuid,
+          role: "user",
+          text: lastUser,
+          provider: "openrouter",
+          model_id: null,
+        });
+        if (ue) console.error("[chat] persist user message:", ue.message);
+      }
+    } catch (e) {
+      console.error("[chat] supabase user persist", e);
+    }
+  }
+
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...trimmed];
 
   const url = `${baseUrl}/chat/completions`;
@@ -394,6 +496,7 @@ export async function POST(req: Request) {
       const calls = msg.tool_calls;
       if (forceNoTools || !calls?.length) {
         finalContent = typeof msg.content === "string" ? msg.content : "";
+        lastCompletionJson = json;
         break;
       }
 
@@ -454,5 +557,36 @@ export async function POST(req: Request) {
 
   const rawChunks = parseJsonl(finalContent);
   const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
-  return NextResponse.json({ chunks, rawContent: finalContent });
+
+  if (persistedThreadUuid && supa && chunks.length > 0) {
+    try {
+      const rawPayload = {
+        rawContent: finalContent,
+        completion: lastCompletionJson,
+      };
+      const rows = chunks.map((c, i) => ({
+        thread_id: persistedThreadUuid,
+        role: "assistant",
+        text: c.text,
+        persona: c.speaker,
+        provider: "openrouter",
+        model_id: resolvePersonaModelId(c.speaker, model),
+        raw_response: i === 0 ? rawPayload : null,
+      }));
+      const { error: ae } = await supa.from("messages").insert(rows);
+      if (ae) console.error("[chat] persist assistant messages:", ae.message);
+      await supa
+        .from("threads")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", persistedThreadUuid);
+    } catch (e) {
+      console.error("[chat] supabase assistant persist", e);
+    }
+  }
+
+  return NextResponse.json({
+    chunks,
+    rawContent: finalContent,
+    ...(persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
+  });
 }
