@@ -428,6 +428,9 @@ export async function POST(req: Request) {
   const supa = getSupabaseAdmin();
   let persistedThreadUuid: string | null = null;
   let lastCompletionJson: CompletionJson | null = null;
+  let resolveThreadErr: string | undefined;
+  let userMsgErr: string | undefined;
+  let assistantMsgErr: string | undefined;
 
   if (supa && body.clientThreadId?.trim()) {
     try {
@@ -438,6 +441,7 @@ export async function POST(req: Request) {
         supabaseThreadId: body.supabaseThreadId,
       });
       if ("error" in resolved) {
+        resolveThreadErr = resolved.error;
         console.error("[chat] resolve thread:", resolved.error);
       } else {
         persistedThreadUuid = resolved.threadUuid;
@@ -448,9 +452,13 @@ export async function POST(req: Request) {
           provider: "openrouter",
           model_id: null,
         });
-        if (ue) console.error("[chat] persist user message:", ue.message);
+        if (ue) {
+          userMsgErr = ue.message;
+          console.error("[chat] persist user message:", ue.message);
+        }
       }
     } catch (e) {
+      resolveThreadErr = e instanceof Error ? e.message : String(e);
       console.error("[chat] supabase user persist", e);
     }
   }
@@ -574,7 +582,10 @@ export async function POST(req: Request) {
         raw_response: i === 0 ? rawPayload : null,
       }));
       const { error: ae } = await supa.from("messages").insert(rows);
-      if (ae) console.error("[chat] persist assistant messages:", ae.message);
+      if (ae) {
+        assistantMsgErr = ae.message;
+        console.error("[chat] persist assistant messages:", ae.message);
+      }
       await supa
         .from("threads")
         .update({ updated_at: new Date().toISOString() })
@@ -584,9 +595,31 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({
+  const payload: Record<string, unknown> = {
     chunks,
     rawContent: finalContent,
     ...(persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
-  });
+  };
+
+  if (process.env.NODE_ENV === "development") {
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+    payload.sync = {
+      env: {
+        hasSupabaseUrl: Boolean(process.env.SUPABASE_URL?.trim()),
+        hasServiceRoleKey: Boolean(key),
+        keyLooksLikeLegacyJwt: key.startsWith("eyJ"),
+        keyLooksLikeSbSecret: key.startsWith("sb_"),
+      },
+      supabaseClientCreated: Boolean(supa),
+      sentClientThreadId: Boolean(body.clientThreadId?.trim()),
+      persistedThread: Boolean(persistedThreadUuid),
+      errors: {
+        ...(resolveThreadErr ? { resolveThread: resolveThreadErr } : {}),
+        ...(userMsgErr ? { userMessage: userMsgErr } : {}),
+        ...(assistantMsgErr ? { assistantMessages: assistantMsgErr } : {}),
+      },
+    };
+  }
+
+  return NextResponse.json(payload);
 }
