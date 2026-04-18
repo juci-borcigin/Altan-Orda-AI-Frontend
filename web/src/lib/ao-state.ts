@@ -117,75 +117,12 @@ export type BackupEnvelope = {
   exportedAt: string;
   app: string;
   version: 1;
-  /** ビルド／アプリ版（Drive 連携・運用用メタデータ） */
+  /** ビルド／アプリ版（運用用メタデータ） */
   appVersion?: string;
   /** 書き出し経路 */
   syncSource?: "manual" | "drive";
   state: AppState;
 };
-
-/** 1 スレッド＝1 JSON（書庫・Drive 保存用） */
-export type ThreadBackupEnvelope = {
-  schema: "altan-orda-thread-backup-v1";
-  exportedAt: string;
-  app: string;
-  version: 1;
-  appVersion?: string;
-  syncSource?: "manual" | "drive";
-  thread: Thread;
-};
-
-function isThreadBackupEnvelope(x: unknown): x is ThreadBackupEnvelope {
-  if (!x || typeof x !== "object") return false;
-  const o = x as Record<string, unknown>;
-  return (
-    o.schema === "altan-orda-thread-backup-v1" &&
-    isThread(o.thread)
-  );
-}
-
-/** Drive 上のファイル名: スレッド ID + タイトル（安全化）。ID で一意。 */
-export function buildDriveThreadFileName(thread: Thread): string {
-  const safe =
-    thread.title
-      .replace(/[/\\?%*:|"<>]/g, "_")
-      .trim()
-      .slice(0, 100) || "untitled";
-  return `${thread.id}_${safe}.json`;
-}
-
-export function buildThreadBackupPayload(
-  thread: Thread,
-  options?: { syncSource?: ThreadBackupEnvelope["syncSource"] },
-): string {
-  const envelope: ThreadBackupEnvelope = {
-    schema: "altan-orda-thread-backup-v1",
-    exportedAt: new Date().toISOString(),
-    app: "Altan Orda AI",
-    version: 1,
-    appVersion: AO_APP_VERSION,
-    syncSource: options?.syncSource ?? "manual",
-    thread,
-  };
-  return JSON.stringify(envelope, null, 2);
-}
-
-/** 書庫で読み込んだ JSON から Thread を取り出す */
-export function parseThreadBackupJson(raw: string): Thread | null {
-  try {
-    const data = JSON.parse(raw) as unknown;
-    if (isThreadBackupEnvelope(data)) return data.thread;
-    if (data && typeof data === "object") {
-      const o = data as Record<string, unknown>;
-      if (o.schema === "altan-orda-thread-backup-v1" && o.thread !== undefined) {
-        if (isThread(o.thread)) return o.thread;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 export function buildBackupPayload(
   state: AppState,
@@ -203,7 +140,7 @@ export function buildBackupPayload(
   return JSON.stringify(envelope, null, 2);
 }
 
-/** 全会話スナップショット用（ローカル DL / Drive 共通） */
+/** 全会話スナップショット用（ローカル DL） */
 export function buildFullBackupFileName(): string {
   const d = new Date();
   const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

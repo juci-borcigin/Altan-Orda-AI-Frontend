@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cloud Run へデプロイする例（要: gcloud CLI・Docker・課金有効プロジェクト）
-# 事前: Artifact Registry または gcr.io、GOOGLE_REDIRECT_URI を本番 URL に合わせる
+# 事前: Artifact Registry または gcr.io など、イメージの置き場所を用意する
 #
 # 使い方:
 #   cd web
@@ -28,7 +28,5 @@ gcloud run deploy "${SERVICE}" \
   --port 3000 \
   --set-env-vars "NODE_ENV=production"
 
-echo "Set secrets / env in Cloud Run console:"
-echo "  OPENAI_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,"
-echo "  GOOGLE_REDIRECT_URI=https://<service-url>/api/auth/google/callback"
-echo "  AO_SESSION_SECRET"
+echo "Set secrets / env in Cloud Run console (例):"
+echo "  OPENAI_API_KEY, LLM_API_* / OPENROUTER_* / TAVILY_* など web/.env.example を参照"

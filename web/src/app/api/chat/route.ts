@@ -20,6 +20,25 @@ type OutChunk = { speaker: string; text: string };
 
 const MAX_TOOL_ROUNDS = 2;
 const REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_TOKENS = 2048;
+
+function isMockMode(): boolean {
+  const v = (process.env.AO_MOCK_LLM ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+function isDryRunMode(): boolean {
+  const v = (process.env.AO_LLM_DRY_RUN ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+function resolveMaxTokens(): number {
+  const raw = process.env.LLM_MAX_TOKENS?.trim();
+  const n = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_MAX_TOKENS;
+  // guardrails: too small breaks UX, too large can trigger credit errors
+  return Math.max(256, Math.min(8192, Math.floor(n)));
+}
 
 const WEB_SEARCH_TOOL = {
   type: "function" as const,
@@ -238,7 +257,10 @@ async function postChatCompletion(
 
 export async function POST(req: Request) {
   const { baseUrl, apiKey, model } = resolveLlmConfig();
-  if (!apiKey) {
+  const maxTokens = resolveMaxTokens();
+  const mockMode = isMockMode();
+  const dryRunMode = isDryRunMode();
+  if (!apiKey && !mockMode && !dryRunMode) {
     return NextResponse.json(
       { error: "LLM_API_KEY or OPENAI_API_KEY is not set" },
       { status: 500 },
@@ -276,6 +298,61 @@ export async function POST(req: Request) {
       "\n\n【ツール】最新の事実・ニュース・数値の確認などに必要なときのみ `web_search` を使う（引数は query のみ）。不要な検索はしない。";
   }
 
+  if (dryRunMode) {
+    const provider = baseUrl.includes("openrouter.ai") ? "openrouter" : "openai_direct";
+    const headers = completionHeaders(apiKey || "DUMMY", baseUrl);
+    // 秘密情報は返さない（Authorization は常に伏せる）
+    const safeHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers)) {
+      if (k.toLowerCase() === "authorization") safeHeaders[k] = "Bearer ***";
+      else safeHeaders[k] = v;
+    }
+
+    const text =
+      [
+        `{"speaker":"モンケウール","text":"（dry-run）外部LLMは呼ばれていません。スイッチ判定のみ実行しました。"}`,
+        `{"speaker":"モンケウール","text":"provider=${provider}, baseUrl=${baseUrl}"}`,
+        `{"speaker":"モンケウール","text":"model=${model}, max_tokens=${maxTokens}, tavilyEnabled=${tavilyEnabled}"}`,
+      ].join("\n") + "\n";
+    const rawChunks = parseJsonl(text);
+    const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
+    return NextResponse.json({
+      chunks,
+      rawContent: text,
+      llm: {
+        mode: "dry-run",
+        provider,
+        baseUrl,
+        model,
+        max_tokens: maxTokens,
+        headers: safeHeaders,
+        toolsEnabled: tavilyEnabled,
+      },
+    });
+  }
+
+  if (mockMode) {
+    const named = namedSpeaker ? `（名指し: ${namedSpeaker}）` : "";
+    const text =
+      [
+        `{"speaker":"不明","text":"（モック応答）外部LLMは呼ばれていません。${named}"}`,
+        `{"speaker":"不明","text":"projectId=${projectId}, messages=${trimmed.length}, tavilyEnabled=${tavilyEnabled}"}`,
+        `{"speaker":"不明","text":"lastUser=${lastUser.replace(/\\s+/g, " ").slice(0, 160)}"}`,
+      ].join("\n") + "\n";
+    const rawChunks = parseJsonl(text);
+    const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
+    return NextResponse.json({
+      chunks,
+      rawContent: text,
+      llm: {
+        mode: "mock",
+        model,
+        max_tokens: maxTokens,
+        toolsEnabled: tavilyEnabled,
+      },
+    });
+  }
+
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...trimmed];
 
   const url = `${baseUrl}/chat/completions`;
@@ -291,6 +368,7 @@ export async function POST(req: Request) {
       const payload: Record<string, unknown> = {
         model,
         temperature: 0.7,
+        max_tokens: maxTokens,
         messages,
       };
       if (tools && !forceNoTools) {
@@ -359,7 +437,17 @@ export async function POST(req: Request) {
   } catch (e: unknown) {
     const detail = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
-      { error: "LLM or search error", detail: detail.slice(0, 2000) },
+      {
+        error: "LLM or search error",
+        detail: detail.slice(0, 2000),
+        // デバッグ用（秘密は含めない）
+        llm: {
+          baseUrl,
+          model,
+          max_tokens: maxTokens,
+          toolsEnabled: Boolean(process.env.TAVILY_API_KEY?.trim()),
+        },
+      },
       { status: 502 },
     );
   }

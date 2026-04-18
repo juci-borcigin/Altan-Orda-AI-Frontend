@@ -8,11 +8,8 @@ import {
   type AppState,
   type Msg,
   type Thread,
-  buildDriveThreadFileName,
-  buildThreadBackupPayload,
   downloadBackupFile,
   parseAppStateJson,
-  parseThreadBackupJson,
 } from "@/lib/ao-state";
 
 function visibleMessages(messages: Msg[]) {
@@ -42,16 +39,7 @@ function messageFaceMeta(
   return { avatarKey: m.speaker, label: m.speaker };
 }
 
-type RailPane = "member" | "gel" | "recent" | "library" | "jam";
-
-type DriveLibItem = {
-  id: string;
-  name: string;
-  modifiedTime: string | null;
-  threadTitle: string | null;
-  projectId: string | null;
-  parseError?: boolean;
-};
+type RailPane = "member" | "gel" | "recent" | "jam";
 
 const ICON = {
   member: (
@@ -71,13 +59,6 @@ const ICON = {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
       <circle cx="8" cy="8" r="6" />
       <path d="M8 5v3l2 2" />
-    </svg>
-  ),
-  library: (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <path d="M3 2.5h4.5v11H2.8a1.3 1.3 0 01-1.3-1.3V3.8a1.3 1.3 0 011.3-1.3H3z" />
-      <path d="M8.5 2.5H13a1.3 1.3 0 011.3 1.3v8.4a1.3 1.3 0 01-1.3 1.3H8.5v-11z" />
-      <path d="M5 5h.01M5 7.5h2M5 10h2" strokeLinecap="round" />
     </svg>
   ),
   jam: (
@@ -113,22 +94,6 @@ const ICON = {
       <path d="M11 3v16M3 11h16" stroke="#C9922A" strokeWidth=".5" opacity=".4" />
       <circle cx="11" cy="11" r="2.2" fill="#C9922A" opacity=".9" />
       <circle cx="11" cy="11" r=".9" fill="#E8C060" />
-    </svg>
-  ),
-  driveOk: (
-    <svg className="ao-drive-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
-      <path d="M4 10.5a3.5 3.5 0 017.3.9 2.5 2.5 0 00-4.6-.9A3.5 3.5 0 014 10.5z" strokeLinejoin="round" />
-      <path d="M6.2 8.3l1.4 1.4 3.2-3.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  driveIdle: (
-    <svg className="ao-drive-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
-      <path d="M4 10.5a3.5 3.5 0 017.3.9 2.5 2.5 0 00-4.6-.9A3.5 3.5 0 014 10.5z" strokeLinejoin="round" />
-    </svg>
-  ),
-  driveUnset: (
-    <svg className="ao-drive-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.15">
-      <path d="M3.5 12.5L12.5 3.5M4 10.5a3.5 3.5 0 017.3.9 2.5 2.5 0 00-4.6-.9A3.5 3.5 0 014 10.5z" strokeLinejoin="round" />
     </svg>
   ),
   jumpDown: (
@@ -294,21 +259,9 @@ export default function Home() {
   const gelPrimaryRef = useRef<HTMLElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const [driveStatus, setDriveStatus] = useState<{
-    connected: boolean;
-    oauthConfigured: boolean;
-  } | null>(null);
-  const [driveUploading, setDriveUploading] = useState(false);
-  const [driveFlash, setDriveFlash] = useState<string | null>(null);
-  const [libraryView, setLibraryView] = useState<{
-    thread: Thread;
-    driveFileId: string;
-  } | null>(null);
-  const [driveLibList, setDriveLibList] = useState<DriveLibItem[]>([]);
-  const [driveListLoading, setDriveListLoading] = useState(false);
-  const [driveListError, setDriveListError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // localStorage はクライアント専用のため SSR では出さない。useLayoutEffect でペイント前に復帰し、余計な「読み込み中」フレームを減らす
+  useLayoutEffect(() => {
     setMounted(true);
     setState(loadState());
   }, []);
@@ -324,82 +277,6 @@ export default function Home() {
     }, 400);
     return () => clearInterval(id);
   }, [isThinking]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    (async () => {
-      try {
-        const r = await fetch("/api/drive/status");
-        const d = (await r.json()) as {
-          connected: boolean;
-          oauthConfigured: boolean;
-        };
-        setDriveStatus({
-          connected: d.connected,
-          oauthConfigured: d.oauthConfigured,
-        });
-      } catch {
-        setDriveStatus({ connected: false, oauthConfigured: false });
-      }
-    })();
-  }, [mounted]);
-
-  useEffect(() => {
-    if (!mounted || typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const drive = params.get("drive");
-    if (drive === "connected") {
-      setDriveFlash("Google Drive に接続しました");
-      void (async () => {
-        try {
-          const r = await fetch("/api/drive/status");
-          const d = (await r.json()) as {
-            connected: boolean;
-            oauthConfigured: boolean;
-          };
-          setDriveStatus({
-            connected: d.connected,
-            oauthConfigured: d.oauthConfigured,
-          });
-        } catch {
-          /* ignore */
-        }
-      })();
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (drive === "error") {
-      const reason = params.get("reason") || "unknown";
-      setDriveFlash(`Drive 接続エラー: ${reason}`);
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, [mounted]);
-
-  useEffect(() => {
-    if (!mounted || pane !== "library" || !driveStatus?.connected) return;
-    let cancelled = false;
-    setDriveListLoading(true);
-    setDriveListError(null);
-    fetch("/api/drive/list")
-      .then(async (r) => {
-        const d = (await r.json()) as {
-          files?: unknown;
-          error?: string;
-        };
-        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-        if (!Array.isArray(d.files)) throw new Error("一覧の形式が不正です");
-        if (!cancelled) setDriveLibList(d.files as DriveLibItem[]);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setDriveListError(e instanceof Error ? e.message : String(e));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setDriveListLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mounted, pane, driveStatus?.connected]);
 
   /* ゲル：アコーディオン開閉中、クリック／フォーカスがゲルパネル外へ出たら閉じる。Escape でも閉じる */
   useEffect(() => {
@@ -451,17 +328,12 @@ export default function Home() {
     return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
   }, [state]);
 
-  const displayThread = useMemo(() => {
-    if (libraryView) return libraryView.thread;
-    return currentThread;
-  }, [libraryView, currentThread]);
+  const displayThread = currentThread;
 
   const displayProject = useMemo(() => {
-    const pid = libraryView
-      ? libraryView.thread.projectId
-      : (state?.currentProjectId ?? "gungi");
+    const pid = state?.currentProjectId ?? "gungi";
     return PROJECTS.find((p) => p.id === pid) ?? PROJECTS[1];
-  }, [libraryView, state?.currentProjectId]);
+  }, [state?.currentProjectId]);
 
   useEffect(() => {
     currentThreadIdRef.current = state?.currentThreadId ?? null;
@@ -529,7 +401,7 @@ export default function Home() {
   }, [threadTitleEditing]);
 
   function commitThreadTitleEdit() {
-    if (!state || !currentThread || libraryView) {
+    if (!state || !currentThread) {
       setThreadTitleEditing(false);
       return;
     }
@@ -557,17 +429,7 @@ export default function Home() {
     return [...state.threads].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 20);
   }, [state]);
 
-  const librarySortedFlat = useMemo(() => {
-    const sortFn = (a: DriveLibItem, b: DriveLibItem) => {
-      const ta = a.modifiedTime ? new Date(a.modifiedTime).getTime() : 0;
-      const tb = b.modifiedTime ? new Date(b.modifiedTime).getTime() : 0;
-      return tb - ta;
-    };
-    return [...driveLibList].sort(sortFn);
-  }, [driveLibList]);
-
   function setCurrentThread(threadId: string) {
-    setLibraryView(null);
     setGelDetailProjectId(null);
     setState((prev) => {
       if (!prev) return prev;
@@ -607,7 +469,6 @@ export default function Home() {
   }
 
   function createThread(projectId: ProjectId) {
-    setLibraryView(null);
     const project = PROJECTS.find((p) => p.id === projectId) ?? PROJECTS[0];
     const title = defaultNewThreadTitle(project.label);
 
@@ -632,145 +493,11 @@ export default function Home() {
     setGelDetailProjectId(null);
   }
 
-  useEffect(() => {
-    if (!driveFlash) return;
-    const t = setTimeout(() => setDriveFlash(null), 6000);
-    return () => clearTimeout(t);
-  }, [driveFlash]);
-
-  async function saveThreadToDrive(
-    th: Thread,
-    opts?: { manual?: boolean },
-  ) {
-    const manual = opts?.manual ?? false;
-    if (libraryView) return;
-    if (!driveStatus?.connected) return;
-    if (manual) setDriveUploading(true);
-    try {
-      const backupJson = buildThreadBackupPayload(th, { syncSource: "drive" });
-      const fileName = buildDriveThreadFileName(th);
-      const res = await fetch("/api/drive/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backupJson, fileName }),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string; webViewLink?: string | null }
-        | null;
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
-      if (manual) {
-        setDriveFlash(
-          data.webViewLink
-            ? "Drive に保存しました（リンクを発行済み）"
-            : `Drive に保存しました（${fileName}）`,
-        );
-      }
-    } catch (e) {
-      if (manual) {
-        window.alert(e instanceof Error ? e.message : String(e));
-      } else {
-        console.warn("Drive 自動保存に失敗:", e);
-      }
-    } finally {
-      if (manual) setDriveUploading(false);
-    }
-  }
-
-  async function saveToDrive() {
-    if (!state || libraryView) return;
-    const th = state.threads.find((t) => t.id === state.currentThreadId);
-    if (!th) return;
-    await saveThreadToDrive(th, { manual: true });
-  }
-
-  function handleDriveSaveClick() {
-    if (!driveStatus?.oauthConfigured) return;
-    if (!driveStatus.connected) {
-      window.location.href = "/api/auth/google";
-      return;
-    }
-    void saveToDrive();
-  }
-
-  async function disconnectDrive(): Promise<boolean> {
-    if (!window.confirm("Google Drive との接続を解除しますか？")) return false;
-    await fetch("/api/auth/google/logout", { method: "POST" });
-    try {
-      const r = await fetch("/api/drive/status");
-      const d = (await r.json()) as {
-        connected: boolean;
-        oauthConfigured: boolean;
-      };
-      setDriveStatus({
-        connected: d.connected,
-        oauthConfigured: d.oauthConfigured,
-      });
-    } catch {
-      setDriveStatus({ connected: false, oauthConfigured: false });
-    }
-    setDriveFlash("Drive 接続を解除しました");
-    setLibraryView(null);
-    setDriveLibList([]);
-    setDriveListError(null);
-    return true;
-  }
-
-  async function openLibraryFile(fileId: string) {
-    setDriveListError(null);
-    try {
-      const res = await fetch(
-        `/api/drive/file?fileId=${encodeURIComponent(fileId)}`,
-      );
-      const data = (await res.json()) as { text?: string; error?: string };
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const thread = parseThreadBackupJson(data.text ?? "");
-      if (!thread) {
-        window.alert(
-          "JSON が altan-orda-thread-backup-v1 形式ではありません。",
-        );
-        return;
-      }
-      setLibraryView({ thread, driveFileId: fileId });
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  function startContinuedFromLibrary() {
-    if (!libraryView || !state) return;
-    const baseTitle = libraryView.thread.title;
-    const newTitle = `${baseTitle}（続）`;
-    const projectId = libraryView.thread.projectId;
-    const t: Thread = {
-      id: uid("th"),
-      projectId,
-      title: newTitle,
-      createdAt: now(),
-      updatedAt: now(),
-      messages: [],
-    };
-    setLibraryView(null);
-    setState((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        currentProjectId: projectId,
-        currentThreadId: t.id,
-        threads: [t, ...prev.threads],
-      };
-    });
-    setPane("gel");
-    setGelDetailProjectId(projectId);
-  }
-
   async function sendUserMessage() {
     const text = draft.trim();
     if (!text) return;
     if (!state) return;
     if (isThinking || isTypingReply) return;
-    if (libraryView) return;
     setDraft("");
 
     const snapshot = (() => {
@@ -798,7 +525,6 @@ export default function Home() {
     if (!snapshot) return;
     stickToBottomRef.current = true;
     setState(snapshot.nextState);
-    void saveThreadToDrive(snapshot.nextThread);
     thinkingStartedAtRef.current = Date.now();
     setIsThinking(true);
 
@@ -849,7 +575,6 @@ export default function Home() {
           nextThreads[idx] = errThread;
           return { ...prev, threads: nextThreads };
         });
-        void saveThreadToDrive(errThread);
         return;
       }
 
@@ -941,17 +666,6 @@ export default function Home() {
             return { ...prev, threads: arr };
           });
         }
-
-        if (currentThreadIdRef.current === threadId) {
-          setState((prev) => {
-            if (!prev || prev.currentThreadId !== threadId) return prev;
-            const ti = prev.threads.findIndex((t) => t.id === threadId);
-            if (ti < 0) return prev;
-            const toSave = prev.threads[ti];
-            queueMicrotask(() => void saveThreadToDrive(toSave));
-            return prev;
-          });
-        }
       } finally {
         setIsTypingReply(false);
         setTypingMessageId(null);
@@ -966,116 +680,51 @@ export default function Home() {
     <section className="ao-chat-wrap">
       <div className="ao-gelbar">
         <div className="ao-gelinfo ao-gelinfo--stack">
-          {libraryView ? (
-            <>
-              <div className="ao-gellbl">書庫（閲覧のみ）</div>
-              <div className="ao-gelbar-gel-only">{displayProject.label}</div>
-              <div className="ao-gelbar-title-row">
-                <span className="ao-gelbar-title-static">
-                  「{displayThread?.title ?? "—"}」
-                </span>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="ao-gelbar-gel-only">{displayProject.label}</div>
-              <div className="ao-gelbar-title-row">
-                {threadTitleEditing ? (
-                  <input
-                    ref={threadTitleInputRef}
-                    className="ao-gelbar-title-input"
-                    value={threadTitleDraft}
-                    onChange={(e) => setThreadTitleDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        threadTitleCommitEnterRef.current = true;
-                        commitThreadTitleEdit();
-                        setTimeout(() => {
-                          threadTitleCommitEnterRef.current = false;
-                        }, 0);
-                      } else if (e.key === "Escape") {
-                        e.preventDefault();
-                        setThreadTitleDraft(currentThread?.title ?? "");
-                        setThreadTitleEditing(false);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (threadTitleCommitEnterRef.current) return;
-                      setThreadTitleDraft(currentThread?.title ?? "");
-                      setThreadTitleEditing(false);
-                    }}
-                    aria-label="議事タイトル"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    className="ao-gelbar-title-btn"
-                    onClick={() => {
-                      if (!currentThread) return;
-                      setThreadTitleDraft(currentThread.title);
-                      setThreadTitleEditing(true);
-                    }}
-                  >
-                    「{displayThread?.title ?? "—"}」
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="ao-gelbar-actions">
-          <div
-            className={`ao-drive-status ${
-              !driveStatus?.oauthConfigured
-                ? "ao-drive-status--unset"
-                : driveStatus.connected
-                  ? "ao-drive-status--ok"
-                  : "ao-drive-status--idle"
-            }`}
-            title={
-              !driveStatus?.oauthConfigured
-                ? "GOOGLE_CLIENT_ID 等の環境変数を設定してください"
-                : driveStatus.connected
-                  ? "Google Drive に接続済み"
-                  : "未接続 — 「Drive に保存」で接続できます"
-            }
-            aria-live="polite"
-          >
-            {!driveStatus?.oauthConfigured ? (
-              <>
-                {ICON.driveUnset}
-                <span>Drive 未設定</span>
-              </>
-            ) : driveStatus.connected ? (
-              <>
-                {ICON.driveOk}
-                <span>Drive 接続中</span>
-              </>
+          <div className="ao-gelbar-gel-only">{displayProject.label}</div>
+          <div className="ao-gelbar-title-row">
+            {threadTitleEditing ? (
+              <input
+                ref={threadTitleInputRef}
+                className="ao-gelbar-title-input"
+                value={threadTitleDraft}
+                onChange={(e) => setThreadTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    threadTitleCommitEnterRef.current = true;
+                    commitThreadTitleEdit();
+                    setTimeout(() => {
+                      threadTitleCommitEnterRef.current = false;
+                    }, 0);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setThreadTitleDraft(currentThread?.title ?? "");
+                    setThreadTitleEditing(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (threadTitleCommitEnterRef.current) return;
+                  setThreadTitleDraft(currentThread?.title ?? "");
+                  setThreadTitleEditing(false);
+                }}
+                aria-label="議事タイトル"
+              />
             ) : (
-              <>
-                {ICON.driveIdle}
-                <span>Drive 未接続</span>
-              </>
+              <button
+                type="button"
+                className="ao-gelbar-title-btn"
+                onClick={() => {
+                  if (!currentThread) return;
+                  setThreadTitleDraft(currentThread.title);
+                  setThreadTitleEditing(true);
+                }}
+              >
+                「{displayThread?.title ?? "—"}」
+              </button>
             )}
           </div>
-          {!libraryView && driveStatus?.oauthConfigured ? (
-            <button
-              className="ao-savebtn"
-              type="button"
-              disabled={driveUploading || !state}
-              onClick={handleDriveSaveClick}
-            >
-              {driveUploading ? "Drive 保存中…" : "Drive に保存"}
-            </button>
-          ) : null}
         </div>
       </div>
-      {driveFlash ? (
-        <div className="px-3 py-1.5 text-[11px] text-[var(--ao-gold-l)] border-b border-[var(--ao-gold-dim)] bg-[rgba(0,0,0,0.12)]">
-          {driveFlash}
-        </div>
-      ) : null}
 
       <div className="ao-chat-messages-col">
         <div
@@ -1146,50 +795,35 @@ export default function Home() {
         ) : null}
       </div>
 
-      {libraryView ? (
-        <div className="ao-input-area ao-library-footer flex flex-col gap-2 px-3 py-3 border-t border-[var(--ao-gold-dim)] bg-[rgba(0,0,0,.15)]">
-          <button
-            className="ao-savebtn w-full justify-center py-2.5 text-[12px]"
-            type="button"
-            onClick={startContinuedFromLibrary}
-          >
-            新規議事を開始
-          </button>
-          <div className="text-[10px] text-[var(--ao-muted)] text-center leading-snug">
-            タイトル: 「{libraryView.thread.title}（続）」で空の議事を開きます
-          </div>
-        </div>
-      ) : (
-        <div className="ao-input-area">
-          <textarea
-            placeholder="殿下の御下命を…"
-            rows={2}
-            value={draft}
-            disabled={isThinking || isTypingReply}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                sendUserMessage();
-              }
-            }}
-          />
-          <button
-            className="ao-send-btn"
-            type="button"
-            aria-label="送信"
-            onClick={sendUserMessage}
-            disabled={isThinking || isTypingReply}
-            style={
-              isThinking || isTypingReply
-                ? { opacity: 0.6, cursor: "not-allowed" }
-                : undefined
+      <div className="ao-input-area">
+        <textarea
+          placeholder="殿下の御下命を…"
+          rows={2}
+          value={draft}
+          disabled={isThinking || isTypingReply}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              sendUserMessage();
             }
-          >
-            {ICON.send}
-          </button>
-        </div>
-      )}
+          }}
+        />
+        <button
+          className="ao-send-btn"
+          type="button"
+          aria-label="送信"
+          onClick={sendUserMessage}
+          disabled={isThinking || isTypingReply}
+          style={
+            isThinking || isTypingReply
+              ? { opacity: 0.6, cursor: "not-allowed" }
+              : undefined
+          }
+        >
+          {ICON.send}
+        </button>
+      </div>
     </section>
   );
 
@@ -1243,15 +877,6 @@ export default function Home() {
             {ICON.recent}
             <span className="ao-r-tip">最近の項目</span>
           </button>
-          <button
-            className={`ao-r-btn ${pane === "library" ? "ao-active" : ""}`}
-            onClick={() => setPane("library")}
-            type="button"
-          >
-            {ICON.library}
-            <span className="ao-r-tip">書庫</span>
-          </button>
-
           <div className="ao-r-div" />
 
           <button
@@ -1356,61 +981,6 @@ export default function Home() {
               </div>
             </aside>
 
-            <div className="ao-chat-stack">{chatSection}</div>
-          </div>
-        ) : pane === "library" ? (
-          <div className="ao-gel-layout">
-            <aside className="ao-panel ao-side-panel">
-              <div className="ao-panel-hdr">書庫</div>
-              <div className="ao-panel-body">
-                {!driveStatus?.connected ? (
-                  <div className="text-[11px] text-[var(--ao-muted)] px-2 py-2 border border-[var(--ao-gold-dim)] rounded">
-                    サブヘッダーの「Drive に保存」で Google に接続すると、一覧が表示されます。
-                  </div>
-                ) : driveListLoading ? (
-                  <div className="text-[11px] text-[var(--ao-muted)] px-2 py-2">
-                    読み込み中…
-                  </div>
-                ) : driveListError ? (
-                  <div className="text-[11px] text-red-300 px-2 py-2 border border-red-900/30 rounded">
-                    {driveListError}
-                  </div>
-                ) : driveLibList.length === 0 ? (
-                  <div className="text-[11px] text-[var(--ao-muted)] px-2 py-2 border border-[var(--ao-gold-dim)] rounded">
-                    （保存済みスレッドがありません）
-                  </div>
-                ) : (
-                  librarySortedFlat.map((f) => {
-                    const title = f.threadTitle?.trim()
-                      ? f.threadTitle
-                      : f.name.replace(/\.json$/i, "");
-                    const gelLabel = f.projectId
-                      ? (PROJECTS.find((p) => p.id === f.projectId)?.label ?? "その他")
-                      : "その他";
-                    const dateStr = f.modifiedTime
-                      ? formatAoDate(new Date(f.modifiedTime).getTime())
-                      : "—";
-                    return (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className={`w-full text-left px-2 py-2 rounded border mb-1 ${
-                          libraryView?.driveFileId === f.id
-                            ? "border-[var(--ao-gold-d)] bg-[rgba(201,146,42,.12)]"
-                            : "border-transparent hover:border-[var(--ao-gold-dim)] hover:bg-[rgba(201,146,42,.08)]"
-                        }`}
-                        onClick={() => void openLibraryFile(f.id)}
-                      >
-                        <div className="ao-side-thread-title">{title}</div>
-                        <div className="ao-panel-caption ao-side-thread-meta mt-0.5">
-                          {gelLabel} ／ {dateStr}
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </aside>
             <div className="ao-chat-stack">{chatSection}</div>
           </div>
         ) : (
@@ -1529,7 +1099,6 @@ export default function Home() {
                           : "border-transparent hover:border-[var(--ao-gold-dim)] hover:bg-[rgba(201,146,42,.08)]"
                       }`}
                       onClick={() => {
-                        setLibraryView(null);
                         setState((prev) => {
                           if (!prev) return prev;
                           return { ...prev, currentProjectId: t.projectId, currentThreadId: t.id };
@@ -1562,7 +1131,7 @@ export default function Home() {
           </aside>
         )}
 
-        {pane !== "gel" && pane !== "library" ? chatSection : null}
+        {pane !== "gel" ? chatSection : null}
       </main>
       )}
 
@@ -1617,20 +1186,6 @@ export default function Home() {
               >
                 バックアップから復元…
               </button>
-              {driveStatus?.connected ? (
-                <button
-                  type="button"
-                  className="ao-modal-btn ao-modal-btn-secondary"
-                  onClick={() => {
-                    void (async () => {
-                      const ok = await disconnectDrive();
-                      if (ok) setSettingsOpen(false);
-                    })();
-                  }}
-                >
-                  Google Drive との連携を解除…
-                </button>
-              ) : null}
               <button
                 type="button"
                 className="ao-modal-close"

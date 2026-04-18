@@ -31,9 +31,6 @@ export function middleware(req: NextRequest) {
   if (pathname.startsWith("/_next")) return NextResponse.next();
   if (pathname === "/favicon.ico") return NextResponse.next();
 
-  // OAuth のリダイレクトはブラウザが Authorization を付けないので除外
-  if (pathname === "/api/auth/google/callback") return NextResponse.next();
-
   const header = req.headers.get("authorization") || "";
   const [scheme, encoded] = header.split(" ");
   if (scheme !== "Basic" || !encoded) return unauthorized();
