@@ -31,9 +31,9 @@ const mdComponents: Components = {
   ),
 };
 
-export function AoMessageMarkdown({ text }: { text: string }) {
+export function AoMessageMarkdown({ text, className }: { text: string; className?: string }) {
   return (
-    <div className="ao-md-body">
+    <div className={className ? `ao-md-body ${className}` : "ao-md-body"}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
         {text}
       </ReactMarkdown>

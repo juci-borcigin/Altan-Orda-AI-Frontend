@@ -2,27 +2,30 @@
 /**
  * Step 6: 既存ログを Supabase に流し込む（初回一括・手元ファイルのみ）
  *
- * 各サービスからの「取得」は公式エクスポートを手動で行い、ZIP/HTML を解凍したうえで
- * 本スクリプトに --file で渡す（繰り返し自動取得はしない想定）。
- *
- * 公式手順（参考）:
- *   ChatGPT: https://help.openai.com/ja-jp/articles/7260999-how-do-i-export-my-chatgpt-history-and-data
- *   Gemini:  https://takeout.google.com/ （Gemini / Bard 等を含む Takeout を取得）
- *   Claude:  https://support.claude.com/ja/articles/9450526-claude-%E3%81%AE%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E3%82%A8%E3%82%AF%E3%82%B9%E3%83%9D%E3%83%BC%E3%83%88%E3%81%99%E3%82%8B%E3%81%AB%E3%81%AF%E3%81%A9%E3%81%86%E3%81%99%E3%82%8C%E3%81%B0%E3%82%88%E3%81%84%E3%81%A7%E3%81%99%E3%81%8B
- *            メールのダウンロードリンクから取得したアーカイブ内の JSON 形状に合わせて
- *            必要なら adaptClaude() を拡張する。
- *
- * 使い方:
- *   (リポジトリルートで) npm install
+ * 使い方（リポジトリルート）:
+ *   npm install
  *   node scripts/import-logs.mjs --provider chatgpt --file ./conversations.json
+ *   node scripts/import-logs.mjs --provider claude --file ./conversations.json [--facet chat]
+ *   node scripts/import-logs.mjs --provider gemini-activity --file ./マイアクティビティ.json
+ *   （Gemini: titleUrl で会話をまとめ、details / userInteractions から全ターンを復元）
+ *   node scripts/import-logs.mjs --provider gemini --file ./gems.html
  *
- *   --project-id 軍議ゲル | 執務ゲル | …（任意。未指定は gungi）
- *   --persona "耶律楚材"（任意。アダプタ既定あり）
+ *   --project-id 軍議ゲル | オゴデイ・ウルス | gemini | claude | …（任意）
+ *   --facet do|feel|think|chat（Claude 一括取り込みの既定 facet。会話ごとの推定は未実装）
  *   --dry-run  DB に書かず JSON を stdout のみ
+ *   --dry-run-limit N  dry-run 時に先頭 N スレッドだけ詳細を出す（既定 40）
+ *   --max-threads N  先頭 N スレッドだけ取り込む（本番のスモーク用）。全件を後から流すと先頭 N 件は二重になるので注意
+ *
+ * ChatGPT エクスポート:
+ *   conversations.json は「会話オブジェクト 1 本」または「会話オブジェクトの配列」のどちらにも対応。
+ *   各会話は { title, mapping, current_node, ... } で、メッセージは mapping[id] のツリー（parent / children）。
+ *   画像等の非文字列 parts はこの版では取り込まない（本文に混ぜない）。
+ *   参考: https://help.openai.com/en/articles/7260999-how-do-i-export-my-chatgpt-history-and-data
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
 import dotenv from "dotenv";
@@ -30,32 +33,62 @@ import dotenv from "dotenv";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../web/.env") });
 
-/** UI ラベル → ao-types ProjectId */
+/** UI ラベル → ao-types ProjectId（Supabase threads.project_id と一致） */
 const GEL_TO_PROJECT = {
-  執務ゲル: "shitsumu",
-  軍議ゲル: "gungi",
-  寝所ゲル: "nesho",
-  クリルタイ: "kurultai",
+  執務ゲル: "plan",
+  軍議ゲル: "work",
+  寝所ゲル: "mental",
+  クリルタイ: "debate",
   "トゥルイ・ウルス": "gemini",
   "オゴデイ・ウルス": "claude",
 };
 
+const RAW_PROJECT_IDS = new Set([
+  "debate",
+  "chat",
+  "plan",
+  "work",
+  "mental",
+  "notebook",
+  "foreign",
+  "gemini",
+  "chatgpt",
+  "claude",
+]);
+
+const FACETS = new Set(["do", "feel", "think", "chat"]);
+
 function parseArgs(argv) {
-  const o = { dryRun: false };
+  const o = { dryRun: false, dryRunLimit: 40 };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--dry-run") o.dryRun = true;
-    else if (a === "--provider" && argv[i + 1]) {
-      o.provider = argv[++i];
-    } else if (a === "--file" && argv[i + 1]) {
-      o.file = argv[++i];
-    } else if (a === "--project-id" && argv[i + 1]) {
-      o.projectIdLabel = argv[++i];
-    } else if (a === "--persona" && argv[i + 1]) {
-      o.persona = argv[++i];
+    else if (a === "--provider" && argv[i + 1]) o.provider = argv[++i];
+    else if (a === "--file" && argv[i + 1]) o.file = argv[++i];
+    else if (a === "--project-id" && argv[i + 1]) o.projectIdLabel = argv[++i];
+    else if (a === "--persona" && argv[i + 1]) o.persona = argv[++i];
+    else if (a === "--facet" && argv[i + 1]) o.facet = argv[++i];
+    else if (a === "--dry-run-limit" && argv[i + 1]) o.dryRunLimit = Number(argv[++i], 10) || 40;
+    else if (a === "--max-threads" && argv[i + 1]) {
+      const n = Number(argv[++i], 10);
+      if (!Number.isFinite(n) || n < 1) throw new Error("--max-threads には 1 以上の整数を指定してください");
+      o.maxThreads = n;
     }
   }
   return o;
+}
+
+function resolveProjectId(label, provider) {
+  if (label) {
+    const t = label.trim();
+    if (RAW_PROJECT_IDS.has(t)) return t;
+    const mapped = GEL_TO_PROJECT[t];
+    if (mapped) return mapped;
+  }
+  if (provider === "claude") return "claude";
+  if (provider === "gemini-activity") return "gemini";
+  if (provider === "chatgpt") return "chatgpt";
+  return "work";
 }
 
 function linearizeChatGPT(data) {
@@ -76,9 +109,10 @@ function linearizeChatGPT(data) {
     const parts = msg.content?.parts;
     let text = "";
     if (Array.isArray(parts)) {
-      text = parts
-        .map((p) => (typeof p === "string" ? p : JSON.stringify(p)))
-        .join("\n\n");
+      const bits = parts
+        .map((p) => (typeof p === "string" ? p : ""))
+        .filter((s) => s.length > 0);
+      text = bits.join("\n\n");
     } else if (typeof msg.content?.text === "string") {
       text = msg.content.text;
     }
@@ -86,27 +120,343 @@ function linearizeChatGPT(data) {
     out.push({
       role: role === "user" ? "user" : "assistant",
       text: text.trim(),
+      raw: { node },
     });
   }
   return out;
 }
 
-function adaptChatGPT(raw, defaults) {
-  const data = JSON.parse(raw);
+/** 会話オブジェクト 1 件 → import パック（--facet を source_facet に反映） */
+function adaptChatGPTConversationObject(data, defaults, sourceFacet) {
   const turns = linearizeChatGPT(data);
-  return { title: data.title || "ChatGPT import", turns, defaults };
+  const native =
+    data.id != null
+      ? String(data.id)
+      : data.conversation_id != null
+        ? String(data.conversation_id)
+        : null;
+  return {
+    title: String((typeof data.title === "string" && data.title.trim()) || "ChatGPT import").slice(0, 500),
+    turns,
+    defaults,
+    sourceFacet,
+    sourceNativeId: native,
+    sourceProvider: "chatgpt",
+    persona: defaults.persona,
+  };
 }
 
-function adaptClaude(raw, defaults) {
+function adaptChatGPTFromFileRaw(raw, defaults, sourceFacet) {
   const data = JSON.parse(raw);
-  let msgs;
-  if (Array.isArray(data.messages)) msgs = data.messages;
-  else throw new Error("Claude: expected top-level messages[]");
-  const turns = msgs.map((m) => ({
-    role: m.role === "human" ? "user" : "assistant",
-    text: typeof m.text === "string" ? m.text : String(m.content ?? ""),
-  }));
-  return { title: data.title || data.convId || "Claude import", turns, defaults };
+  if (Array.isArray(data)) {
+    return data
+      .filter((c) => c && typeof c === "object" && c.mapping && Object.keys(c.mapping).length > 0)
+      .map((c) => adaptChatGPTConversationObject(c, defaults, sourceFacet));
+  }
+  return [adaptChatGPTConversationObject(data, defaults, sourceFacet)];
+}
+
+/** Claude 公式エクスポートの 1 メッセージ → user/assistant ターン（本文は thinking 以外を結合） */
+function claudeExportMessageToTurn(msg) {
+  const raw = msg;
+  const pieces = [];
+  const top = typeof msg.text === "string" ? msg.text.trim() : "";
+  if (top) pieces.push(top);
+  if (Array.isArray(msg.content)) {
+    for (const block of msg.content) {
+      if (!block || typeof block !== "object") continue;
+      if (block.type === "thinking") continue;
+      if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+        pieces.push(block.text.trim());
+      }
+    }
+  }
+  const text = pieces.join("\n\n").trim();
+  if (!text) return null;
+  const role = msg.sender === "human" ? "user" : "assistant";
+  return { role, text, raw: raw };
+}
+
+/** Claude エクスポートの会話 1 件 */
+function adaptClaudeExportConversation(conv, sourceFacet) {
+  const msgs = conv.chat_messages || [];
+  const turns = [];
+  for (const m of msgs) {
+    const t = claudeExportMessageToTurn(m);
+    if (t) turns.push(t);
+  }
+  const title =
+    (typeof conv.name === "string" && conv.name.trim()) ||
+    (typeof conv.summary === "string" && conv.summary.trim().slice(0, 80)) ||
+    conv.uuid ||
+    "Claude import";
+  return {
+    title: String(title).slice(0, 500),
+    turns,
+    sourceFacet,
+    sourceNativeId: conv.uuid != null ? String(conv.uuid) : null,
+    sourceProvider: "claude",
+    persona: null,
+  };
+}
+
+/** 旧形式 { messages: [{ role: human }] } */
+function adaptClaudeLegacy(data, sourceFacet) {
+  const msgs = data.messages;
+  if (!Array.isArray(msgs)) throw new Error("Claude: expected messages[] or top-level conversations[]");
+  const turns = msgs
+    .map((m) => {
+      const role = m.role === "human" ? "user" : "assistant";
+      const text =
+        typeof m.text === "string" ? m.text.trim() : String(m.content ?? "").trim();
+      if (!text) return null;
+      return { role, text, raw: m };
+    })
+    .filter(Boolean);
+  return {
+    title: data.title || data.convId || "Claude import",
+    turns,
+    sourceFacet,
+    sourceNativeId: data.uuid != null ? String(data.uuid) : null,
+    sourceProvider: "claude",
+    persona: null,
+  };
+}
+
+function htmlToPlain(html) {
+  if (!html || typeof html !== "string") return "";
+  const $ = cheerio.load(html);
+  return $.root()
+    .text()
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** subtitles の Gem 行から Do/Feel/Think/Chat */
+function geminiFacetFromSubtitles(subtitles) {
+  const line =
+    (subtitles || []).find((s) => s.name && s.name.includes("がこのチャットで使用"))?.name || "";
+  if (!line) return "chat";
+  if (line.includes("将軍 スブタイ")) return "chat";
+  if (line.includes("護衛 バイジュ") || line.includes("侍衛 バイジュ")) return "feel";
+  if (line.includes("宰相 フナン")) return "think";
+  if (line.includes("将軍 モンケウール")) return "do";
+  return "chat";
+}
+
+function geminiAssistantPersona(subtitles) {
+  const line =
+    (subtitles || []).find((s) => s.name && s.name.includes("がこのチャットで使用"))?.name || "";
+  const name = line.replace(/ がこのチャットで使用.*/, "").trim();
+  return name || "ソルコクタニ";
+}
+
+/**
+ * Google Takeout「マイアクティビティ.json」（Gemini Apps・JSON）
+ *
+ * - 形式は「アクティビティログ」: 原則 1 行 ≒ 1 往復。公式 UI 左サイドバーの「会話名」専用列は
+ *   エクスポートに無いことが多く、会話名は title の非定型値か、先頭ユーザ発話からの推定になる。
+ * - 同一会話は titleUrl（…/app/c/<conversation_id>）でグループ化し、時刻順にターンを連結する。
+ * - 本文は details[]（Request/Response）または userInteractions を優先し、無ければ従来の safeHtmlItem+title。
+ */
+function geminiConversationIdFromRow(row, rowIndex) {
+  const u = row.titleUrl || row.titleURL || "";
+  if (typeof u === "string") {
+    const m = u.match(/\/app\/c\/([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
+  }
+  return `orphan-${rowIndex}`;
+}
+
+function parseGeminiDetailsTurns(row) {
+  const d = row.details;
+  if (!Array.isArray(d)) return null;
+  const turns = [];
+  for (const item of d) {
+    if (!item || typeof item !== "object") continue;
+    const name = String(item.name || "").trim();
+    const value = typeof item.value === "string" ? item.value.trim() : "";
+    if (!value) continue;
+    const nl = name.toLowerCase();
+    if (nl === "request" || nl === "リクエスト" || name.includes("リクエスト")) {
+      turns.push({ role: "user", text: value, raw: { detail: item } });
+    } else if (nl === "response" || nl === "レスポンス" || name.includes("レスポンス")) {
+      turns.push({ role: "assistant", text: value, raw: { detail: item } });
+    }
+  }
+  return turns.length ? turns : null;
+}
+
+function extractTextFromGeminiInteractionJson(node, depth = 0) {
+  if (depth > 14 || node == null) return "";
+  if (typeof node === "string") return node.trim();
+  if (Array.isArray(node)) {
+    return node
+      .map((x) => extractTextFromGeminiInteractionJson(x, depth + 1))
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  if (typeof node === "object") {
+    if (typeof node.text === "string" && node.text.trim()) return node.text.trim();
+    if (typeof node.content === "string" && node.content.trim()) return node.content.trim();
+    if (typeof node.prompt === "string" && node.prompt.trim()) return node.prompt.trim();
+    const pieces = [];
+    for (const v of Object.values(node)) {
+      if (v === node) continue;
+      const t = extractTextFromGeminiInteractionJson(v, depth + 1);
+      if (t) pieces.push(t);
+    }
+    return pieces.join("\n\n");
+  }
+  return "";
+}
+
+function parseGeminiUserInteractionsTurns(row) {
+  const arr = row.userInteractions;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const turns = [];
+  for (let i = 0; i < arr.length; i++) {
+    const wrap = arr[i];
+    const ui = wrap?.userInteraction ?? wrap?.user_interaction;
+    if (!ui || typeof ui !== "object") continue;
+    for (const key of ["request", "response"]) {
+      const raw = ui[key];
+      if (typeof raw !== "string" || !raw.trim()) continue;
+      let text = "";
+      try {
+        const parsed = JSON.parse(raw);
+        text = extractTextFromGeminiInteractionJson(parsed);
+      } catch {
+        text = raw.trim();
+      }
+      if (!text) continue;
+      turns.push({
+        role: key === "request" ? "user" : "assistant",
+        text: String(text).trim(),
+        raw: { userInteraction: key, index: i },
+      });
+    }
+  }
+  return turns.length ? turns : null;
+}
+
+/** safeHtmlItem + activity title（従来ロジック） */
+function parseGeminiSafeHtmlTitleTurns(row) {
+  const facet = geminiFacetFromSubtitles(row.subtitles);
+  let userText = (row.title || "").trim();
+  if (userText.startsWith("送信したメッセージ: ")) {
+    userText = userText.slice("送信したメッセージ: ".length).trim();
+  }
+  const htmlParts = (row.safeHtmlItem || []).map((x) => x?.html).filter(Boolean);
+  const assistantText = htmlParts.map(htmlToPlain).filter(Boolean).join("\n\n").trim();
+  const turns = [];
+  if (userText) turns.push({ role: "user", text: userText, raw: { title: row.title, time: row.time } });
+  if (assistantText) {
+    turns.push({
+      role: "assistant",
+      text: assistantText,
+      raw: { safeHtmlItem: row.safeHtmlItem, time: row.time },
+    });
+  }
+  return turns.length ? turns : null;
+}
+
+function parseGeminiActivityRowTurns(row) {
+  return (
+    parseGeminiDetailsTurns(row) ||
+    parseGeminiUserInteractionsTurns(row) ||
+    parseGeminiSafeHtmlTitleTurns(row)
+  );
+}
+
+function isGeminiActivityBoilerplateTitle(t) {
+  const s = (t || "").trim();
+  if (!s) return true;
+  if (s.length > 220) return true;
+  if (/^used gemini apps$/i.test(s)) return true;
+  if (/^gemini$/i.test(s)) return true;
+  if (/gemini\s*apps?\s*を使用/i.test(s)) return true;
+  if (/used\s+gemini/i.test(s)) return true;
+  return false;
+}
+
+function pickGeminiThreadTitle(segments, mergedTurns) {
+  for (const seg of segments) {
+    const t = (seg.activityTitle || "").trim();
+    if (t && !isGeminiActivityBoilerplateTitle(t)) return String(t).slice(0, 500);
+  }
+  const firstUser = mergedTurns.find((x) => x.role === "user");
+  if (firstUser?.text) {
+    const oneLine = String(firstUser.text).replace(/\s+/g, " ").trim();
+    return oneLine.slice(0, 500);
+  }
+  return "Gemini import";
+}
+
+function dedupeAdjacentTurns(turns) {
+  const out = [];
+  for (const t of turns) {
+    const prev = out[out.length - 1];
+    if (prev && prev.role === t.role && prev.text === t.text) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+function adaptGeminiActivityAll(raw) {
+  const data = JSON.parse(raw);
+  if (!Array.isArray(data)) throw new Error("Gemini activity: expected top-level array");
+
+  /** @type {Map<string, Array<{ time: string, turns: object[], facet: string, activityTitle: string, subtitles: unknown }>>} */
+  const groups = new Map();
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const turns = parseGeminiActivityRowTurns(row);
+    if (!turns || turns.length === 0) continue;
+
+    const convId = geminiConversationIdFromRow(row, i);
+    const time = typeof row.time === "string" ? row.time : String(row.time ?? "");
+    const facet = geminiFacetFromSubtitles(row.subtitles);
+    const activityTitle = typeof row.title === "string" ? row.title : "";
+
+    const arr = groups.get(convId) ?? [];
+    arr.push({ time, turns, facet, activityTitle, subtitles: row.subtitles });
+    groups.set(convId, arr);
+  }
+
+  const packs = [];
+  for (const [convId, segments] of groups) {
+    segments.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+    const merged = [];
+    for (const seg of segments) {
+      for (const t of seg.turns) merged.push(t);
+    }
+    const mergedTurns = dedupeAdjacentTurns(merged);
+    if (mergedTurns.length === 0) continue;
+
+    const lastSub = segments[segments.length - 1]?.subtitles;
+    const persona = geminiAssistantPersona(lastSub);
+    const sourceFacet = segments[0]?.facet || "chat";
+
+    const title = pickGeminiThreadTitle(segments, mergedTurns);
+    const sourceNativeId = convId.startsWith("orphan-")
+      ? `gem-${crypto.createHash("sha256").update(`${convId}\n${segments[0]?.time || ""}`).digest("hex").slice(0, 24)}`
+      : `gem-c-${convId}`;
+
+    packs.push({
+      title,
+      turns: mergedTurns,
+      sourceFacet,
+      sourceNativeId,
+      sourceProvider: "gemini",
+      persona,
+    });
+  }
+  return packs;
 }
 
 function adaptGeminiHtml(raw, defaults) {
@@ -120,15 +470,36 @@ function adaptGeminiHtml(raw, defaults) {
   const turns = dedup.slice(0, 500).map((text, i) => ({
     role: i % 2 === 0 ? "user" : "assistant",
     text,
+    raw: null,
   }));
-  return {
-    title: "Gemini HTML import",
-    turns,
-    defaults,
-  };
+  return [
+    {
+      title: "Gemini HTML import",
+      turns,
+      sourceFacet: "chat",
+      sourceNativeId: null,
+      sourceProvider: "gemini",
+      persona: null,
+      defaults,
+    },
+  ];
 }
 
-async function supabaseInsert(baseUrl, key, { title, projectId, turns, provider, modelId, persona }) {
+function adaptClaudeExportAll(raw, sourceFacet) {
+  const data = JSON.parse(raw);
+  if (Array.isArray(data)) {
+    return data
+      .map((conv) => adaptClaudeExportConversation(conv, sourceFacet))
+      .filter((p) => p.turns.length > 0);
+  }
+  return [adaptClaudeLegacy(data, sourceFacet)].filter((p) => p.turns.length > 0);
+}
+
+async function supabaseInsert(
+  baseUrl,
+  key,
+  { title, projectId, turns, provider, modelId, persona, sourceFacet, sourceProvider, sourceNativeId },
+) {
   const hdr = {
     apikey: key,
     Authorization: `Bearer ${key}`,
@@ -141,6 +512,9 @@ async function supabaseInsert(baseUrl, key, { title, projectId, turns, provider,
     body: JSON.stringify({
       title,
       project_id: projectId,
+      source_facet: sourceFacet,
+      source_provider: sourceProvider,
+      source_native_id: sourceNativeId,
     }),
   });
   const trText = await tr.text();
@@ -159,6 +533,7 @@ async function supabaseInsert(baseUrl, key, { title, projectId, turns, provider,
         persona: row.role === "assistant" ? persona : null,
         provider,
         model_id: modelId,
+        raw_response: row.raw != null ? row.raw : null,
       }),
     });
     const rt = await r.text();
@@ -170,7 +545,8 @@ async function main() {
   const args = parseArgs(process.argv);
   if (!args.provider || !args.file) {
     console.error(
-      "Usage: node scripts/import-logs.mjs --provider chatgpt|claude|gemini --file path [--project-id 軍議ゲル] [--persona 耶律楚材] [--dry-run]",
+      "Usage: node scripts/import-logs.mjs --provider chatgpt|claude|gemini|gemini-activity --file path [options]\n" +
+        "  --project-id ラベル  --facet do|feel|think|chat  --persona 名前  --dry-run  --dry-run-limit N  --max-threads N",
     );
     process.exit(1);
   }
@@ -182,12 +558,13 @@ async function main() {
   }
 
   const raw = fs.readFileSync(path.resolve(args.file), "utf8");
-  const projectId =
-    GEL_TO_PROJECT[args.projectIdLabel] ||
-    (args.projectIdLabel && GEL_TO_PROJECT[args.projectIdLabel.trim()]) ||
-    "gungi";
+  const projectId = resolveProjectId(args.projectIdLabel, args.provider);
 
-  let pack;
+  let facet = (args.facet || "chat").toLowerCase().trim();
+  if (!FACETS.has(facet)) {
+    throw new Error(`--facet は do|feel|think|chat のいずれかにしてください: ${args.facet}`);
+  }
+
   const defChatgpt = {
     provider: "openrouter",
     modelId: "openai/gpt-4.1-mini",
@@ -204,28 +581,106 @@ async function main() {
     persona: args.persona || "ソルコクタニ",
   };
 
-  if (args.provider === "chatgpt") pack = adaptChatGPT(raw, defChatgpt);
-  else if (args.provider === "claude") pack = adaptClaude(raw, defClaude);
-  else if (args.provider === "gemini") pack = adaptGeminiHtml(raw, defGemini);
-  else throw new Error(`Unknown provider: ${args.provider}`);
+  /** @type {Array<object>} */
+  let packs;
 
-  const { title, turns } = pack;
-  const defaults = pack.defaults;
+  if (args.provider === "chatgpt") {
+    packs = adaptChatGPTFromFileRaw(raw, defChatgpt, facet).map((p) => ({
+      ...p,
+      defaults: defChatgpt,
+      persona: p.persona ?? defChatgpt.persona,
+    }));
+  } else if (args.provider === "claude") {
+    packs = adaptClaudeExportAll(raw, facet).map((p) => ({
+      ...p,
+      defaults: defClaude,
+      persona: p.persona ?? defClaude.persona,
+    }));
+  } else if (args.provider === "gemini-activity") {
+    packs = adaptGeminiActivityAll(raw).map((p) => ({
+      ...p,
+      defaults: defGemini,
+      persona: p.persona || defGemini.persona,
+    }));
+  } else if (args.provider === "gemini") {
+    packs = adaptGeminiHtml(raw, defGemini).map((p) => ({
+      ...p,
+      defaults: defGemini,
+      persona: p.persona || defGemini.persona,
+    }));
+  } else throw new Error(`Unknown provider: ${args.provider}`);
+
+  for (const p of packs) {
+    p.turns.forEach((t) => {
+      t.text = String(t.text || "").trim();
+    });
+    p.turns = p.turns.filter((t) => t.text.length > 0);
+  }
+  const nonEmpty = packs.filter((p) => p.turns.length > 0);
+  if (nonEmpty.length === 0) {
+    throw new Error("取り込み対象のメッセージがありません（全スレッド空）");
+  }
+  packs = nonEmpty;
+
+  if (args.maxThreads != null && args.maxThreads < packs.length) {
+    console.log(
+      `[import-logs] --max-threads ${args.maxThreads}: 先頭 ${args.maxThreads} スレッドのみ処理（全 ${packs.length} 中）。全件を後から流すとこの先頭は二重になるので、スモーク後は削除するか別 DB で試してください。`,
+    );
+    packs = packs.slice(0, args.maxThreads);
+  }
+
+  const absFile = path.resolve(args.file);
+  console.log(
+    `[import-logs] start provider=${args.provider} project_id=${projectId} threads=${packs.length} file=${absFile}`,
+  );
 
   if (args.dryRun) {
-    console.log(JSON.stringify({ projectId, title, count: turns.length, sample: turns.slice(0, 3) }, null, 2));
+    const lim = Math.max(1, args.dryRunLimit || 40);
+    const shown = packs.slice(0, lim);
+    const out = {
+      projectId,
+      totalThreads: packs.length,
+      dryRunLimit: lim,
+      shownThreads: shown.length,
+      totalMessages: packs.reduce((a, p) => a + p.turns.length, 0),
+      threads: shown.map((p) => ({
+        title: p.title,
+        source_facet: p.sourceFacet,
+        source_provider: p.sourceProvider,
+        source_native_id: p.sourceNativeId,
+        messageCount: p.turns.length,
+        assistantPersona: p.persona,
+        sample: p.turns.slice(0, 2).map((t) => ({
+          role: t.role,
+          textPreview: t.text.slice(0, 240),
+          hasRaw: t.raw != null,
+        })),
+      })),
+    };
+    console.log(JSON.stringify(out, null, 2));
     return;
   }
 
-  await supabaseInsert(baseUrl, key, {
-    title,
-    projectId,
-    turns,
-    provider: defaults.provider,
-    modelId: defaults.modelId,
-    persona: defaults.persona,
-  });
-  console.error("Import OK:", title, "messages:", turns.length);
+  const total = packs.length;
+  for (let i = 0; i < packs.length; i++) {
+    const pack = packs[i];
+    const n = i + 1;
+    const titleShort = pack.title.length > 100 ? `${pack.title.slice(0, 100)}…` : pack.title;
+    console.log(`[import-logs] (${n}/${total}) inserting… ${titleShort}`);
+    await supabaseInsert(baseUrl, key, {
+      title: pack.title,
+      projectId,
+      turns: pack.turns,
+      provider: pack.defaults.provider,
+      modelId: pack.defaults.modelId,
+      persona: pack.persona,
+      sourceFacet: pack.sourceFacet,
+      sourceProvider: pack.sourceProvider,
+      sourceNativeId: pack.sourceNativeId,
+    });
+    console.log(`[import-logs] (${n}/${total}) Import OK messages=${pack.turns.length} | ${pack.title}`);
+  }
+  console.log(`[import-logs] done ${total} thread(s)`);
 }
 
 main().catch((e) => {

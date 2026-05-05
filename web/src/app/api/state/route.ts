@@ -8,6 +8,7 @@ import {
   type Thread,
 } from "@/lib/ao-state";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-text";
 
 type DbThreadRow = {
   id: string;
@@ -16,6 +17,7 @@ type DbThreadRow = {
   project_id: string;
   created_at: string;
   updated_at: string;
+  source_provider: string | null;
 };
 
 type DbMessageRow = {
@@ -27,44 +29,97 @@ type DbMessageRow = {
   created_at: string;
 };
 
+const THREAD_PAGE_SIZE = 1000;
+/** PostgREST の .in() が長大になりすぎないよう thread_id を分割 */
+const MESSAGE_IN_CHUNK = 100;
+
+/**
+ * DB の日時が不正だと `getTime()` が NaN になる。`JSON.stringify` は NaN を null にし、
+ * クライアントの `isMsg` / `isThread`（typeof x === "number"）が落ちて localStorage にフォールバックする。
+ */
+function msFromDb(iso: string): number {
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function chunkIds<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/** 既定の max-rows（1000）を超える threads もすべて取得 */
+async function fetchAllThreadRows(supa: NonNullable<ReturnType<typeof getSupabaseAdmin>>) {
+  const out: DbThreadRow[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supa
+      .from("threads")
+      .select("id, client_thread_id, title, project_id, created_at, updated_at, source_provider")
+      .order("updated_at", { ascending: false })
+      .range(from, from + THREAD_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    if (!data?.length) break;
+    out.push(...(data as DbThreadRow[]));
+    if (data.length < THREAD_PAGE_SIZE) break;
+    from += THREAD_PAGE_SIZE;
+  }
+  return out;
+}
+
+async function fetchMessagesBatched(
+  supa: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  threadIds: string[],
+) {
+  const out: DbMessageRow[] = [];
+  for (const idChunk of chunkIds(threadIds, MESSAGE_IN_CHUNK)) {
+    const { data, error } = await supa
+      .from("messages")
+      .select("id, thread_id, role, text, persona, created_at")
+      .in("thread_id", idChunk);
+    if (error) throw new Error(error.message);
+    out.push(...((data ?? []) as DbMessageRow[]));
+  }
+  return out;
+}
+
 export async function GET() {
   const supa = getSupabaseAdmin();
   if (!supa) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
-  const { data: threadRows, error: te } = await supa
-    .from("threads")
-    .select("id, client_thread_id, title, project_id, created_at, updated_at")
-    .order("updated_at", { ascending: false });
-
-  if (te) {
-    return NextResponse.json({ error: te.message }, { status: 500 });
+  let rows: DbThreadRow[];
+  try {
+    rows = await fetchAllThreadRows(supa);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
-  if (!threadRows?.length) {
+  if (!rows.length) {
     const state = makeDefaultAppState();
     return NextResponse.json({ source: "supabase" as const, state, emptyDb: true });
   }
 
-  const rows = threadRows as DbThreadRow[];
   const ids = rows.map((t) => t.id);
 
-  const { data: msgRows, error: me } = await supa
-    .from("messages")
-    .select("id, thread_id, role, text, persona, created_at")
-    .in("thread_id", ids)
-    .order("created_at", { ascending: true });
-
-  if (me) {
-    return NextResponse.json({ error: me.message }, { status: 500 });
+  let msgRows: DbMessageRow[];
+  try {
+    msgRows = await fetchMessagesBatched(supa, ids);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   const byThread = new Map<string, DbMessageRow[]>();
-  for (const m of (msgRows ?? []) as DbMessageRow[]) {
+  for (const m of msgRows) {
     const arr = byThread.get(m.thread_id) ?? [];
     arr.push(m);
     byThread.set(m.thread_id, arr);
+  }
+  for (const arr of byThread.values()) {
+    arr.sort((a, b) => msFromDb(a.created_at) - msFromDb(b.created_at));
   }
 
   const threads: Thread[] = rows.map((tr) => {
@@ -73,29 +128,34 @@ export async function GET() {
     const rawMsgs = byThread.get(tid) ?? [];
     const msgs: Msg[] = rawMsgs.map((row) => {
       const isUser = row.role === "user";
+      const text = isUser
+        ? row.text
+        : displayTextForClaudeImportedAssistant(tr.source_provider, row.role, row.text);
       return {
         id: String(row.id),
         side: isUser ? "user" : "ai",
         speaker: isUser ? "ジュチ" : row.persona || "不明",
-        text: row.text,
-        createdAt: new Date(row.created_at).getTime(),
+        text,
+        createdAt: msFromDb(row.created_at),
       };
     });
 
-    return {
+    const thread: Thread = {
       id: clientId,
       supabaseThreadId: tid,
       title: tr.title,
       projectId: tr.project_id as ProjectId,
-      createdAt: new Date(tr.created_at).getTime(),
-      updatedAt: new Date(tr.updated_at).getTime(),
+      createdAt: msFromDb(tr.created_at),
+      updatedAt: msFromDb(tr.updated_at),
       messages: msgs,
     };
+    if (typeof tr.source_provider === "string" && tr.source_provider.trim()) {
+      thread.sourceProvider = tr.source_provider.trim();
+    }
+    return thread;
   });
 
-  const sortedMeta = [...rows].sort(
-    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-  );
+  const sortedMeta = [...rows].sort((a, b) => msFromDb(b.updated_at) - msFromDb(a.updated_at));
   const top = sortedMeta[0]!;
   const currentThreadId = top.client_thread_id?.trim() || top.id;
 

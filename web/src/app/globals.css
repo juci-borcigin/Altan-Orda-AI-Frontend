@@ -33,10 +33,13 @@
   --ao-panel-w: 210px;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* レイヤー無しの * { padding:0 } は Tailwind v4 の @layer utilities を潰す（任意値 pl/pr が常に 0 になる） */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html,
@@ -51,6 +54,77 @@ body {
   overflow: hidden;
   min-height: 540px;
   font-size: 13px;
+}
+
+/* チャット履歴・顔グラ下の名前（枠なし・地図直上。読みは縁取りと明朝で確保） */
+.ao-chat-avatar-caption-wrap {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+}
+
+.ao-chat-avatar-caption-pill {
+  display: inline-block;
+  max-width: 7.15em; /* 全角7文字相当・それ以上は省略 */
+  padding: 1px 3px;
+  /* 「テキストボックス」感を抑える：塗り・枠・ドロップシャドウは付けない */
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.ao-chat-avatar-caption-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-family:
+    ui-serif,
+    Georgia,
+    "Hiragino Mincho ProN",
+    "Hiragino Mincho Pro",
+    "Yu Mincho",
+    "Noto Serif JP",
+    serif;
+  font-weight: 900;
+  font-synthesis: weight;
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: #000000;
+  -webkit-font-smoothing: antialiased;
+  /* 地図 parchment (#E6DAC4 相当) に寄せた広めの縁取り（ブラー無し・多層でリング幅を確保） */
+  text-shadow:
+    /* r=1 */
+    -1px 0 0 #e6dac4,
+    1px 0 0 #e6dac4,
+    0 -1px 0 #e6dac4,
+    0 1px 0 #e6dac4,
+    -1px -1px 0 #e6dac4,
+    1px -1px 0 #e6dac4,
+    -1px 1px 0 #e6dac4,
+    1px 1px 0 #e6dac4,
+    /* r=2 */
+    -2px 0 0 #e6dac4,
+    2px 0 0 #e6dac4,
+    0 -2px 0 #e6dac4,
+    0 2px 0 #e6dac4,
+    -2px -2px 0 #e6dac4,
+    2px -2px 0 #e6dac4,
+    -2px 2px 0 #e6dac4,
+    2px 2px 0 #e6dac4,
+    /* r=3（わずかに地色より沈めると線に切られにくい） */
+    -3px 0 0 #dccfb8,
+    3px 0 0 #dccfb8,
+    0 -3px 0 #dccfb8,
+    0 3px 0 #dccfb8,
+    -3px -3px 0 #dccfb8,
+    3px -3px 0 #dccfb8,
+    -3px 3px 0 #dccfb8,
+    3px 3px 0 #dccfb8,
+    1px 2px 0 rgba(0, 0, 0, 0.14);
 }
 
 .ao-header {
@@ -941,6 +1015,35 @@ body {
   background: rgba(201, 146, 42, 0.08);
 }
 
+/* チャット部・AI 吹き出し（#F4F0E7 地・#1B0D04 本文） */
+.ao-md-body.ao-chat-ai-bubble-md {
+  color: #1b0d04;
+}
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-a {
+  color: #0d2847;
+}
+.ao-md-body.ao-chat-ai-bubble-md :not(pre) > code {
+  background: rgba(0, 0, 0, 0.08);
+}
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-pre {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(27, 13, 4, 0.15);
+}
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-blockquote {
+  border-left-color: rgba(27, 13, 4, 0.35);
+  color: rgba(27, 13, 4, 0.88);
+}
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-hr {
+  border-top-color: rgba(27, 13, 4, 0.18);
+}
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-table th,
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-table td {
+  border-color: rgba(27, 13, 4, 0.2);
+}
+.ao-md-body.ao-chat-ai-bubble-md .ao-md-table th {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 .ao-pbreak {
   border-top: 1px dashed rgba(201, 146, 42, 0.2);
   margin: 7px 0 6px;
@@ -1074,6 +1177,59 @@ body {
 }
 .ao-modal-close:hover {
   color: var(--ao-gold-l);
+}
+
+/* Phase 4: フラット寄せボタン。通常は左上が明るく右下が暗い「載っている」辺、:active で反転して沈んだ状態を示す */
+.ao-phase4-btn-navy-bevel {
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 1px;
+  border-left-color: rgba(132, 148, 168, 0.92);
+  border-top-color: rgba(210, 220, 235, 0.42);
+  border-right-color: rgba(0, 0, 0, 0.46);
+  border-bottom-color: rgba(0, 0, 0, 0.46);
+}
+.ao-phase4-btn-navy-bevel:active {
+  border-left-color: rgba(0, 0, 0, 0.56);
+  border-top-color: rgba(0, 0, 0, 0.5);
+  border-right-color: rgba(158, 176, 198, 0.72);
+  border-bottom-color: rgba(158, 176, 198, 0.72);
+}
+.ao-phase4-btn-gold-bevel {
+  box-sizing: border-box;
+  border-style: solid;
+  border-width: 1px;
+  border-left-color: rgba(255, 247, 220, 0.82);
+  border-top-color: rgba(255, 252, 238, 0.76);
+  border-right-color: rgba(0, 0, 0, 0.38);
+  border-bottom-color: rgba(0, 0, 0, 0.38);
+}
+.ao-phase4-btn-gold-bevel:active {
+  border-left-color: rgba(0, 0, 0, 0.44);
+  border-top-color: rgba(0, 0, 0, 0.38);
+  border-right-color: rgba(255, 238, 200, 0.82);
+  border-bottom-color: rgba(255, 232, 188, 0.76);
+}
+
+/* 令旨／年代記オーバーレイのチェックボックス（OS既定の白背景を避け、銀系を固定） */
+.ao-overlay-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1px solid #6f7d8f;
+  border-radius: 0;
+  background-color: #d6dde8;
+  pointer-events: none;
+}
+.ao-overlay-checkbox:checked {
+  background-color: #c4cedc;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6l2.5 2.5 4.5-5' fill='none' stroke='%23133d5c' stroke-width='1.6' stroke-linecap='square'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 10px 10px;
 }
 
 @media (max-width: 767px) {

@@ -5,6 +5,15 @@ export const AO_APP_VERSION = "0.1.0";
 
 export type MsgMetaKind = "openai_assistant_raw";
 
+/** 1回のチャット応答に対する使用量（複数チャンクへコピー） */
+export type MsgTurnUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedUsd: number | null;
+  modelId: string;
+};
+
 export type Msg = {
   id: string;
   side: "user" | "ai";
@@ -15,6 +24,8 @@ export type Msg = {
   hiddenFromUi?: boolean;
   /** 非表示メッセージの種別（将来の思考ブロック等の拡張用） */
   metaKind?: MsgMetaKind;
+  /** AI 吹き出し用：直近の completion で集計したトークン／概算 USD */
+  usage?: MsgTurnUsage;
 };
 
 export type Thread = {
@@ -26,6 +37,10 @@ export type Thread = {
   messages: Msg[];
   /** Supabase `threads.id`（uuid）。未同期の議事では未設定 */
   supabaseThreadId?: string;
+  /** Supabase `threads.source_provider`（取り込み元）。AO ネイティブ議事では未設定 */
+  sourceProvider?: string;
+  /** 「新規」直後・初回送信前のみ true。論を変えた／別議事を選んだときに破棄される */
+  ephemeral?: boolean;
 };
 
 export type AppState = {
@@ -36,16 +51,57 @@ export type AppState = {
 };
 
 const PROJECT_IDS: ProjectId[] = [
-  "shitsumu",
-  "gungi",
-  "nesho",
-  "kurultai",
+  "debate",
+  "chat",
+  "plan",
+  "work",
+  "mental",
+  "notebook",
+  "foreign",
   "gemini",
+  "chatgpt",
   "claude",
 ];
 
+/** localStorage / 旧バックアップの projectId を現行へ */
+const LEGACY_PROJECT_ID: Record<string, ProjectId> = {
+  shitsumu: "plan",
+  gungi: "work",
+  nesho: "mental",
+  kurultai: "debate",
+};
+
 function isProjectId(x: unknown): x is ProjectId {
   return typeof x === "string" && (PROJECT_IDS as string[]).includes(x);
+}
+
+function migrateProjectIdString(raw: string): ProjectId {
+  if (isProjectId(raw)) return raw;
+  return LEGACY_PROJECT_ID[raw] ?? "work";
+}
+
+function migrateAppStateShape(data: unknown): unknown {
+  if (!data || typeof data !== "object") return data;
+  const o = data as Record<string, unknown>;
+
+  if (o.schema === "altan-orda-backup-v1" && o.state !== undefined) {
+    return { ...o, state: migrateAppStateShape(o.state) };
+  }
+
+  if (typeof o.currentProjectId === "string") {
+    o.currentProjectId = migrateProjectIdString(o.currentProjectId);
+  }
+  if (Array.isArray(o.threads)) {
+    o.threads = o.threads.map((t) => {
+      if (!t || typeof t !== "object") return t;
+      const th = { ...(t as Record<string, unknown>) };
+      if (typeof th.projectId === "string") {
+        th.projectId = migrateProjectIdString(th.projectId);
+      }
+      return th;
+    });
+  }
+  return data;
 }
 
 function isMsg(x: unknown): x is Msg {
@@ -64,6 +120,9 @@ function isMsg(x: unknown): x is Msg {
     return false;
   }
   if (o.metaKind !== undefined && typeof o.metaKind !== "string") {
+    return false;
+  }
+  if (o.usage !== undefined && o.usage !== null && typeof o.usage !== "object") {
     return false;
   }
   return true;
@@ -85,6 +144,9 @@ function isThread(x: unknown): x is Thread {
   if (o.supabaseThreadId !== undefined && typeof o.supabaseThreadId !== "string") {
     return false;
   }
+  if (o.sourceProvider !== undefined && typeof o.sourceProvider !== "string") {
+    return false;
+  }
   return o.messages.every(isMsg);
 }
 
@@ -100,13 +162,110 @@ export function isAppStateCore(x: unknown): x is AppState {
   return true;
 }
 
+function msgRejectReason(m: unknown, path: string): string | null {
+  if (!m || typeof m !== "object") return `${path}: メッセージがオブジェクトではありません`;
+  const o = m as Record<string, unknown>;
+  if (typeof o.id !== "string") return `${path}: id が string ではありません`;
+  if (o.side !== "user" && o.side !== "ai") return `${path}: side が user/ai ではありません`;
+  if (typeof o.speaker !== "string") return `${path}: speaker が string ではありません`;
+  if (typeof o.text !== "string") return `${path}: text が string ではありません（null の可能性）`;
+  if (typeof o.createdAt !== "number" || !Number.isFinite(o.createdAt)) {
+    return `${path}: createdAt が有限の number ではありません（JSON 経由の null/NaN 疑い）`;
+  }
+  if (o.hiddenFromUi !== undefined && typeof o.hiddenFromUi !== "boolean") {
+    return `${path}: hiddenFromUi が boolean ではありません`;
+  }
+  if (o.metaKind !== undefined && typeof o.metaKind !== "string") {
+    return `${path}: metaKind が string ではありません`;
+  }
+  return null;
+}
+
+function threadRejectReason(t: unknown, idx: number): string | null {
+  const path = `threads[${idx}]`;
+  if (!t || typeof t !== "object") return `${path}: スレッドがオブジェクトではありません`;
+  const o = t as Record<string, unknown>;
+  if (typeof o.id !== "string") return `${path}: id が string ではありません`;
+  if (!isProjectId(o.projectId)) return `${path}: projectId が AO の ProjectId ではありません (${String(o.projectId)})`;
+  if (typeof o.title !== "string") return `${path}: title が string ではありません`;
+  if (typeof o.createdAt !== "number" || !Number.isFinite(o.createdAt)) {
+    return `${path}: createdAt が有限の number ではありません`;
+  }
+  if (typeof o.updatedAt !== "number" || !Number.isFinite(o.updatedAt)) {
+    return `${path}: updatedAt が有限の number ではありません`;
+  }
+  if (!Array.isArray(o.messages)) return `${path}: messages が配列ではありません`;
+  if (o.supabaseThreadId !== undefined && typeof o.supabaseThreadId !== "string") {
+    return `${path}: supabaseThreadId が string ではありません`;
+  }
+  if (o.sourceProvider !== undefined && typeof o.sourceProvider !== "string") {
+    return `${path}: sourceProvider が string ではありません`;
+  }
+  if (o.ephemeral !== undefined && typeof o.ephemeral !== "boolean") {
+    return `${path}: ephemeral が boolean ではありません`;
+  }
+  const msgs = o.messages as unknown[];
+  for (let j = 0; j < msgs.length; j++) {
+    const r = msgRejectReason(msgs[j], `${path}.messages[${j}]`);
+    if (r) return r;
+  }
+  return null;
+}
+
+/**
+ * `isAppStateCore` が偽になるとき、最初に引っかかった理由（デバッグ用）。
+ * 通過時は null。
+ */
+export function describeAppStateCoreRejection(x: unknown): string | null {
+  if (isAppStateCore(x)) return null;
+  if (!x || typeof x !== "object") return "ルートがオブジェクトではありません";
+  const o = x as Record<string, unknown>;
+  if (o.version !== 1) return `version が 1 ではありません (${String(o.version)})`;
+  if (!isProjectId(o.currentProjectId)) {
+    return `currentProjectId が不正です (${String(o.currentProjectId)})`;
+  }
+  if (typeof o.currentThreadId !== "string") return "currentThreadId が string ではありません";
+  if (!Array.isArray(o.threads)) return "threads が配列ではありません";
+  if (o.threads.length === 0) return "threads が空です";
+  const threads = o.threads as unknown[];
+  for (let i = 0; i < threads.length; i++) {
+    const r = threadRejectReason(threads[i], i);
+    if (r) return r;
+  }
+  const cur = o.currentThreadId as string;
+  if (!threads.some((t) => (t as { id?: string }).id === cur)) {
+    return `currentThreadId (${cur}) が threads[].id のいずれにも一致しません`;
+  }
+  return "isAppStateCore 失敗（理由特定外。型拡張時に describe を追記してください）";
+}
+
 /** ファイルまたは localStorage から読んだ JSON を検証 */
+/** 送信前に破棄したいプレースホルダー議事を除去し、`currentThreadId` を整合させる */
+export function pruneEphemeralEmptyThreads(state: AppState): AppState {
+  const kept = state.threads.filter((t) => !(t.ephemeral && t.messages.length === 0));
+  if (kept.length === state.threads.length) return state;
+  if (kept.length === 0) return state;
+  let currentThreadId = state.currentThreadId;
+  if (!kept.some((t) => t.id === currentThreadId)) {
+    const fb = kept[0];
+    currentThreadId = fb?.id ?? currentThreadId;
+  }
+  const cur = kept.find((t) => t.id === currentThreadId);
+  return {
+    ...state,
+    threads: kept,
+    currentThreadId,
+    currentProjectId: cur?.projectId ?? state.currentProjectId,
+  };
+}
+
 export function parseAppStateJson(raw: string): AppState | null {
   try {
     const data = JSON.parse(raw) as unknown;
-    if (isAppStateCore(data)) return data;
-    if (data && typeof data === "object") {
-      const o = data as Record<string, unknown>;
+    const migrated = migrateAppStateShape(data);
+    if (isAppStateCore(migrated)) return migrated;
+    if (migrated && typeof migrated === "object") {
+      const o = migrated as Record<string, unknown>;
       if (o.schema === "altan-orda-backup-v1" && o.state !== undefined) {
         if (isAppStateCore(o.state)) return o.state;
       }
@@ -172,33 +331,20 @@ export function aoUid(prefix: string): string {
 }
 
 export function makeDefaultAppState(): AppState {
+  const now = Date.now();
   const t0: Thread = {
     id: aoUid("th"),
-    projectId: "gungi",
-    title: "作戦AO — Phase 1 MVP",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    messages: [
-      {
-        id: aoUid("m"),
-        side: "ai",
-        speaker: "モンケウール",
-        text: "モンケウールです、殿下。まずはPhase 1として、UIの骨組みをNext.jsへ移植しました。次はゲル／議事の状態管理とOpenAI接続です。",
-        createdAt: Date.now(),
-      },
-      {
-        id: aoUid("m"),
-        side: "user",
-        speaker: "ジュチ",
-        text: "よし。続けよう。",
-        createdAt: Date.now(),
-      },
-    ],
+    projectId: "work",
+    title: "",
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+    sourceProvider: "ao",
   };
 
   return {
     version: 1,
-    currentProjectId: "gungi",
+    currentProjectId: "work",
     currentThreadId: t0.id,
     threads: [t0],
   };

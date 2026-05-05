@@ -1,6 +1,6 @@
 # Altan Orda AI Frontend Ver 2.0 実装仕様書
 **作成：2026-04-09 / モンケウールのゲル**
-**更新：2026-04-09 rev.3（疑問確定・埋め込み方針A・ENV反映）**
+**更新：2026-04-19 rev.4（書庫 facet 対応表・GDrive バックアップ JSON 運用）／2026-04-09 rev.3**
 **宛先：スブタイ（Cursor）**
 **参照：Altan_Orda-AI-FE_Spec_Doc.md / Altan_Orda-AI-FE_Dev_Notes.md**
 
@@ -331,14 +331,22 @@ jobs:
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           GDRIVE_BACKUP_FOLDER_ID: ${{ secrets.GDRIVE_BACKUP_FOLDER_ID }}
-        run: node scripts/backup-to-gdrive.js
+        run: node scripts/backup-to-gdrive.mjs
 ```
 
-`scripts/backup-to-gdrive.js`（リポジトリルートの`scripts/`に配置）：
+`scripts/backup-to-gdrive.mjs`（リポジトリルートの`scripts/`に配置）：
 - Supabaseから全threads・messagesをJSON取得
 - `altan-orda-backup-YYYY-MM-DD.json`としてGDriveの指定フォルダへアップロード
 - 同名ファイルは上書き
 - GDrive APIはリフレッシュトークンのみでサーバー側から操作（フロントOAuth不要）
+
+#### Step 5-1：GDrive バックアップ JSON の扱い（運用・ドキュメント⑤）
+
+- **中身：** ルートに `schema: "altan-orda-supabase-backup-v1"`、`exportedAt`、`threads` / `messages` の配列（当時の Supabase 行に近い形）。
+- **自動リストア：** 本リポジトリでは **未実装**。障害・検証時は JSON を手元にダウンロードし、**SQL Editor での手当て**や、**別途ワンオフスクリプト**を想定する。
+- **同日の再バックアップ：** ファイル名が日付単位のため、**同一日は GDrive 上で上書き**される（履歴がファイル名だけでは残らない）。日跨ぎで別ファイルが増える。
+- **ベンダー別エクスポート（Claude / Gemini / ChatGPT の ZIP）との関係：** **別物**。再取り込みの正は **各公式エクスポート + `import-logs.mjs`**。バックアップ JSON は「Supabase のスナップショット」として保管・人間参照用と割り切る。
+- **ChatGPT のエクスポート：** OpenAI 側の処理待ちで **数日かかる**ことがある。取得後にアダプタ・facet ルールを追記する。
 
 **GitHub Secretsに追加が必要なキー（Vercel環境変数と名称を統一）：**
 
@@ -355,40 +363,84 @@ jobs:
 
 ### Step 6：既存ログのインポート（初回一括・スブタイタスク）
 
-`scripts/import-logs.ts`（リポジトリルートの`scripts/`に配置）として以下の3アダプタを実装。
+**実装名：** `scripts/import-logs.mjs`（Node・リポジトリルートで `node scripts/import-logs.mjs …`）。
 
-**CLI引数の仕様：**
+**CLI 概要（2026-04 時点）：**
 ```
-npx ts-node scripts/import-logs.ts \
-  --provider chatgpt \
-  --file ./conversations.json \
-  --project-id "軍議ゲル" \        # 任意。未指定時はファイルから推定
-  --persona "耶律楚材"             # 任意。未指定時は各アダプタのデフォルト（下記）
+node scripts/import-logs.mjs \
+  --provider chatgpt|claude|gemini|gemini-activity \
+  --file "<エクスポートファイルのパス>" \
+  [--project-id オゴデイ・ウルス|トゥルイ・ウルス|…] \
+  [--facet do|feel|think|chat] \   # Claude 一括時の既定 facet（Gemini activity は subtitle から推定）
+  [--persona "…"] \
+  [--dry-run] [--dry-run-limit N] [--max-threads N]
 ```
 
-**`--persona` 未指定時のデフォルト：** アダプタ A・B は **耶律楚材**、アダプタ C は **ソルコクタニ**（各アダプタの「デフォルト」行に従う）。
+- **`threads` 列：** `005_threads_import_provenance.sql` 適用後、`source_facet` / `source_provider` / `source_native_id` を付与可能。
+- **`--max-threads N`：** 先頭 N スレッドのみ INSERT（スモーク用）。全件を同じ DB で再度流すと **先頭 N 件は二重**になるため、手削除か別検証 DBを推奨。
+
+**`--persona` 未指定時のデフォルト：** ChatGPT・Claude 系は **耶律楚材**、Gemini 系は **ソルコクタニ**（Gemini アクティビティでは subtitle から Gem 名を推して上書きする場合あり）。
 
 #### アダプタ A：ChatGPT
 
-- 入力：`conversations.json`（ZIPを解凍済み）
+- 入力：`conversations.json`（ZIPを解凍済み）の **単一会話オブジェクト**（`mapping` + `current_node`）
 - `current_node`から`parent`を辿って線形化
 - `role: system/tool`はスキップ。`parts[]`を`\n\n`で結合してtextに正規化
 - デフォルト：`provider: 'openrouter'`、`model_id: 'openai/gpt-4.1-mini'`、`persona: '耶律楚材'`
+- **注意：** トップが **会話の配列**の ZIP は、現スクリプトでは未対応（配列ループは後日）
 
 #### アダプタ B：Claude
 
-- 入力：`{convId, title, messages: [{role: "human"|"assistant", text}]}`形式のJSON
-- `human` → `user`にrole変換
-- デフォルト：`provider: 'openrouter'`、`model_id: 'anthropic/claude-sonnet-4.5'`、`persona: '耶律楚材'`
-- 公式エクスポートZIPの形式が判明した場合は追加対応
+- 入力：公式エクスポートの **`conversations.json`（会話の配列）** または旧単体 `{ messages: [] }`
+- `chat_messages` の `sender`（human/assistant）、本文は `text` と `content[]` をマージ。`thinking` タイプは本文結合から除外（生は `raw_response` に保持可）
+- デフォルト：`project_id` は `--project-id` または **`claude`**（オゴデイ・ウルス相当）
 
 #### アダプタ C：Gemini
 
-- 入力：Google TakeoutのHTML（`マイ アクティビティ.html`）
-- HTMLパースで発話・応答を線形化（品質は割り切り）
-- デフォルト：`provider: 'openrouter'`、`model_id: 'google/gemini-2.5-flash'`、`persona: 'ソルコクタニ'`
+- **`gemini-activity`：** Takeout の **`マイアクティビティ.json`**（アクティビティ行の配列）。1 行 ≒ 1 スレッド。
+- **`gemini`：** Gems 用 HTML 等（従来の粗い HTML パース）
 
-**インポート優先順：ChatGPT → Claude → Gemini**
+**インポート優先順（推奨）：** ChatGPT → Claude → Gemini（ChatGPT 入手待ちの間は Claude / Gemini のみ可）
+
+#### Step 6-1：`source_facet` と AO メイン表示の対応（運用・ドキュメント④）
+
+DB には **`do` / `feel` / `think` / `chat`** を素直に格納し、**AO のゲル・ラベル表示は読み出し時にマッピング**する方針（格納時に AO の `ProjectId` を無理に増やさない）。
+
+| `source_facet` | 意味（殿下軍議での呼び） |
+|----------------|---------------------------|
+| `do` | 実行・将軍軸 |
+| `feel` | ケア・侍衛軸 |
+| `think` | 参謀・宰相軸 |
+| `chat` | 未分類・一般チャット |
+
+**Claude（Projects / ゲル名 → facet、格納時ルールの例・将来マッピングの正）：**
+
+| エクスポート側の名前 | `source_facet` |
+|----------------------|----------------|
+| 将軍 モンケウールのゲル | `do` |
+| 侍衛 バイジュのゲル | `feel` |
+| 宰相 フナンのゲル | `think` |
+| 上記以外・紐付け不明 | `chat` |
+
+**Gemini（Gems / subtitle の Gem 名 → facet。インポート時はスクリプトが推定）：**
+
+| Gem 名の目安 | `source_facet` |
+|--------------|----------------|
+| 将軍 モンケウール（「将軍 スブタイ」等は別扱い） | `do` |
+| 護衛 バイジュ | `feel` |
+| 宰相 フナン | `think` |
+| その他の Gem・subtitle なし | `chat` |
+
+**ChatGPT（カスタム指示の名称 → facet、エクスポート入手後に取り込みルールへ反映）：**
+
+| 名称 | `source_facet` |
+|------|----------------|
+| 起業：「歴史と文化ｘ英語と国際経験ｘ旅行」 | `do` |
+| 心 | `feel` |
+| 共通の指示 | `think` |
+| 上記以外 | `chat` |
+
+**再格納：** 生データは手元の公式エクスポートに残るため、AO 表示や RAG でおかしければ **該当 `threads` を削除して `import-logs.mjs` を再実行**すればよい（`source_native_id` の UPSERT は未実装のため二重に注意）。
 
 ---
 

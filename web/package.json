@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:prompts": "npx tsx scripts/seed-ao-prompt-sections.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",
