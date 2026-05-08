@@ -32,6 +32,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
 
       if (pathname.startsWith("/api/auth")) return true;
+      if (pathname.startsWith("/api/ao-login")) return true;
+      if (pathname.startsWith("/api/ao-logout")) return true;
       if (pathname.startsWith("/sign-in")) return true;
 
       return Boolean(auth?.user);

@@ -31,6 +31,56 @@
   --ao-bubble-user-text: #1a1208;
   --ao-rail-w: 44px;
   --ao-panel-w: 210px;
+  /*
+   * 顔グラ幅（僚友・チャット・入力の縦アバター共通）。
+   * AO_PORTRAIT_LAYOUT_W_PX (=39) を rem 化（html 既定 16px 時）。変更時は ao-portrait.ts と合わせる。
+   */
+  --ao-portrait-w: 2.4375rem;
+}
+
+/*
+ * next/image `fill` は子が absolute のため親の高さに寄与しない。
+ * 幅だけ（rem）＋ Tailwind aspect だけだと親の computed height が 0 になりうるため、
+ * 縦を width×5/4 で明示（aspect 4:5＝横4・縦5）。
+ */
+.ao-portrait-frame {
+  position: relative;
+  width: var(--ao-portrait-w);
+  height: calc(var(--ao-portrait-w) * 5 / 4);
+  flex-shrink: 0;
+}
+
+/*
+ * モバイル一括縮小（Chrome / iPhone 想定。zoom は標準外だが Chrome で実用的）
+ * page.tsx の AO_MOBILE_MAX_CSS_PX (=767) と max-width を揃えること。
+ *
+ * - ～359px: SE1 系（320 CSS px）— やや強めに縮小して横幅確保
+ * - 360～767px: 16 Pro 系（～393〜430 CSS px）— 読みやすさ優先で縮小を弱める
+ */
+@media (max-width: 359px) {
+  .ao-mobile-stack-scale {
+    zoom: 0.72;
+  }
+}
+
+@media (min-width: 360px) and (max-width: 767px) {
+  .ao-mobile-stack-scale {
+    zoom: 0.82;
+  }
+}
+
+/* ノッチ・ホームインジケータ横方向の余白（header で任意適用） */
+.ao-header-safe-x {
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+}
+
+@media (max-width: 767px) {
+  /* 縦スクロールだけ親へ伝える（横スクロールはページ側が個別に制御） */
+  .ao-mobile-stack-scale {
+    min-height: 100%;
+    min-height: 100dvh;
+  }
 }
 
 /* レイヤー無しの * { padding:0 } は Tailwind v4 の @layer utilities を潰す（任意値 pl/pr が常に 0 になる） */
@@ -48,8 +98,8 @@ body {
 }
 
 body {
-  font-family: Georgia, serif;
-  background: var(--ao-navy);
+  font-family: var(--font-zen-old-mincho), Georgia, serif;
+  background: #ede3ce; /* Phase 5: parchment fallback */
   color: var(--ao-white);
   overflow: hidden;
   min-height: 540px;
@@ -1243,3 +1293,389 @@ body {
     max-width: 85%;
   }
 }
+
+/* ============================================================
+ * Phase 5: Parchment & Gold Theme
+ * ============================================================ */
+
+/* Phase 5: Header logo text */
+.ao-p5-logo-text {
+  font-family: Georgia, "Times New Roman", "Hiragino Mincho ProN", serif;
+  font-size: 26px;
+  font-weight: bold;
+  color: #6a3f0a;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-shadow:
+    1px 1px 0 rgba(255, 245, 220, 0.7),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+}
+
+/* Phase 5: Burned seal icon button */
+.ao-seal-btn-p5 {
+  width: 33px;
+  height: 33px;
+  border-radius: 50%;
+  background: #f6f4ee;
+  border: 1.5px solid rgba(120, 75, 15, 0.38);
+  color: #6a3f0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.85),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ao-seal-btn-p5:hover {
+  background: #ebe9e3;
+  border-color: rgba(120, 75, 15, 0.55);
+}
+.ao-seal-btn-p5:active {
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.25);
+}
+
+/* Phase 5: Parchment surface（吹き出し・入力・羊皮紙感を統一） */
+.ao-p5-parchment-surface {
+  background-color: #faf6ee;
+  background-image:
+    linear-gradient(180deg, rgba(255, 252, 245, 0.98) 0%, rgba(246, 239, 224, 0.97) 48%, rgba(236, 226, 206, 0.96) 100%),
+    radial-gradient(ellipse 110% 90% at 40% -15%, rgba(255, 255, 255, 0.75), transparent 52%),
+    radial-gradient(ellipse 70% 55% at 92% 88%, rgba(160, 110, 45, 0.07), transparent 48%),
+    repeating-linear-gradient(
+      -11deg,
+      transparent,
+      transparent 3px,
+      rgba(90, 70, 40, 0.022) 3px,
+      rgba(90, 70, 40, 0.022) 4px
+    );
+}
+
+/* 「大会盟」：文字だけ縦を +20% */
+.ao-p5-kurultai-text-taller {
+  display: inline-block;
+  transform: scaleY(1.25);
+  transform-origin: 50% 55%;
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.22),
+    0 2px 3px rgba(0, 0, 0, 0.16);
+}
+
+/* 「クリルタイ」ルビ（大会盟の上） */
+.ao-p5-kurultai-ruby {
+  ruby-position: over;
+  ruby-align: center;
+  line-height: 1;
+}
+.ao-p5-kurultai-ruby rt { transform: translateY(-3px); }
+
+/* 「大会盟」と同じ色・影をアイコンへ（SVG向け） */
+.ao-p5-kurultai-ink-icon {
+  color: #3D1C08;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.22)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.16));
+}
+
+/* Phase 5: gold plate text styles (CSS only) */
+.ao-p5-goldplate-text {
+  color: #dbb961;
+  letter-spacing: 0.08em;
+}
+
+/* 凹：彫り込み（刻まれた） */
+.ao-p5-goldplate-engraved {
+  color: #d8b45a;
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 0 rgba(70, 35, 0, 0.55),
+    0 2px 2px rgba(0, 0, 0, 0.22);
+}
+
+/* 凸：浮き出し（エンボス） */
+.ao-p5-goldplate-embossed {
+  color: #f1d27a;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.65),
+    0 2px 0 rgba(255, 255, 255, 0.25),
+    0 -1px 0 rgba(70, 35, 0, 0.55),
+    0 2px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* 深め：黒味を増やした刻印 */
+.ao-p5-goldplate-stamped {
+  color: #cfa53a;
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.45),
+    0 1px 0 rgba(55, 25, 0, 0.75),
+    0 3px 3px rgba(0, 0, 0, 0.28),
+    0 0 6px rgba(0, 0, 0, 0.12);
+}
+
+/* 金属面の反射（軽いグロー） */
+.ao-p5-goldplate-glint {
+  color: #f6dc8f;
+  text-shadow:
+    0 0 0 rgba(0, 0, 0, 0),
+    0 -1px 0 rgba(255, 255, 255, 0.65),
+    0 1px 0 rgba(70, 35, 0, 0.55),
+    0 0 10px rgba(219, 185, 97, 0.22);
+}
+
+/* くすんだゴールド（金ピカ抑えめ） */
+.ao-p5-goldplate-dull-bg {
+  background:
+    radial-gradient(120% 90% at 30% 10%, rgba(255, 255, 255, 0.35), transparent 55%),
+    radial-gradient(90% 70% at 80% 90%, rgba(0, 0, 0, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(245, 232, 198, 0.92) 0%, rgba(209, 179, 104, 0.92) 45%, rgba(132, 92, 26, 0.92) 100%);
+  border: 1px solid rgba(98, 66, 18, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(60, 40, 10, 0.22),
+    0 6px 16px rgba(0, 0, 0, 0.16);
+}
+
+/* くすんだゴールド（放射グラデ無し：よりフラット） */
+.ao-p5-goldplate-dull-flat-bg {
+  background-color: rgba(209, 179, 104, 0.94);
+  border: 1px solid rgba(98, 66, 18, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(60, 40, 10, 0.22),
+    0 6px 16px rgba(0, 0, 0, 0.16);
+}
+
+/* 凹ませ＋暗く（視認性：暗色刻印） */
+.ao-p5-goldplate-deboss-dark {
+  color: rgba(55, 33, 10, 0.92);
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.30),
+    0 1px 0 rgba(30, 15, 0, 0.70),
+    0 2px 2px rgba(0, 0, 0, 0.22);
+}
+
+/* deboss dark: 色違い（経年感の比較用） */
+.ao-p5-goldplate-deboss-brown {
+  color: rgba(62, 34, 12, 0.92); /* 焦げ茶 */
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.28),
+    0 1px 0 rgba(25, 12, 0, 0.70),
+    0 2px 2px rgba(0, 0, 0, 0.22);
+}
+
+.ao-p5-goldplate-deboss-blueblack {
+  color: rgba(27, 32, 38, 0.92); /* 黒青 */
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.26),
+    0 1px 0 rgba(10, 12, 16, 0.72),
+    0 2px 2px rgba(0, 0, 0, 0.24);
+}
+
+.ao-p5-goldplate-deboss-verdigris {
+  color: rgba(31, 46, 42, 0.92); /* 暗緑（緑青寄り） */
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.24),
+    0 1px 0 rgba(10, 16, 14, 0.72),
+    0 2px 2px rgba(0, 0, 0, 0.24);
+}
+
+/* Google案：多色ゴールド斜めグラデ板 + 掘り込み文字 */
+.ao-p5-goldplate-google-bg {
+  background: linear-gradient(135deg, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
+  border: 3px solid #855e16;
+  border-radius: 10px;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
+}
+
+.ao-p5-goldplate-google-engraved {
+  color: #5a3c0c;
+  text-shadow:
+    0 -2px 1px rgba(255, 255, 255, 0.40),
+    0 2px 1px rgba(0, 0, 0, 0.60);
+}
+
+/* Phase 5: dark leather cutout / deboss text (CSS only) */
+.ao-p5-leather-text {
+  color: #3d1c08;
+  letter-spacing: 0.08em;
+}
+
+/* 型抜き（抜き文字）：上にハイライト＋下に影で「切り抜き」を錯視 */
+.ao-p5-leather-cutout {
+  color: rgba(255, 243, 215, 0.35);
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.16),
+    0 1px 0 rgba(0, 0, 0, 0.55),
+    0 2px 2px rgba(0, 0, 0, 0.28);
+}
+
+/* 焼き印（深いデボス）：暗い内影＋薄い縁の反射 */
+.ao-p5-leather-deboss {
+  color: rgba(0, 0, 0, 0.35);
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.10),
+    0 1px 0 rgba(0, 0, 0, 0.72),
+    0 3px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* 抜き＋縁取りを強め（視認性重視） */
+.ao-p5-leather-cutout-strong {
+  color: rgba(255, 243, 215, 0.42);
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 0 rgba(0, 0, 0, 0.78),
+    0 0 6px rgba(0, 0, 0, 0.22),
+    0 3px 3px rgba(0, 0, 0, 0.32);
+}
+
+/* 凹＋白寄り（視認性を上げたデボス） */
+.ao-p5-leather-deboss-ivory {
+  color: rgba(255, 248, 232, 0.74);
+  text-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 0 rgba(0, 0, 0, 0.82),
+    0 2px 2px rgba(0, 0, 0, 0.30),
+    0 0 10px rgba(0, 0, 0, 0.16);
+}
+
+/* 濃茶レザー板（ボタン背景用・CSSのみ） */
+.ao-p5-leather-plate-bg {
+  background:
+    radial-gradient(120% 90% at 30% 10%, rgba(255,255,255,0.10), transparent 55%),
+    radial-gradient(90% 70% at 80% 90%, rgba(0,0,0,0.25), transparent 60%),
+    repeating-linear-gradient(25deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 2px, rgba(0,0,0,0.05) 2px, rgba(0,0,0,0.05) 4px),
+    linear-gradient(180deg, rgba(92,42,10,0.95) 0%, rgba(61,28,8,0.96) 55%, rgba(35,16,5,0.98) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 -1px 0 rgba(0,0,0,0.35);
+}
+
+/* Phase 5: 送信欄・サイドカード共通の重厚な金枠（マスターのオーナメント簡略版） */
+.ao-p5-gold-frame {
+  border: 1px solid #b8892e;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 247, 220, 0.65),
+    inset 0 -1px 0 rgba(60, 40, 10, 0.08),
+    0 0 0 1px rgba(138, 96, 24, 0.42),
+    2px 4px 14px rgba(0, 0, 0, 0.14);
+}
+
+/* Phase 5: Left sidebar */
+.ao-sidebar-p5 {
+  width: 178px;
+  min-width: 178px;
+  max-width: 178px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 6px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 10;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 146, 42, 0.4) transparent;
+}
+.ao-sidebar-p5::-webkit-scrollbar {
+  width: 3px;
+}
+.ao-sidebar-p5::-webkit-scrollbar-thumb {
+  background: rgba(201, 146, 42, 0.4);
+  border-radius: 2px;
+}
+
+/* Phase 5: Sidebar member card — 金枠 + カード内は白っぽい地図背景 */
+.ao-sidebar-card-p5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  position: relative;
+  flex-shrink: 0;
+  transition:
+    filter 0.15s,
+    box-shadow 0.15s;
+  background-color: rgba(255, 253, 248, 0.55);
+  background-image:
+    linear-gradient(to bottom, rgba(255, 253, 248, 0.94), rgba(248, 242, 230, 0.88)),
+    url("/phase5/map-bg1.png");
+  background-size: auto, cover;
+  background-position: center;
+  border-radius: 2px;
+}
+/* バッジは absolute のままにする */
+.ao-sidebar-card-p5 > *:not(.ao-p5-user-crown-badge) {
+  position: relative;
+  z-index: 1;
+}
+.ao-sidebar-card-p5::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 250, 235, 0.35);
+}
+.ao-sidebar-card-p5:hover {
+  filter: brightness(1.03);
+}
+
+/* Phase 5: User (Juchi) card — 殿下：金帯 + より強い枠 */
+.ao-sidebar-card-p5-user {
+  background-image:
+    linear-gradient(135deg, rgba(255, 236, 180, 0.55), rgba(255, 248, 220, 0.5)),
+    linear-gradient(to bottom, rgba(255, 253, 248, 0.85), rgba(252, 245, 228, 0.78)),
+    url("/phase5/map-bg1.png") !important;
+  background-size: auto, auto, cover !important;
+  background-position: center !important;
+  border: 1px solid #a07018 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 200, 0.55),
+    inset 0 -1px 0 rgba(80, 50, 10, 0.12),
+    0 0 0 2px rgba(201, 146, 42, 0.65),
+    0 3px 14px rgba(0, 0, 0, 0.18) !important;
+}
+
+.ao-p5-user-crown-badge {
+  position: absolute;
+  top: -6px;
+  right: 4px;
+  padding: 1px 5px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #3d2408;
+  background: linear-gradient(180deg, #e8c766 0%, #c9922a 55%, #a87820 100%);
+  border: 1px solid #8a6018;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  line-height: 1.2;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+/* Phase 5: Sidebar portrait (circular) */
+.ao-sidebar-portrait-p5 {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(201, 146, 42, 0.55);
+  background: #1a0d04;
+  position: relative;
+}
+.ao-sidebar-portrait-p5-user {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border: 2px solid rgba(138, 96, 24, 0.95) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 230, 160, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+}
+

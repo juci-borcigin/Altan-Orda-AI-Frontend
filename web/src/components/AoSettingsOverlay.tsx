@@ -16,9 +16,12 @@ import {
 import { AO_LLM_MODEL_PRESETS } from "@/lib/ao-llm-presets";
 import { AO_TOPICS, aoPostingProjectIdForTopic } from "@/lib/ao-topics";
 import type { ProjectId } from "@/lib/ao-types";
+import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
 
 const AO_SETTINGS_GOLD = "#DBB961";
 const AO_SETTINGS_NAVY = "#133D5C";
+const AO_PARCHMENT = "#f6f4ee";
+const AO_INK = "#3D1C08";
 /** 編集面：チャット AI 吹き出し地と揃えた羊皮紙ベージュ */
 const AO_EDIT_SURFACE = "#F4F0E7";
 const AO_EDIT_INK = "#141008";
@@ -26,10 +29,7 @@ const AO_EDIT_BORDER = "#c9b89e";
 const AO_EDIT_BORDER_FOCUS = "#8f7352";
 /** 使用量オーバーレイと同系・枠なしアイコンボタン */
 const SETTINGS_HDR_BTN_CLASS =
-  "flex items-center justify-center rounded-sm border-0 bg-transparent p-1.5 text-[#DBB961] hover:bg-[#143d5e]/80 disabled:opacity-40 disabled:hover:bg-transparent";
-const NOKOR_PORTRAIT_W_PX = 52;
-const NOKOR_ASPECT_CLASS = "aspect-[4/5]";
-
+  "flex items-center justify-center rounded-sm border-0 bg-transparent p-1.5 text-[#3D1C08] hover:bg-black/5 disabled:opacity-40 disabled:hover:bg-transparent";
 const ALLY_AVATAR_SRC: Record<string, string> = {
   フナン: "/personas/AO_Char_Hunan.png",
   モンケウール: "/personas/AO_Char_Mongkeur.png",
@@ -63,7 +63,7 @@ function PromptTextarea(props: {
 }) {
   return (
     <label className="flex min-h-0 flex-col gap-1">
-      <span className="shrink-0 text-[11px] font-semibold text-[#c2cad6]">{props.label}</span>
+      <span className="shrink-0 text-[11px] font-semibold text-[#3D1C08]/70">{props.label}</span>
       <textarea
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
@@ -193,21 +193,21 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
 
   return (
     <div
-      className="absolute inset-0 z-[55] flex min-h-0 flex-col box-border px-3 pb-3 pt-1"
-      style={{ backgroundColor: AO_SETTINGS_NAVY }}
+      className="absolute inset-0 z-[55] flex min-h-0 min-w-0 flex-col box-border overflow-x-hidden px-3 pb-3 pt-1 ao-p5-parchment-surface"
+      style={{ backgroundColor: AO_PARCHMENT }}
       role="dialog"
       aria-label="設定"
     >
       <div className="flex shrink-0 items-start justify-between gap-2 pb-2 pt-0">
-        <div className="min-w-0 flex-1 space-y-0.5 px-0.5 text-left text-[11px] leading-snug text-[#9eb3c9]">
+        <div className="min-w-0 flex-1 space-y-0.5 px-0.5 text-left text-[11px] leading-snug text-[#3D1C08]/70">
           <div>
             環境既定モデル（プルダウン「環境既定」時）:{" "}
-            <span className="font-mono text-[#c2cad6]">{envDefaultModel || "（未設定）"}</span>
+            <span className="font-mono text-[#1a1208]">{envDefaultModel || "（未設定）"}</span>
           </div>
           {llmApi ? (
             <div>
-              共通 API 接続先（サーバー）: <span className="font-mono text-[#e8d9c4]">{llmApi.host}</span>
-              <span className="text-[#9eb3c9]/90">{llmApi.isOpenRouter ? " — OpenRouter" : " — OpenAI 互換"}</span>
+              共通 API 接続先（サーバー）: <span className="font-mono text-[#1a1208]">{llmApi.host}</span>
+              <span className="text-[#3D1C08]/70">{llmApi.isOpenRouter ? " — OpenRouter" : " — OpenAI 互換"}</span>
             </div>
           ) : null}
         </div>
@@ -243,14 +243,14 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
 
       <div
         className="min-h-0 flex-1 overflow-y-auto border border-solid [scrollbar-gutter:stable] px-3 py-2"
-        style={{ borderColor: AO_SETTINGS_GOLD, borderWidth: 1, backgroundColor: AO_SETTINGS_NAVY }}
+        style={{ borderColor: AO_INK, borderWidth: 1, backgroundColor: "#faf6ee" }}
       >
         {loading ? (
-          <div className="py-8 text-center text-[13px] text-[#c2cad6]">読み込み中…</div>
+          <div className="py-8 text-center text-[13px] text-[#3D1C08]/60">読み込み中…</div>
         ) : (
           <div className="flex flex-col gap-6 pb-6">
             <section>
-              <h3 className="mb-2 border-b pb-1 text-[13px] font-semibold text-[#DBB961]" style={{ borderColor: `${AO_SETTINGS_GOLD}55` }}>
+              <h3 className="mb-2 border-b pb-1 text-[13px] font-semibold text-[#3D1C08]" style={{ borderColor: `${AO_INK}22` }}>
                 グローバル・共通プロンプト
               </h3>
               <div className="flex flex-col gap-3">
@@ -262,7 +262,7 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
                     onChange={(v) => setSection(key, v)}
                   />
                 ))}
-                <p className="text-[11px] text-[#9eb3c9]">ルール</p>
+                <p className="text-[11px] text-[#3D1C08]/60">ルール</p>
                 {AO_SETTINGS_RULE_KEYS.map((key) => (
                   <PromptTextarea
                     key={key}
@@ -271,7 +271,7 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
                     onChange={(v) => setSection(key, v)}
                   />
                 ))}
-                <p className="text-[11px] text-[#9eb3c9]">ヘッダ・モード</p>
+                <p className="text-[11px] text-[#3D1C08]/60">ヘッダ・モード</p>
                 {AO_SETTINGS_HEADER_MODE_KEYS.map((key) => (
                   <PromptTextarea
                     key={key}
@@ -284,13 +284,13 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
             </section>
 
             <section>
-              <h3 className="mb-2 border-b pb-1 text-[13px] font-semibold text-[#DBB961]" style={{ borderColor: `${AO_SETTINGS_GOLD}55` }}>
+              <h3 className="mb-2 border-b pb-1 text-[13px] font-semibold text-[#3D1C08]" style={{ borderColor: `${AO_INK}22` }}>
                 論ごとのプロンプト・AI モデル
               </h3>
-              <p className="mb-3 text-[11px] leading-snug text-[#b0c4d4]">
+              <p className="mb-3 text-[11px] leading-snug text-[#3D1C08]/70">
                 チャット送信時は「共通 API 接続先」のまま、
-                <strong className="font-semibold text-[#e8d9c4]"> モデル ID だけ</strong>が論ごとに切り替わります（OpenRouter なら{" "}
-                <code className="rounded px-0.5 font-mono text-[10px] text-[#FAF3E6]/90">vendor/model</code>）。
+                <strong className="font-semibold text-[#1a1208]"> モデル ID だけ</strong>が論ごとに切り替わります（OpenRouter なら{" "}
+                <code className="rounded bg-black/5 px-0.5 font-mono text-[10px] text-[#1a1208]/90">vendor/model</code>）。
               </p>
               <div className="flex flex-col gap-4">
                 {AO_TOPICS.map((tp) => {
@@ -304,23 +304,23 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
                   const modelTitle =
                     `${effectiveModelId || "（未設定）"} — ${modelSourceLabel}`;
                   return (
-                    <div key={tp.id} className="flex flex-col gap-2 border-b pb-4 last:border-b-0" style={{ borderColor: `${AO_SETTINGS_GOLD}33` }}>
+                    <div key={tp.id} className="flex flex-col gap-2 border-b pb-4 last:border-b-0" style={{ borderColor: `${AO_INK}22` }}>
                       {/* 為政論　project_id=plan モデル：＜現在＞ 変更 ＜プルダウン＞ */}
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 font-serif text-[11px] leading-snug">
-                        <span className="shrink-0 font-semibold tracking-wide text-[#FAF3E6]">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 font-serif text-[11px] leading-snug text-[#3D1C08]">
+                        <span className="shrink-0 font-semibold tracking-wide text-[#3D1C08]">
                           {tp.label}
                           {/* U+3000 為政論　project_id=plan */}
                           {"\u3000"}
                         </span>
-                        <span className="shrink-0 font-mono text-[10px] text-[#9eb3c9]">project_id={pid}</span>
-                        <span className="shrink-0 text-[#c2cad6]">モデル：</span>
+                        <span className="shrink-0 font-mono text-[10px] text-[#3D1C08]/60">project_id={pid}</span>
+                        <span className="shrink-0 text-[#3D1C08]/70">モデル：</span>
                         <span
-                          className="min-w-0 max-w-[10.5rem] shrink truncate font-mono text-[11px] text-[#e8d9c4] sm:max-w-[14rem]"
+                          className="min-w-0 max-w-[10.5rem] shrink truncate font-mono text-[11px] text-[#1a1208] sm:max-w-[14rem]"
                           title={modelTitle}
                         >
                           {effectiveModelId || "（.env 未設定）"}
                         </span>
-                        <span className="shrink-0 text-[#c2cad6]">変更</span>
+                        <span className="shrink-0 text-[#3D1C08]/70">変更</span>
                         <select
                           aria-label={`${tp.label} のモデル`}
                           value={showCustom ? "__custom__" : modelVal}
@@ -348,7 +348,7 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
                       </div>
                       {showCustom ? (
                         <label className="flex flex-col gap-1">
-                          <span className="text-[11px] text-[#9eb3c9]">モデル ID（直接入力）</span>
+                          <span className="text-[11px] text-[#3D1C08]/60">モデル ID（直接入力）</span>
                           <input
                             value={modelVal}
                             onChange={(e) => setProjectModel(pid, e.target.value)}
@@ -373,7 +373,7 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
             </section>
 
             <section>
-              <h3 className="mb-2 border-b pb-1 text-[13px] font-semibold text-[#DBB961]" style={{ borderColor: `${AO_SETTINGS_GOLD}55` }}>
+              <h3 className="mb-2 border-b pb-1 text-[13px] font-semibold text-[#3D1C08]" style={{ borderColor: `${AO_INK}22` }}>
                 僚友プロンプト（表示のみで顔グラ）
               </h3>
               <div className="flex flex-col gap-4">
@@ -384,9 +384,9 @@ export function AoSettingsOverlay({ open, onClose }: Props) {
                   return (
                     <div key={name} className="flex gap-3 border-b pb-4 last:border-b-0" style={{ borderColor: `${AO_SETTINGS_GOLD}33` }}>
                       <div className="flex shrink-0 flex-col items-center gap-1">
-                        <div className={`relative overflow-hidden rounded-none bg-black/15 ${NOKOR_ASPECT_CLASS}`} style={{ width: NOKOR_PORTRAIT_W_PX }}>
+                        <div className="ao-portrait-frame overflow-hidden rounded-none bg-black/15">
                           {src ? (
-                            <Image src={src} alt={name} fill sizes={`${NOKOR_PORTRAIT_W_PX}px`} className="object-cover object-top" />
+                            <Image src={src} alt={name} fill sizes={`${AO_PORTRAIT_LAYOUT_W_PX}px`} className="object-cover object-top" />
                           ) : null}
                         </div>
                         <span className="max-w-[72px] text-center text-[10px] font-semibold leading-tight text-[#DBB961]">{name}</span>

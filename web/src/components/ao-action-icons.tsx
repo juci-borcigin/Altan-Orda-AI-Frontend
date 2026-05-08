@@ -77,6 +77,24 @@ export function IcoExecute({ size = 18, className }: { size?: number; className?
   );
 }
 
+/** ログイン（矢印が入る） */
+export function IcoLogin({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconSvg size={size} className={className}>
+      <path d="M152,40H72A32,32,0,0,0,40,72v112a32,32,0,0,0,32,32h80a8,8,0,0,0,0-16H72a16,16,0,0,1-16-16V72A16,16,0,0,1,72,56h80a8,8,0,0,0,0-16Zm89.66,93.66-40-40A8,8,0,0,0,188,99.31V120H104a8,8,0,0,0,0,16h84v20.69a8,8,0,0,0,13.66,5.65l40-40A8,8,0,0,0,241.66,133.66Z" />
+    </IconSvg>
+  );
+}
+
+/** ログアウト（矢印が出る） */
+export function IcoLogout({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconSvg size={size} className={className}>
+      <path d="M184,40H104a8,8,0,0,0,0,16h80a16,16,0,0,1,16,16v112a16,16,0,0,1-16,16H104a8,8,0,0,0,0,16h80a32,32,0,0,0,32-32V72A32,32,0,0,0,184,40ZM68,93.66l-40,40a8,8,0,0,0,0,11.32l40,40A8,8,0,0,0,80,180.69V160h84a8,8,0,0,0,0-16H80V99.31a8,8,0,0,0-12-5.65Z" />
+    </IconSvg>
+  );
+}
+
 /** @deprecated IcoExecute と同一 */
 export const IcoPlay = IcoExecute;
 

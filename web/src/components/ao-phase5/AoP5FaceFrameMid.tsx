@@ -1,0 +1,169 @@
+"use client";
+
+import type { CSSProperties } from "react";
+
+/** Face_SM: face_sm_cnr 素 6×6 */
+const FACE_CNR = 6;
+/** Face_SM: frame_sm_btm 素（実ファイル名）— 上下タイル 6×6 */
+const FACE_TB_TILE = 6;
+/** Face_SM: frame_sm_rite 素（実ファイル名）— 左右タイル 6×6 */
+const FACE_RITE_TILE = 6;
+
+export interface AoP5FaceFrameMidProps {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+  className?: string;
+  style?: CSSProperties;
+}
+
+/**
+ * Face_SM（画像パーツ）・枠は顔グラ外側のみ・余白0。
+ *
+ * - 角 face_sm_cnr: 右下=素、右上=scaleY(-1)、左下=scaleX(-1)、左上=scaleX(-1)scaleY(-1)
+ * - 上下 frame_sm_btm: 下=素 repeat-x、上=scaleY(-1) repeat-x
+ * - 左右 frame_sm_rite: 右=素 repeat-y、左=scaleX(-1) repeat-y
+ *
+ * （フォルダ上のファイル名は `frame_sm_btm.png` / `frame_sm_rite.png`）
+ */
+export function AoP5FaceFrameMid({ src, alt, width, height, className, style }: AoP5FaceFrameMidProps) {
+  const px = (n: number) => `${n}px`;
+
+  const cnr = FACE_CNR;
+  const tbBand = FACE_TB_TILE;
+  const sideW = FACE_RITE_TILE;
+
+  const outerW = width + cnr * 2;
+  const outerH = height + cnr * 2;
+  const gapX = Math.max(0, width);
+  const gapY = Math.max(0, height);
+
+  /** 角・枠の継ぎ目のすき間対策 */
+  const seam = 1;
+
+  const base: CSSProperties = { position: "absolute", pointerEvents: "none", zIndex: 2 };
+  const tbBg = "url('/phase5/frame_sm_btm.png')";
+  const tbSize = `${px(FACE_TB_TILE)} ${px(FACE_TB_TILE)}`;
+  const riteBg = "url('/phase5/frame_sm_rite.png')";
+  const riteSize = `${px(FACE_RITE_TILE)} ${px(FACE_RITE_TILE)}`;
+
+  return (
+    <div className={`relative ${className ?? ""}`} style={{ width: px(outerW), height: px(outerH), ...style }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        style={{
+          position: "absolute",
+          left: px(cnr),
+          top: px(cnr),
+          width: px(width),
+          height: px(height),
+          objectFit: "cover",
+          objectPosition: "top",
+          zIndex: 1,
+        }}
+      />
+
+      {/* 上辺 */}
+      {gapX > 0 ? (
+        <div
+          aria-hidden
+          style={{
+            ...base,
+            left: px(cnr - seam),
+            top: px(cnr - tbBand),
+            width: px(gapX + seam * 2),
+            height: px(tbBand),
+            backgroundImage: tbBg,
+            backgroundRepeat: "repeat-x",
+            backgroundSize: tbSize,
+            transform: "scaleY(-1)",
+            transformOrigin: "center",
+          }}
+        />
+      ) : null}
+
+      {/* 下辺 */}
+      {gapX > 0 ? (
+        <div
+          aria-hidden
+          style={{
+            ...base,
+            left: px(cnr - seam),
+            top: px(cnr + height),
+            width: px(gapX + seam * 2),
+            height: px(tbBand),
+            backgroundImage: tbBg,
+            backgroundRepeat: "repeat-x",
+            backgroundSize: tbSize,
+          }}
+        />
+      ) : null}
+
+      {/* 左辺 */}
+      {gapY > 0 ? (
+        <div
+          aria-hidden
+          style={{
+            ...base,
+            left: px(cnr - sideW),
+            top: px(cnr - seam),
+            width: px(sideW),
+            height: px(gapY + seam * 2),
+            backgroundImage: riteBg,
+            backgroundRepeat: "repeat-y",
+            backgroundSize: riteSize,
+            backgroundPosition: "center top",
+            transform: "scaleX(-1)",
+            transformOrigin: "center",
+          }}
+        />
+      ) : null}
+
+      {/* 右辺 */}
+      {gapY > 0 ? (
+        <div
+          aria-hidden
+          style={{
+            ...base,
+            left: px(cnr + width),
+            top: px(cnr - seam),
+            width: px(sideW),
+            height: px(gapY + seam * 2),
+            backgroundImage: riteBg,
+            backgroundRepeat: "repeat-y",
+            backgroundSize: riteSize,
+            backgroundPosition: "center top",
+          }}
+        />
+      ) : null}
+
+      {/* コーナー */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/phase5/face_sm_cnr.png"
+        alt=""
+        aria-hidden
+        style={{ ...base, zIndex: 3, left: px(0), top: px(0), width: px(cnr), height: px(cnr), transform: "scale(-1,-1)", transformOrigin: "center" }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/phase5/face_sm_cnr.png"
+        alt=""
+        aria-hidden
+        style={{ ...base, zIndex: 3, left: px(cnr + width), top: px(0), width: px(cnr), height: px(cnr), transform: "scaleY(-1)", transformOrigin: "center" }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/phase5/face_sm_cnr.png"
+        alt=""
+        aria-hidden
+        style={{ ...base, zIndex: 3, left: px(0), top: px(cnr + height), width: px(cnr), height: px(cnr), transform: "scaleX(-1)", transformOrigin: "center" }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/phase5/face_sm_cnr.png" alt="" aria-hidden style={{ ...base, zIndex: 3, left: px(cnr + width), top: px(cnr + height), width: px(cnr), height: px(cnr) }} />
+    </div>
+  );
+}
