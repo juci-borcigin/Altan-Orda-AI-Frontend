@@ -9,6 +9,32 @@ const NAME_BTM_H_NAT = 5;
 const NAME_RITE_W_NAT = 6;
 const NAME_RITE_H_NAT = 8;
 
+/** tight 名札の左右内側余白（`AoP5NameplateSmFrame` と算出関数で共通） */
+const TIGHT_NAMEPLATE_PAD_X_PX = 6;
+
+/**
+ * tight／非 flush の名札外寸幅（px）。僚友列などで「7文字相当の名札幅」をレイアウトに合わせるとき用。
+ * `AoP5NameplateSmFrame` と同じ式であること（定数変更時はここも同期）。
+ */
+export function aoP5NameplateSmTightPlateOuterWidthPx(opts: {
+  bandWidthPx: number;
+  nameplateFontSizePx?: number;
+  /** 幅の基準とする文字数（僚友は 7） */
+  layoutCharCount?: number;
+}): number {
+  const width = opts.bandWidthPx;
+  const charN = Math.max(1, opts.layoutCharCount ?? 7);
+  const scale = (width / 60) * 0.5;
+  const geomScale = scale * 0.55;
+  const riteW = Math.max(3, Math.round(NAME_RITE_W_NAT * geomScale));
+  const fontSizePx = opts.nameplateFontSizePx;
+  const fontSize = Math.max(7, (fontSizePx ?? Math.max(10, Math.round((11 * width) / 80))) - 3);
+  const estTextW = Math.ceil(fontSize * charN * 1.05 + fontSize * 0.055 * Math.max(0, charN - 1));
+  const neededW =
+    estTextW + riteW * 2 + 2 + 2 * (TIGHT_NAMEPLATE_PAD_X_PX - 1);
+  return Math.max(width, neededW);
+}
+
 export interface AoP5NameplateSmFrameProps {
   text: string;
   width: number;
@@ -58,7 +84,11 @@ export function AoP5NameplateSmFrame({
   const charN = Math.max(1, Math.min(maxChars, text.length || 1));
   const estTextW = Math.ceil(fontSize * charN * 1.05 + fontSize * 0.055 * Math.max(0, charN - 1));
 
-  const neededW = estTextW + riteW * 2 + 2;
+  const neededW =
+    estTextW +
+    riteW * 2 +
+    2 +
+    (tight && !flush ? 2 * (TIGHT_NAMEPLATE_PAD_X_PX - 1) : 0);
   const plateW = fitToText ? Math.max(neededW, cnr * 2 + 2) : Math.max(width, neededW);
   const innerH = Math.max(fontSize + 2, Math.round(NAME_BTM_H_NAT * scale * 3));
   const plateH = tbH * 2 + innerH;
@@ -74,8 +104,7 @@ export function AoP5NameplateSmFrame({
   const riteBg = "url('/phase5/name_sm_rite.png')";
   const riteSize = `${px(riteW)} ${px(riteTileH)}`;
 
-  // tight は「枠と文字の間」を極限まで詰める（チャット側に近い密度）
-  const padX = flush ? 0 : tight ? 1 : riteW + 1;
+  const padX = flush ? 0 : tight ? TIGHT_NAMEPLATE_PAD_X_PX : riteW + 1;
   const padY = flush ? 0 : tight ? 1 : tbH + 1;
 
   return (

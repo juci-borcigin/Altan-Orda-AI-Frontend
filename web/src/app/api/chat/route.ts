@@ -33,6 +33,7 @@ type ReqBody = {
 type OutChunk = { speaker: string; text: string };
 
 const MAX_TOOL_ROUNDS = 2;
+const MAX_FORMAT_RETRY = 2;
 
 /** LLM / Tavily の 1 リクエストあたり（秒）。既定はツール経路を考慮して長め。Vercel の関数上限に合わせて短くする場合は env で調整 */
 function requestTimeoutMs(): number {
@@ -107,6 +108,14 @@ type ToolCall = {
   function: { name: string; arguments: string };
 };
 
+function serializeOutboundChatMessages(messages: ChatMessage[]): string {
+  try {
+    return JSON.stringify(messages, null, 2);
+  } catch {
+    return "[serialize error]";
+  }
+}
+
 function trimHistory(projectId: ProjectId, messages: InMsg[]): InMsg[] {
   const short =
     projectId === "debate" ||
@@ -140,6 +149,15 @@ function parseJsonl(text: string): OutChunk[] {
   if (out.length) return out;
 
   return [{ speaker: "不明", text: text.trim() || "（空）" }];
+}
+
+function isJsonlParseFallback(chunks: OutChunk[], rawText: string): boolean {
+  if (chunks.length !== 1) return false;
+  const c = chunks[0];
+  if (c.speaker !== "不明") return false;
+  const t = (rawText ?? "").trim();
+  // raw が空 or JSONL として 1 行も成立しない場合のフォールバック
+  return c.text === "（空）" || t.length === 0 || c.text === t;
 }
 
 /**
@@ -524,10 +542,16 @@ export async function POST(req: Request) {
     const rawChunks = parseJsonl(text);
     const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
     const usageDry = await buildTurnUsagePayload(effectiveModel, 0, 0);
+    const dryOutbound: ChatMessage[] = [
+      { role: "system", content: system },
+      ...trimmed.map((m) => ({ role: m.role, content: m.content })),
+    ];
+    const rawPromptSentDry = serializeOutboundChatMessages(dryOutbound);
     return NextResponse.json({
       chunks,
       rawContent: text,
       usage: usageDry,
+      rawPrompts: { sent: rawPromptSentDry, received: text },
       llm: {
         mode: "dry-run",
         provider,
@@ -566,10 +590,16 @@ export async function POST(req: Request) {
     const rawChunks = parseJsonl(text);
     const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
     const usageMock = await buildTurnUsagePayload(effectiveModel, 0, 0);
+    const mockOutbound: ChatMessage[] = [
+      { role: "system", content: system },
+      ...trimmed.map((m) => ({ role: m.role, content: m.content })),
+    ];
+    const rawPromptSentMock = serializeOutboundChatMessages(mockOutbound);
     return NextResponse.json({
       chunks,
       rawContent: text,
       usage: usageMock,
+      rawPrompts: { sent: rawPromptSentMock, received: text },
       llm: {
         mode: "mock",
         model: effectiveModel,
@@ -655,6 +685,7 @@ export async function POST(req: Request) {
   const tools = tavilyEnabled ? [WEB_SEARCH_TOOL] : undefined;
 
   let finalContent = "";
+  let formatRetry = 0;
   let toolRounds = 0;
   let completionRoundCount = 0;
   let webSearchInvocationCount = 0;
@@ -709,6 +740,20 @@ export async function POST(req: Request) {
             "completionRounds=",
             completionRoundCount,
           );
+        }
+        // C: JSONL 形式が崩れている（1行も JSON として読めない）場合は、最大2回だけ再思考させる
+        const probeChunks = parseJsonl(finalContent);
+        if (formatRetry < MAX_FORMAT_RETRY && isJsonlParseFallback(probeChunks, finalContent)) {
+          formatRetry += 1;
+          // 次ラウンドはツール無しで、形式強制の追記を入れて再実行
+          messages.push({
+            role: "system",
+            content:
+              "【重要: 出力形式の再実行】直前の出力が JSON Lines 形式ではありませんでした。必ず 1行=1発言の JSON のみで出力せよ。余計な文字（説明・空行・見出し・Markdown）は一切出さない。",
+          });
+          // toolRounds を MAX にして強制的に tool_choice=none へ
+          toolRounds = MAX_TOOL_ROUNDS;
+          continue;
         }
         break;
       }
@@ -793,6 +838,8 @@ export async function POST(req: Request) {
 
   const rawChunks = parseJsonl(finalContent);
   const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
+  const rawPromptSentLive = serializeOutboundChatMessages(messages);
+  const rawPromptReceivedLive = finalContent;
 
   if (persistMessages && persistedThreadUuid && supa && chunks.length > 0) {
     try {
@@ -813,6 +860,8 @@ export async function POST(req: Request) {
         completion_tokens: i === 0 ? usageAgg.completion : null,
         token_count: i === 0 ? usageAgg.prompt + usageAgg.completion : null,
         usd_estimate: i === 0 ? usdRow : null,
+        raw_prompt_sent: i === 0 ? rawPromptSentLive : null,
+        raw_prompt_received: i === 0 ? rawPromptReceivedLive : null,
       }));
       const { data: insertedRows, error: ae } = await supa
         .from("messages")
@@ -841,6 +890,7 @@ export async function POST(req: Request) {
     chunks,
     rawContent: finalContent,
     usage: usagePayload,
+    rawPrompts: { sent: rawPromptSentLive, received: rawPromptReceivedLive },
     ...(persistMessages && persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
     ...(isChatDebugMode()
       ? {

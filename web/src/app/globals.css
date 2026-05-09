@@ -60,12 +60,18 @@
 @media (max-width: 359px) {
   .ao-mobile-stack-scale {
     zoom: 0.72;
+    /*
+     * zoom で見た目だけ縮むと、レイアウト上の高さは 100dvh のままでは画面下端が body 背景で欠ける。
+     * レイアウト高さを 1/zoom 倍してスケール後に viewport を縦に覆う。
+     */
+    min-height: calc(100dvh / 0.72);
   }
 }
 
 @media (min-width: 360px) and (max-width: 767px) {
   .ao-mobile-stack-scale {
     zoom: 0.82;
+    min-height: calc(100dvh / 0.82);
   }
 }
 
@@ -73,14 +79,6 @@
 .ao-header-safe-x {
   padding-left: max(12px, env(safe-area-inset-left, 0px));
   padding-right: max(12px, env(safe-area-inset-right, 0px));
-}
-
-@media (max-width: 767px) {
-  /* 縦スクロールだけ親へ伝える（横スクロールはページ側が個別に制御） */
-  .ao-mobile-stack-scale {
-    min-height: 100%;
-    min-height: 100dvh;
-  }
 }
 
 /* レイヤー無しの * { padding:0 } は Tailwind v4 の @layer utilities を潰す（任意値 pl/pr が常に 0 になる） */

@@ -14,6 +14,12 @@ export type MsgTurnUsage = {
   modelId: string;
 };
 
+/** /api/chat が返す LLM 往復全文（Supabase assistant 先頭行にも保存） */
+export type MsgRawPromptBundle = {
+  sent: string;
+  received: string;
+};
+
 export type Msg = {
   id: string;
   side: "user" | "ai";
@@ -24,8 +30,10 @@ export type Msg = {
   hiddenFromUi?: boolean;
   /** 非表示メッセージの種別（将来の思考ブロック等の拡張用） */
   metaKind?: MsgMetaKind;
-  /** AI 吹き出し用：直近の completion で集計したトークン／概算 USD */
+  /** 直近 completion のトークン／概算 USD（AI 行に付与。送信直後のユーザー行にも同一ターンで複製） */
   usage?: MsgTurnUsage;
+  /** LLM 往復 Raw（AI／その直前のユーザー行に同一ターンで保持） */
+  rawPrompts?: MsgRawPromptBundle;
 };
 
 export type Thread = {
@@ -125,6 +133,11 @@ function isMsg(x: unknown): x is Msg {
   if (o.usage !== undefined && o.usage !== null && typeof o.usage !== "object") {
     return false;
   }
+  if (o.rawPrompts !== undefined && o.rawPrompts !== null) {
+    if (typeof o.rawPrompts !== "object") return false;
+    const rp = o.rawPrompts as Record<string, unknown>;
+    if (typeof rp.sent !== "string" || typeof rp.received !== "string") return false;
+  }
   return true;
 }
 
@@ -177,6 +190,12 @@ function msgRejectReason(m: unknown, path: string): string | null {
   }
   if (o.metaKind !== undefined && typeof o.metaKind !== "string") {
     return `${path}: metaKind が string ではありません`;
+  }
+  if (o.rawPrompts !== undefined && o.rawPrompts !== null) {
+    if (typeof o.rawPrompts !== "object") return `${path}: rawPrompts が object ではありません`;
+    const rp = o.rawPrompts as Record<string, unknown>;
+    if (typeof rp.sent !== "string") return `${path}: rawPrompts.sent が string ではありません`;
+    if (typeof rp.received !== "string") return `${path}: rawPrompts.received が string ではありません`;
   }
   return null;
 }

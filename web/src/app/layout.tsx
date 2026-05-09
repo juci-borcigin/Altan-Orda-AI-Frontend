@@ -52,6 +52,7 @@ export default function RootLayout({
   return (
     <html
       lang="ja"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${zenOldMincho.variable} ${hakushuReishoNenga.variable} h-full antialiased`}
     >
       <body
