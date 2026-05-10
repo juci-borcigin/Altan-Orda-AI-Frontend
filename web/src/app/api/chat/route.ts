@@ -13,6 +13,7 @@ import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
 import { buildJapanNowSystemPrefix } from "@/lib/ao-chat-context";
 import { buildRagInjectionBlock } from "@/lib/rag-context";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
 
 type InMsg = {
@@ -302,18 +303,6 @@ async function buildTurnUsagePayload(
     estimatedUsd: await estimateCompletionUsdForModel(promptTokens, completionTokens, modelId),
     modelId,
   };
-}
-
-function addCompletionUsage(
-  agg: { prompt: number; completion: number },
-  json: CompletionJson,
-): void {
-  const u = json.usage;
-  if (!u || typeof u !== "object") return;
-  const p = u.prompt_tokens;
-  const c = u.completion_tokens;
-  if (typeof p === "number" && Number.isFinite(p)) agg.prompt += Math.max(0, Math.floor(p));
-  if (typeof c === "number" && Number.isFinite(c)) agg.completion += Math.max(0, Math.floor(c));
 }
 
 async function postChatCompletion(
@@ -720,7 +709,7 @@ export async function POST(req: Request) {
         AbortSignal.timeout(requestTimeoutMs()),
       );
 
-      addCompletionUsage(usageAgg, json);
+      addCompletionUsageToAgg(usageAgg, json);
 
       const msg = json.choices?.[0]?.message;
       if (!msg) {

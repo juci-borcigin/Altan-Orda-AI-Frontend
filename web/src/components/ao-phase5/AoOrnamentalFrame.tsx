@@ -45,6 +45,10 @@ export function AoOrnamentalFrame({
   contentStyle,
   fillClassName = "ao-p5-parchment-surface",
   fillStyle,
+  /** 装飾枠の内側パディング（px）。未指定時は画像サイズから算出した insetPad */
+  contentInsetPx,
+  /** `inline-flex` でルートを内容高に収める（論タブ列など flex 継承で縦に伸びるのを防ぐ） */
+  rootDisplay = "flex",
 }: {
   children: ReactNode;
   scale?: number;
@@ -52,6 +56,8 @@ export function AoOrnamentalFrame({
   style?: CSSProperties;
   contentClassName?: string;
   contentStyle?: CSSProperties;
+  contentInsetPx?: number;
+  rootDisplay?: "flex" | "inline-flex";
   /**
    * 枠の内側（インセット余白も含む）を塗るレイヤ。
    * - `ao-p5-parchment-surface` を既定とし、地図背景の透けを防ぐ。
@@ -60,6 +66,11 @@ export function AoOrnamentalFrame({
   fillClassName?: string;
   fillStyle?: CSSProperties;
 }) {
+  const rawContentStyle = contentStyle ?? {};
+  const { padding: innerPaddingFromContent, ...restContentStyle } = rawContentStyle as CSSProperties & {
+    padding?: CSSProperties["padding"];
+  };
+
   const fw = FRAME_NATURAL_W * scale;
   const fh = FRAME_NATURAL_H * scale;
   const sideW = SIDE_FRAME_NATURAL_W * scale;
@@ -86,6 +97,7 @@ export function AoOrnamentalFrame({
   const cwPx = `${cw}px`;
   const chPx = `${ch}px`;
   const insetPadPx = `${insetPad}px`;
+  const contentPadResolvedPx = contentInsetPx != null ? `${contentInsetPx}px` : insetPadPx;
 
   const bgRepeatX: CSSProperties = {
     backgroundImage: bgTopBottom,
@@ -100,8 +112,13 @@ export function AoOrnamentalFrame({
     backgroundPosition: "top center",
   };
 
+  const rootLayoutCls =
+    rootDisplay === "inline-flex"
+      ? "relative box-border inline-flex max-h-max min-h-0 w-full flex-col"
+      : "relative box-border flex min-h-0 flex-col";
+
   return (
-    <div className={`relative box-border ${className ?? ""}`} style={{ ...style }}>
+    <div className={`${rootLayoutCls} ${className ?? ""}`} style={{ ...style }}>
       {/* 枠の内側（パディング領域も含む）を塗る */}
       <div
         aria-hidden
@@ -220,11 +237,17 @@ export function AoOrnamentalFrame({
       <div
         className={`relative z-[2] box-border min-h-0 min-w-0 ${contentClassName ?? ""}`}
         style={{
-          padding: insetPadPx,
-          ...contentStyle,
+          padding: contentPadResolvedPx,
+          ...restContentStyle,
         }}
       >
-        {children}
+        {innerPaddingFromContent !== undefined ? (
+          <div className="min-h-0 min-w-0" style={{ padding: innerPaddingFromContent }}>
+            {children}
+          </div>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

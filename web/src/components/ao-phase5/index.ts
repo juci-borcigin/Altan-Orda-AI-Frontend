@@ -19,5 +19,9 @@ export { AoP5PortraitFrameC } from "./AoP5PortraitFrameC";
 export type { AoP5PortraitFrameCProps } from "./AoP5PortraitFrameC";
 export { AoP5FaceFrameMid } from "./AoP5FaceFrameMid";
 export type { AoP5FaceFrameMidProps } from "./AoP5FaceFrameMid";
-export { AoP5NameplateSmFrame, aoP5NameplateSmTightPlateOuterWidthPx } from "./AoP5NameplateSmFrame";
+export {
+  AoP5NameplateSmFrame,
+  AO_PC_NOKOR_TIGHT_PAD_X_PX,
+  aoP5NameplateSmTightPlateOuterWidthPx,
+} from "./AoP5NameplateSmFrame";
 export type { AoP5NameplateSmFrameProps } from "./AoP5NameplateSmFrame";

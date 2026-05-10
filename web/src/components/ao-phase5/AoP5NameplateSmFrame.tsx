@@ -12,6 +12,9 @@ const NAME_RITE_H_NAT = 8;
 /** tight 名札の左右内側余白（`AoP5NameplateSmFrame` と算出関数で共通） */
 const TIGHT_NAMEPLATE_PAD_X_PX = 6;
 
+/** PC 僚友：tight の左右パディングを既定の 50%（ドロワー等は既定のまま） */
+export const AO_PC_NOKOR_TIGHT_PAD_X_PX = Math.round(TIGHT_NAMEPLATE_PAD_X_PX / 2);
+
 /**
  * tight／非 flush の名札外寸幅（px）。僚友列などで「7文字相当の名札幅」をレイアウトに合わせるとき用。
  * `AoP5NameplateSmFrame` と同じ式であること（定数変更時はここも同期）。
@@ -21,6 +24,8 @@ export function aoP5NameplateSmTightPlateOuterWidthPx(opts: {
   nameplateFontSizePx?: number;
   /** 幅の基準とする文字数（僚友は 7） */
   layoutCharCount?: number;
+  /** tight 左右パディング（px）。未指定時は `TIGHT_NAMEPLATE_PAD_X_PX` */
+  tightPadXPx?: number;
 }): number {
   const width = opts.bandWidthPx;
   const charN = Math.max(1, opts.layoutCharCount ?? 7);
@@ -30,8 +35,8 @@ export function aoP5NameplateSmTightPlateOuterWidthPx(opts: {
   const fontSizePx = opts.nameplateFontSizePx;
   const fontSize = Math.max(7, (fontSizePx ?? Math.max(10, Math.round((11 * width) / 80))) - 3);
   const estTextW = Math.ceil(fontSize * charN * 1.05 + fontSize * 0.055 * Math.max(0, charN - 1));
-  const neededW =
-    estTextW + riteW * 2 + 2 + 2 * (TIGHT_NAMEPLATE_PAD_X_PX - 1);
+  const tightPad = opts.tightPadXPx ?? TIGHT_NAMEPLATE_PAD_X_PX;
+  const neededW = estTextW + riteW * 2 + 2 + 2 * (tightPad - 1);
   return Math.max(width, neededW);
 }
 
@@ -43,6 +48,8 @@ export interface AoP5NameplateSmFrameProps {
   variant?: "default" | "tight" | "flush";
   /** true の場合、指定 width を最小幅にせず文字幅にフィットさせる */
   fitToText?: boolean;
+  /** tight（非 flush）時のテキスト左右パディング（px）。未指定時は既定 6 */
+  tightPadXPx?: number;
   className?: string;
   style?: CSSProperties;
 }
@@ -63,6 +70,7 @@ export function AoP5NameplateSmFrame({
   fontSizePx,
   variant = "default",
   fitToText = false,
+  tightPadXPx,
   className,
   style,
 }: AoP5NameplateSmFrameProps) {
@@ -71,6 +79,7 @@ export function AoP5NameplateSmFrame({
   const scale = (width / 60) * 0.5;
   const tight = variant === "tight" || variant === "flush";
   const flush = variant === "flush";
+  const tightHorizPad = tight && !flush ? (tightPadXPx ?? TIGHT_NAMEPLATE_PAD_X_PX) : TIGHT_NAMEPLATE_PAD_X_PX;
   const geomScale = tight ? scale * 0.55 : scale;
   const cnr = Math.max(6, Math.round(NAME_CNR_NAT * geomScale));
   const tbH = Math.max(3, Math.round(NAME_BTM_H_NAT * geomScale));
@@ -85,12 +94,11 @@ export function AoP5NameplateSmFrame({
   const estTextW = Math.ceil(fontSize * charN * 1.05 + fontSize * 0.055 * Math.max(0, charN - 1));
 
   const neededW =
-    estTextW +
-    riteW * 2 +
-    2 +
-    (tight && !flush ? 2 * (TIGHT_NAMEPLATE_PAD_X_PX - 1) : 0);
+    estTextW + riteW * 2 + 2 + (tight && !flush ? 2 * (tightHorizPad - 1) : 0);
   const plateW = fitToText ? Math.max(neededW, cnr * 2 + 2) : Math.max(width, neededW);
-  const innerH = Math.max(fontSize + 2, Math.round(NAME_BTM_H_NAT * scale * 3));
+  /** tight は tbH と同じく geomScale 基準。scale のままだと inner が過大になり repeat-y の側面タイルが目立つ */
+  const innerHDepthScale = tight ? geomScale : scale;
+  const innerH = Math.max(fontSize + 2, Math.round(NAME_BTM_H_NAT * innerHDepthScale * 3));
   const plateH = tbH * 2 + innerH;
 
   const gapX = Math.max(0, plateW - cnr * 2);
@@ -104,11 +112,21 @@ export function AoP5NameplateSmFrame({
   const riteBg = "url('/phase5/name_sm_rite.png')";
   const riteSize = `${px(riteW)} ${px(riteTileH)}`;
 
-  const padX = flush ? 0 : tight ? TIGHT_NAMEPLATE_PAD_X_PX : riteW + 1;
+  const padX = flush ? 0 : tight ? tightHorizPad : riteW + 1;
   const padY = flush ? 0 : tight ? 1 : tbH + 1;
 
   return (
-    <div className={`relative ${className ?? ""}`} style={{ width: px(plateW), height: px(plateH), ...style }}>
+    <div
+      className={`relative shrink-0 ${className ?? ""}`}
+      style={{
+        width: px(plateW),
+        height: px(plateH),
+        maxHeight: px(plateH),
+        flexShrink: 0,
+        boxSizing: "border-box",
+        ...style,
+      }}
+    >
       {/* 全体ベージュ（枠の内側まで一色に見せる） */}
       <div
         aria-hidden
