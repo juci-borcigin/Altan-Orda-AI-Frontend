@@ -6,7 +6,9 @@ import {
   type AoPromptSectionKey,
   buildAoSystemPrompt,
   detectNamedSpeaker,
+  getPrimarySpeakerForProject,
   getSpeakerAllowSet,
+  isAllySpeakerName,
 } from "@/lib/ao-prompts";
 import type { ProjectId } from "@/lib/ao-types";
 import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
@@ -15,6 +17,7 @@ import { buildRagInjectionBlock } from "@/lib/rag-context";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
+import type { MsgChatCompletionMeta } from "@/lib/ao-state";
 
 type InMsg = {
   role: "user" | "assistant";
@@ -36,6 +39,38 @@ type OutChunk = { speaker: string; text: string };
 const MAX_TOOL_ROUNDS = 2;
 const MAX_FORMAT_RETRY = 2;
 
+/** JSONL 崩れ時の再指示（1回目） */
+const FORMAT_RETRY_SYSTEM_PRIMARY =
+  "【重要: 出力形式の再実行】直前の出力が JSON Lines 形式ではありませんでした。必ず 1行=1発言の JSON のみで出力せよ。余計な文字（説明・空行・見出し・Markdown）は一切出さない。";
+
+/** 同一文言の system を連続で積まないための 2 回目（内容が異なるためトークン効率と無限ループ回避の両立） */
+const FORMAT_RETRY_SYSTEM_SECONDARY =
+  "【重要: 出力形式の再実行（継続）】なおも JSON Lines 以外です。説明文・見出し・コードフェンス・空行は禁止。各行は厳密に {\"speaker\":\"名前\",\"text\":\"本文\"} のみ。";
+
+/**
+ * 1  assistant tool ラウンドあたりの web_search 実行上限（超過分は Tavily を呼ばずエラー tool を返す）。
+ * 環境変数未設定時は 4（GPT の並列 3 程度は通しつつ、それ以上の乱発を抑える）。
+ * Sonnet 系でさらに締める場合は **3** を推奨（`AO_WEB_SEARCH_MAX_PER_ROUND=3`）。
+ */
+function resolveWebSearchMaxPerRound(): number {
+  const raw = process.env.AO_WEB_SEARCH_MAX_PER_ROUND?.trim();
+  const n = raw ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n >= 1 && n <= 32) return Math.floor(n);
+  return 4;
+}
+
+function appendFormatRetrySystem(messages: ChatMessage[]): void {
+  const last = messages[messages.length - 1];
+  if (last?.role === "system" && last.content === FORMAT_RETRY_SYSTEM_PRIMARY) {
+    messages.push({ role: "system", content: FORMAT_RETRY_SYSTEM_SECONDARY });
+    return;
+  }
+  if (last?.role === "system" && last.content === FORMAT_RETRY_SYSTEM_SECONDARY) {
+    return;
+  }
+  messages.push({ role: "system", content: FORMAT_RETRY_SYSTEM_PRIMARY });
+}
+
 /** LLM / Tavily の 1 リクエストあたり（秒）。既定はツール経路を考慮して長め。Vercel の関数上限に合わせて短くする場合は env で調整 */
 function requestTimeoutMs(): number {
   const raw = process.env.AO_CHAT_REQUEST_TIMEOUT_MS?.trim();
@@ -44,7 +79,11 @@ function requestTimeoutMs(): number {
   return 120_000;
 }
 
-const DEFAULT_MAX_TOKENS = 2048;
+/** ツール無しなら 2048 でも足りることが多いが、思考トークン＋JSONL では不足して本文が空になる例がある */
+const DEFAULT_MAX_TOKENS = 4096;
+
+/** Tavily 経路では並列検索でコンテキストが膨らむため、最低でもこれだけ出力トークン枠を確保する */
+const MIN_COMPLETION_TOKENS_WITH_WEB_TOOLS = 4096;
 
 function isMockMode(): boolean {
   const v = (process.env.AO_MOCK_LLM ?? "").trim().toLowerCase();
@@ -118,6 +157,7 @@ function serializeOutboundChatMessages(messages: ChatMessage[]): string {
 }
 
 function trimHistory(projectId: ProjectId, messages: InMsg[]): InMsg[] {
+  // 積み残し（未実装）: 長大スレッド向けに上限値の論別チューニングや、古い assistant を要約 1 本へ圧縮する。
   const short =
     projectId === "debate" ||
     projectId === "gemini" ||
@@ -161,20 +201,13 @@ function isJsonlParseFallback(chunks: OutChunk[], rawText: string): boolean {
   return c.text === "（空）" || t.length === 0 || c.text === t;
 }
 
-/**
- * 名指しがあるターンはその speaker のみ（僚友8名のいずれか）。
- * それ以外は論ごとの許可集合。
- */
-function allowedSpeakers(projectId: ProjectId, namedSpeaker: string | null): Set<string> {
-  return getSpeakerAllowSet(projectId, namedSpeaker);
+/** 論ごとの許可 speaker（名指しがあっても集合は変えない。先頭行は名指しへ並べ替え） */
+function allowedSpeakers(projectId: ProjectId): Set<string> {
+  return getSpeakerAllowSet(projectId);
 }
 
-function filterChunks(
-  chunks: OutChunk[],
-  projectId: ProjectId,
-  namedSpeaker: string | null,
-): OutChunk[] {
-  const allow = allowedSpeakers(projectId, namedSpeaker);
+function filterChunks(chunks: OutChunk[], projectId: ProjectId): OutChunk[] {
+  const allow = allowedSpeakers(projectId);
   return chunks.map((c) => {
     if (allow.has(c.speaker)) return c;
     return {
@@ -182,6 +215,32 @@ function filterChunks(
       text: `（speaker不許可: ${c.speaker}）${c.text}`,
     };
   });
+}
+
+/** 名指しターンで先頭発言者を強制：名指し僚友より前の行を落とす（モデルが先に他人を出した場合の救済） */
+function chunksNamedSpeakerMustLead(chunks: OutChunk[], namedSpeaker: string | null): OutChunk[] {
+  if (!namedSpeaker || !isAllySpeakerName(namedSpeaker)) return chunks;
+  const idx = chunks.findIndex((c) => c.speaker === namedSpeaker);
+  if (idx <= 0) return chunks;
+  return chunks.slice(idx);
+}
+
+/** 同一 speaker の連続行を1吹き出し相当にまとめる（JSONL 多重行の是正） */
+function mergeConsecutiveSameSpeakerChunks(chunks: OutChunk[]): OutChunk[] {
+  if (chunks.length <= 1) return chunks;
+  const out: OutChunk[] = [];
+  for (const c of chunks) {
+    const prev = out[out.length - 1];
+    if (prev && prev.speaker === c.speaker) {
+      const a = (prev.text ?? "").trimEnd();
+      const b = (c.text ?? "").trim();
+      const joined = [a, b].filter((x) => x.length > 0).join("\n\n");
+      out[out.length - 1] = { speaker: prev.speaker, text: joined };
+    } else {
+      out.push({ ...c });
+    }
+  }
+  return out;
 }
 
 function resolveLlmConfig(): { baseUrl: string; apiKey: string; model: string } {
@@ -266,14 +325,26 @@ async function tavilySearch(query: string, signal: AbortSignal): Promise<string>
       lines.push([title && url ? `${title} — ${url}` : title || url, snippet].filter(Boolean).join("\n"));
     }
   }
-  return lines.length ? lines.join("\n\n---\n\n") : "(検索結果なし)";
+  const joined = lines.length ? lines.join("\n\n---\n\n") : "(検索結果なし)";
+  const maxChars = 12_000;
+  if (joined.length <= maxChars) return joined;
+  return `${joined.slice(0, maxChars)}\n\n---\n\n（以下 Tavily 結果は長さのため省略）`;
 }
 
 type CompletionJson = {
   choices?: Array<{
+    finish_reason?: string;
+    native_finish_reason?: string;
+    /** 一部ゲートウェイは message の代わりにここへ本文を載せる */
+    text?: string;
     message?: {
-      content?: string | null;
+      content?: string | null | unknown;
       tool_calls?: ToolCall[];
+      /** OpenRouter / 思考系で本文以外に載ることがある */
+      reasoning?: string;
+      reasoning_content?: string;
+      thinking?: string;
+      [key: string]: unknown;
     };
   }>;
   usage?: {
@@ -303,6 +374,86 @@ async function buildTurnUsagePayload(
     estimatedUsd: await estimateCompletionUsdForModel(promptTokens, completionTokens, modelId),
     modelId,
   };
+}
+
+/**
+ * Anthropic / OpenRouter が返す content ブロック配列から文字列を抽出する。
+ * - kind=text: ユーザー向け本文（JSONL はここを優先）
+ * - kind=thinking: 内部思考のみ（text が空のときのフォールバック）
+ */
+function stringifyContentBlocks(content: unknown, kind: "text" | "thinking"): string {
+  if (content == null) return "";
+  if (typeof content === "string") return kind === "text" ? content : "";
+  if (typeof content === "number" || typeof content === "boolean") return kind === "text" ? String(content) : "";
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (block == null) continue;
+      if (typeof block === "string") {
+        if (kind === "text") parts.push(block);
+        continue;
+      }
+      if (typeof block !== "object") continue;
+      const o = block as Record<string, unknown>;
+      const typ = typeof o.type === "string" ? o.type : "";
+
+      if (typ === "tool_use" || typ === "function_call") continue;
+
+      if (kind === "text") {
+        if (typ === "thinking" || typ === "redacted_thinking") continue;
+        if (typ === "text" || typ === "" || typ === "output_text") {
+          if (typeof o.text === "string") parts.push(o.text);
+        } else if (typeof o.text === "string") {
+          parts.push(o.text);
+        } else if (typeof o.content === "string") parts.push(o.content);
+        else if (Array.isArray(o.content)) parts.push(stringifyContentBlocks(o.content, "text"));
+      } else {
+        if (typ === "thinking" || typ === "redacted_thinking") {
+          if (typeof o.thinking === "string") parts.push(o.thinking);
+          else if (typeof o.text === "string") parts.push(o.text);
+        }
+      }
+    }
+    return parts.join("");
+  }
+  if (typeof content === "object") {
+    const o = content as Record<string, unknown>;
+    if (kind === "text") {
+      if (typeof o.text === "string") return o.text;
+      if (typeof o.content === "string") return o.content;
+    }
+  }
+  return "";
+}
+
+/** Chat Completions の message.content が文字列以外（ブロック配列等）のときに連結して取り出す */
+function stringifyLlmMessageContent(content: unknown): string {
+  const a = stringifyContentBlocks(content, "text");
+  const b = stringifyContentBlocks(content, "thinking");
+  return [a, b].filter((x) => x.trim().length > 0).join("\n\n");
+}
+
+function extractAssistantVisibleText(
+  msg: NonNullable<CompletionJson["choices"]>[0]["message"],
+  choiceLegacyText?: string,
+): string {
+  if (!msg || typeof msg !== "object") return (choiceLegacyText ?? "").trim();
+  const rec = msg as Record<string, unknown>;
+  const fromContent =
+    stringifyContentBlocks(rec.content, "text").trim() ||
+    stringifyContentBlocks(rec.content, "thinking").trim();
+  if (fromContent) return fromContent;
+  const reasoning =
+    typeof rec.reasoning === "string"
+      ? rec.reasoning.trim()
+      : typeof rec.reasoning_content === "string"
+        ? rec.reasoning_content.trim()
+        : typeof rec.thinking === "string"
+          ? rec.thinking.trim()
+          : "";
+  if (reasoning) return reasoning;
+  const legacy = (choiceLegacyText ?? "").trim();
+  return legacy;
 }
 
 async function postChatCompletion(
@@ -485,6 +636,16 @@ export async function POST(req: Request) {
     ? "\n\n【ツール】最新の事実・ニュース・数値の確認などに必要なときのみ `web_search` を使う（引数は query のみ）。不要な検索はしない。"
     : "";
 
+  const completionMetaStub: MsgChatCompletionMeta = {
+    finishReason: null,
+    nativeFinishReason: null,
+    emptyAssistantFallback: false,
+    formatRetriesUsed: 0,
+    webSearchInvocations: 0,
+    webSearchSkippedByLimit: 0,
+    webSearchMaxPerRound: resolveWebSearchMaxPerRound(),
+  };
+
   const supa = supaForModel;
   let promptOverrides: Partial<Record<AoPromptSectionKey, string>> = {};
   if (supa) {
@@ -529,7 +690,9 @@ export async function POST(req: Request) {
         `{"speaker":"モンケウール","text":"model=${effectiveModel}, max_tokens=${maxTokens}, tavilyEnabled=${tavilyEnabled}"}`,
       ].join("\n") + "\n";
     const rawChunks = parseJsonl(text);
-    const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
+    const chunks = mergeConsecutiveSameSpeakerChunks(
+      chunksNamedSpeakerMustLead(filterChunks(rawChunks, projectId), namedSpeaker),
+    );
     const usageDry = await buildTurnUsagePayload(effectiveModel, 0, 0);
     const dryOutbound: ChatMessage[] = [
       { role: "system", content: system },
@@ -540,6 +703,7 @@ export async function POST(req: Request) {
       chunks,
       rawContent: text,
       usage: usageDry,
+      completionMeta: completionMetaStub,
       rawPrompts: { sent: rawPromptSentDry, received: text },
       llm: {
         mode: "dry-run",
@@ -577,7 +741,9 @@ export async function POST(req: Request) {
         `{"speaker":"不明","text":"lastUser=${lastUser.replace(/\\s+/g, " ").slice(0, 160)}"}`,
       ].join("\n") + "\n";
     const rawChunks = parseJsonl(text);
-    const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
+    const chunks = mergeConsecutiveSameSpeakerChunks(
+      chunksNamedSpeakerMustLead(filterChunks(rawChunks, projectId), namedSpeaker),
+    );
     const usageMock = await buildTurnUsagePayload(effectiveModel, 0, 0);
     const mockOutbound: ChatMessage[] = [
       { role: "system", content: system },
@@ -588,6 +754,7 @@ export async function POST(req: Request) {
       chunks,
       rawContent: text,
       usage: usageMock,
+      completionMeta: completionMetaStub,
       rawPrompts: { sent: rawPromptSentMock, received: text },
       llm: {
         mode: "mock",
@@ -678,9 +845,17 @@ export async function POST(req: Request) {
   let toolRounds = 0;
   let completionRoundCount = 0;
   let webSearchInvocationCount = 0;
+  let webSearchSkippedByLimit = 0;
+  let lastFinishReason: string | null = null;
+  let lastNativeFinishReason: string | null = null;
   const webSearchQueriesForDebug: string[] = [];
   const unsupportedToolNamesForDebug: string[] = [];
   const usageAgg = { prompt: 0, completion: 0 };
+  const completionBudget = Math.min(
+    resolveCompletionCeiling(),
+    tavilyEnabled ? Math.max(maxTokens, MIN_COMPLETION_TOKENS_WITH_WEB_TOOLS) : maxTokens,
+  );
+  const webSearchMaxPerRound = resolveWebSearchMaxPerRound();
 
   try {
     while (true) {
@@ -689,7 +864,7 @@ export async function POST(req: Request) {
       const payload: Record<string, unknown> = {
         model: effectiveModel,
         temperature: 0.7,
-        max_tokens: maxTokens,
+        max_tokens: completionBudget,
         messages,
         /** ゲートウェイによっては既定がストリームになり JSON.parse が失敗するため明示 */
         stream: false,
@@ -711,14 +886,15 @@ export async function POST(req: Request) {
 
       addCompletionUsageToAgg(usageAgg, json);
 
-      const msg = json.choices?.[0]?.message;
+      const choice0 = json.choices?.[0];
+      const msg = choice0?.message;
       if (!msg) {
         throw new Error("LLM response missing choices[0].message");
       }
 
       const calls = msg.tool_calls;
       if (forceNoTools || !calls?.length) {
-        finalContent = typeof msg.content === "string" ? msg.content : "";
+        finalContent = extractAssistantVisibleText(msg, choice0?.text);
         lastCompletionJson = json;
         if (isChatDebugMode()) {
           console.log(
@@ -734,26 +910,42 @@ export async function POST(req: Request) {
         const probeChunks = parseJsonl(finalContent);
         if (formatRetry < MAX_FORMAT_RETRY && isJsonlParseFallback(probeChunks, finalContent)) {
           formatRetry += 1;
-          // 次ラウンドはツール無しで、形式強制の追記を入れて再実行
-          messages.push({
-            role: "system",
-            content:
-              "【重要: 出力形式の再実行】直前の出力が JSON Lines 形式ではありませんでした。必ず 1行=1発言の JSON のみで出力せよ。余計な文字（説明・空行・見出し・Markdown）は一切出さない。",
-          });
+          // 次ラウンドはツール無しで、形式強制の追記を入れて再実行（同一文言の連続積みは避ける）
+          appendFormatRetrySystem(messages);
           // toolRounds を MAX にして強制的に tool_choice=none へ
           toolRounds = MAX_TOOL_ROUNDS;
           continue;
+        }
+        lastFinishReason = typeof choice0?.finish_reason === "string" ? choice0.finish_reason : null;
+        lastNativeFinishReason =
+          typeof choice0?.native_finish_reason === "string" ? choice0.native_finish_reason : null;
+        if (!finalContent.trim() && choice0) {
+          console.log(
+            "[chat-debug] empty assistant text; finish_reason=",
+            choice0.finish_reason,
+            "native_finish_reason=",
+            choice0.native_finish_reason,
+            "completionBudget=",
+            completionBudget,
+          );
         }
         break;
       }
 
       toolRounds += 1;
+      const assistantToolRoundContent =
+        msg.content == null
+          ? null
+          : typeof msg.content === "string"
+            ? msg.content
+            : stringifyLlmMessageContent(msg.content) || null;
       messages.push({
         role: "assistant",
-        content: msg.content ?? null,
+        content: assistantToolRoundContent,
         tool_calls: calls,
       });
 
+      let webSearchThisRound = 0;
       for (const tc of calls) {
         const name = tc.function?.name ?? "";
         const id = tc.id ?? `call_${Math.random().toString(36).slice(2)}`;
@@ -764,6 +956,29 @@ export async function POST(req: Request) {
             query = typeof args.query === "string" ? args.query : "";
           } catch {
             query = "";
+          }
+          webSearchThisRound += 1;
+          if (webSearchThisRound > webSearchMaxPerRound) {
+            webSearchSkippedByLimit += 1;
+            messages.push({
+              role: "tool",
+              tool_call_id: id,
+              content: JSON.stringify({
+                error: "web_search_per_round_limit",
+                limit: webSearchMaxPerRound,
+                detail:
+                  "この assistant ラウンドでの web_search 呼び出しが環境変数 AO_WEB_SEARCH_MAX_PER_ROUND の上限を超えました。クエリを統合するか検索回数を減らしてください。",
+              }),
+            });
+            if (isChatDebugMode()) {
+              console.log(
+                "[chat-debug] web_search skipped (per-round limit)",
+                webSearchSkippedByLimit,
+                "query_preview=",
+                query.slice(0, 120),
+              );
+            }
+            continue;
           }
           webSearchInvocationCount += 1;
           if (isChatDebugMode()) {
@@ -825,10 +1040,47 @@ export async function POST(req: Request) {
 
   const usagePayload = await buildTurnUsagePayload(effectiveModel, usageAgg.prompt, usageAgg.completion);
 
-  const rawChunks = parseJsonl(finalContent);
-  const chunks = filterChunks(rawChunks, projectId, namedSpeaker);
+  // JSONL が崩れた場合の最終フォールバック（MAX_FORMAT_RETRY 後でも平文が来るモデルがある）。
+  // 「不明」扱いで speaker不許可に落とさず、名指し先 or 主担当へ割り当てて 1 吹き出しに収める。
+  // finalContent が空でも remap する（長大コンテキスト・ツール多段後に API が空文字のみ返すことがある）。
+  const parsed = parseJsonl(finalContent);
+  const trimmedFinal = finalContent.trim();
+  const emptyAssistantFallback =
+    trimmedFinal.length === 0 && isJsonlParseFallback(parsed, finalContent);
+  const rawChunks = isJsonlParseFallback(parsed, finalContent)
+    ? [
+        {
+          speaker: namedSpeaker && isAllySpeakerName(namedSpeaker) ? namedSpeaker : getPrimarySpeakerForProject(projectId),
+          text:
+            trimmedFinal.length > 0
+              ? trimmedFinal
+              : "（応答本文が空でした。入力が非常に長いターンやツール往復のあとに、モデルが JSONL を返さなかった可能性があります。履歴を分けるか短くして再度お試しください。）",
+        },
+      ]
+    : parsed;
+  const chunks = mergeConsecutiveSameSpeakerChunks(
+    chunksNamedSpeakerMustLead(filterChunks(rawChunks, projectId), namedSpeaker),
+  );
   const rawPromptSentLive = serializeOutboundChatMessages(messages);
   const rawPromptReceivedLive = finalContent;
+
+  const completionMeta: MsgChatCompletionMeta = {
+    finishReason: lastFinishReason,
+    nativeFinishReason: lastNativeFinishReason,
+    emptyAssistantFallback,
+    formatRetriesUsed: formatRetry,
+    webSearchInvocations: webSearchInvocationCount,
+    webSearchSkippedByLimit,
+    webSearchMaxPerRound,
+  };
+
+  console.info(
+    `[chat] model=${effectiveModel} finish_reason=${lastFinishReason ?? "?"}` +
+      ` native_finish_reason=${lastNativeFinishReason ?? "?"}` +
+      ` completion_rounds=${completionRoundCount} tool_rounds=${toolRounds}` +
+      ` web_search=${webSearchInvocationCount} web_search_skipped_limit=${webSearchSkippedByLimit}` +
+      ` format_retries=${formatRetry} empty_fallback=${emptyAssistantFallback}`,
+  );
 
   if (persistMessages && persistedThreadUuid && supa && chunks.length > 0) {
     try {
@@ -879,6 +1131,7 @@ export async function POST(req: Request) {
     chunks,
     rawContent: finalContent,
     usage: usagePayload,
+    completionMeta,
     rawPrompts: { sent: rawPromptSentLive, received: rawPromptReceivedLive },
     ...(persistMessages && persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
     ...(isChatDebugMode()
@@ -888,9 +1141,11 @@ export async function POST(req: Request) {
             tavilyApiKeyPresent: tavilyEnabled,
             toolsAttachedToPayload: Boolean(tools),
             maxToolRounds: MAX_TOOL_ROUNDS,
+            webSearchMaxPerRound,
             completionRoundCount,
             toolFollowupLoops: toolRounds,
             webSearchInvocations: webSearchInvocationCount,
+            webSearchSkippedByLimit,
             webSearchQueries: [...webSearchQueriesForDebug],
             unsupportedToolNames: [...unsupportedToolNamesForDebug],
             usage: usagePayload,

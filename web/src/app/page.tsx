@@ -31,6 +31,7 @@ import { runTypewriter } from "@/lib/ao-typewriter";
 import {
   type AppState,
   type Msg,
+  type MsgChatCompletionMeta,
   type MsgRawPromptBundle,
   type MsgTurnUsage,
   type Thread,
@@ -48,7 +49,11 @@ import {
   aoTitleSnippetFromFirstUserPost,
 } from "@/lib/ao-thread-title";
 import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-text";
-import { normalizeChatUsageFromApi, normalizeRawPromptsFromApi } from "@/lib/ao-chat-usage-normalize";
+import {
+  normalizeChatUsageFromApi,
+  normalizeCompletionMetaFromApi,
+  normalizeRawPromptsFromApi,
+} from "@/lib/ao-chat-usage-normalize";
 import { estimateUsdFromTokensClient } from "@/lib/ao-usage-estimate-client";
 import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
 import {
@@ -59,6 +64,8 @@ import {
   AO_PC_NOKOR_TIGHT_PAD_X_PX,
   aoP5NameplateSmTightPlateOuterWidthPx,
 } from "@/components/ao-phase5";
+import { detectNamedSpeaker, getPrimarySpeakerForProject } from "@/lib/ao-prompts";
+import type { ProjectId } from "@/lib/ao-types";
 
 const STORAGE_KEY = "ao_state_v1";
 /** メイン枠左上：使用量・設定アイコン寸法（歯車は以前の 150% 相当） */
@@ -327,6 +334,8 @@ function placeRawPromptPopover(opts: {
 /** 論〜メイン枠の上側・論〜議事タイトルは別途 GIKUJI_* */
 const MAIN_OUTER_TOP_GAP_BEFORE_PX = 3;
 const MAIN_OUTER_TOP_GAP_PX = Math.round(MAIN_OUTER_TOP_GAP_BEFORE_PX * 0.3);
+/** PC: ヘッダ(~58px) + Frame 帯(~14px)。ヘッダ直下のメイン縦幅・mapタイル算出と共通 */
+const AO_PC_HEADER_FRAME_BELOW_H_PX = 58 + 14;
 /**
  * PC運用（固定幅1200px）でのズーム確認は 90/100/125%。
  * 125% で「現状150%相当」の見え方に寄せるため、文字系だけ 150/125=1.2 を上乗せする。
@@ -532,23 +541,67 @@ function aiAvatarCaptionLabel(thread: Thread | null, m: Msg): string {
   return m.speaker;
 }
 
-/** 考え中プレースホルダー用：直近 AI の表示名が無ければ論の既定担当に寄せる */
+/**
+ * 考え中プレースホルダー用：論の主担当を表示する。
+ * （直近 AI の speaker は JSONL 失敗時に「不明」になりうるため参照しない）
+ * 殿下の直近ユーザー発言に僚友名があれば名指しを最優先。
+ */
 function aoThinkingAiCaptionLabel(thread: Thread | null): string {
+  const pid = thread?.projectId as ProjectId | undefined;
+  if (pid === "claude" || pid === "chatgpt") return "耶律楚材";
+  if (pid === "gemini") return "ソルコクタニ";
+
   const msgs = visibleMessages(thread?.messages ?? []);
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
-    if (m.side === "ai") return aiAvatarCaptionLabel(thread, m);
+    if (m.side === "user") {
+      const designated = detectNamedSpeaker(m.text ?? "");
+      if (designated) return designated;
+      break;
+    }
   }
-  const pid = thread?.projectId;
-  if (pid === "claude" || pid === "chatgpt") return "耶律楚材";
-  if (pid === "gemini") return "ソルコクタニ";
-  return "タタ・トゥンガ";
+
+  if (!pid) return getPrimarySpeakerForProject("debate");
+  return getPrimarySpeakerForProject(pid);
 }
 
 let storageWarned = false;
 
 function visibleMessages(messages: Msg[]) {
   return messages.filter((m) => !m.hiddenFromUi);
+}
+
+/** 同一 AI speaker の連続メッセージを1行に相当する1件へ（履歴の多重吹き出し救済。タイプ中は未適用） */
+function mergeConsecutiveAiSameSpeaker(messages: Msg[]): Msg[] {
+  const out: Msg[] = [];
+  for (const m of messages) {
+    if (m.side !== "ai") {
+      out.push(m);
+      continue;
+    }
+    const prev = out[out.length - 1];
+    if (prev?.side === "ai" && prev.speaker === m.speaker) {
+      const a = (prev.text ?? "").trimEnd();
+      const b = (m.text ?? "").trim();
+      const joined = [a, b].filter((x) => x.length > 0).join("\n\n");
+      out[out.length - 1] = {
+        ...prev,
+        text: joined,
+        rawPrompts: prev.rawPrompts ?? m.rawPrompts,
+        usage: prev.usage ?? m.usage,
+      };
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/** チャット行描画用。タイプライター中はマージしない（行と typingId の対応を保つ） */
+function chatTimelineRowsForRender(messages: Msg[], typingBusy: boolean): Msg[] {
+  const v = visibleMessages(messages);
+  if (typingBusy) return v;
+  return mergeConsecutiveAiSameSpeaker(v);
 }
 
 function msgTextForUi(thread: Thread | null, m: Msg) {
@@ -982,6 +1035,7 @@ export default function Home() {
   const [rawPromptOverlay, setRawPromptOverlay] = useState<null | {
     variant: "ai" | "user";
     usage: MsgTurnUsage;
+    completionMeta?: MsgChatCompletionMeta;
     rawPrompts?: MsgRawPromptBundle;
     top: number;
     left: number;
@@ -1254,7 +1308,6 @@ export default function Home() {
     // kinDrawerAnchorBottomPx を依存に含め、ヘッダ計測確定後にも再実行する（初期フレームのタイル不足防止）
     const recompute = () => {
       // 下端の白抜けは「見えている高さ」を参照してタイル枚数が足りないのが原因。
-      const PC_HEADER_H = 58 + 14; // header + frame strip（PC）
       const winH =
         typeof window !== "undefined"
           ? Math.max(window.innerHeight, document.documentElement?.clientHeight ?? 0)
@@ -1263,8 +1316,8 @@ export default function Home() {
         ? aoKinCompactKinSwipeContentTopPx(compactKinHeaderMeasureRef.current, compactKinFrameStripMeasureRef.current)
         : 0;
       const viewportMainH = viewportCompact
-        ? Math.max(0, winH - (topCompact > 0 ? topCompact : PC_HEADER_H))
-        : Math.max(0, viewportH - PC_HEADER_H);
+        ? Math.max(0, winH - (topCompact > 0 ? topCompact : AO_PC_HEADER_FRAME_BELOW_H_PX))
+        : Math.max(0, viewportH - AO_PC_HEADER_FRAME_BELOW_H_PX);
       let rectH = 0;
       try {
         rectH = host.getBoundingClientRect().height;
@@ -1429,6 +1482,7 @@ export default function Home() {
         chunks?: Array<{ speaker: string; text: string }>;
         supabaseThreadId?: string;
         usage?: MsgTurnUsage;
+        completionMeta?: unknown;
         rawPrompts?: MsgRawPromptBundle;
         error?: string;
         detail?: string;
@@ -1451,6 +1505,7 @@ export default function Home() {
       setIsTyping(true);
       const batchAiIds: string[] = [];
       const turnRaw = normalizeRawPromptsFromApi(data.rawPrompts);
+      const turnCompletionMeta = normalizeCompletionMetaFromApi(data.completionMeta);
       for (const c of data.chunks) {
         const msgId = aoUid("m");
         batchAiIds.push(msgId);
@@ -1489,24 +1544,30 @@ export default function Home() {
         });
       }
       const turnUsage = normalizeChatUsageFromApi(data.usage);
-      if ((turnUsage && batchAiIds.length > 0) || turnRaw || turnUsage) {
+      if ((turnUsage && batchAiIds.length > 0) || turnRaw || turnUsage || turnCompletionMeta) {
         setState((prev) => {
           if (!prev) return prev;
           const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
           if (ti < 0) return prev;
           const msgs = [...prev.threads[ti].messages];
           const ui = msgs.findIndex((x) => x.id === userMsg.id);
-          if (ui >= 0 && (turnRaw || turnUsage)) {
+          if (ui >= 0 && (turnRaw || turnUsage || turnCompletionMeta)) {
             msgs[ui] = {
               ...msgs[ui],
               ...(turnRaw ? { rawPrompts: turnRaw } : {}),
               ...(turnUsage ? { usage: turnUsage } : {}),
+              ...(turnCompletionMeta ? { completionMeta: turnCompletionMeta } : {}),
             };
           }
           if (turnUsage && batchAiIds.length > 0) {
             for (const id of batchAiIds) {
               const mi = msgs.findIndex((x) => x.id === id);
-              if (mi >= 0) msgs[mi] = { ...msgs[mi], usage: turnUsage };
+              if (mi >= 0)
+                msgs[mi] = {
+                  ...msgs[mi],
+                  usage: turnUsage,
+                  ...(turnCompletionMeta ? { completionMeta: turnCompletionMeta } : {}),
+                };
             }
           }
           const aa = [...prev.threads];
@@ -1704,6 +1765,7 @@ export default function Home() {
     usage: MsgTurnUsage,
     rawPrompts?: MsgRawPromptBundle,
     anchorMsgId?: string,
+    completionMeta?: MsgChatCompletionMeta,
   ) {
     const avatarRect = e.currentTarget.getBoundingClientRect();
     let anchorRect = avatarRect;
@@ -1719,6 +1781,7 @@ export default function Home() {
         setRawPromptOverlay({
           variant: side,
           usage,
+          completionMeta,
           rawPrompts,
           left: box.left,
           top: box.top,
@@ -1749,7 +1812,7 @@ export default function Home() {
       bubbleMinHeightPx:
         viewportCompact && verticalAnchorRect == null ? CHAT_HISTORY_BUBBLE_MIN_H_PX : undefined,
     });
-    setRawPromptOverlay({ variant: side, usage, rawPrompts, left, top });
+    setRawPromptOverlay({ variant: side, usage, completionMeta, rawPrompts, left, top });
   }
 
   /** zoom 対象のルートの外に描画しないと fixed が潰れ中身が空／端だけ見える */
@@ -1795,9 +1858,7 @@ export default function Home() {
 
   return (
     <div
-      className={`relative flex flex-col bg-white text-[var(--ao-white)] ao-mobile-stack-scale ${
-        viewportCompact ? "h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden" : "min-h-screen overflow-visible"
-      }`}
+      className="relative flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-white text-[var(--ao-white)] ao-mobile-stack-scale"
     >
 
       <header
@@ -1892,13 +1953,10 @@ export default function Home() {
         className={
           viewportCompact
             ? "relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-            : "relative overflow-x-auto overflow-y-visible"
+            : "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto overflow-y-hidden"
         }
         style={{
           ...(viewportCompact ? { zIndex: AO_Z_COMPACT_MAP_STACK } : {}),
-          ...(!viewportCompact && (leftColumnPx || viewportH)
-            ? { height: `${Math.round(Math.max(leftColumnPx ?? 0, Math.max(0, viewportH - (58 + 14))))}px` }
-            : {}),
         }}
       >
         {/* ①-2 ヘッダより下全体: 白地 + 地図 */}
@@ -1925,28 +1983,35 @@ export default function Home() {
 
         {/* ②-1 左僚友 1 : 中央メイン＋チャット 3 : 右空白 2 */}
         <div
-          className={`relative flex min-h-0 ${viewportCompact ? "z-0 min-h-0 flex-1 flex-col overflow-hidden" : "z-10"}`}
+          className={`relative flex min-h-0 ${viewportCompact ? "z-0 min-h-0 flex-1 flex-col overflow-hidden" : "z-10 min-h-0 flex-1 flex-col overflow-hidden"}`}
         >
           <div
             className={`min-h-0 box-border flex flex-col ${
-              viewportCompact ? "h-full min-h-0 w-full max-w-full flex-1 px-1" : "w-[1200px] max-w-[1200px] mx-auto"
+              viewportCompact
+                ? "h-full min-h-0 w-full max-w-full flex-1 px-1"
+                : "mx-auto flex h-full min-h-0 w-[1200px] max-w-[1200px] flex-1 flex-col"
             }`}
             style={{ paddingTop: MAIN_OUTER_TOP_GAP_PX }}
           >
             <div
-              className={`w-full min-h-0 ${viewportCompact ? "flex min-h-0 flex-1 flex-col gap-3" : "shrink-0 flex-1 grid grid-cols-[auto_minmax(0,3fr)_minmax(0,2fr)] items-start gap-3"}`}
+              className={`w-full min-h-0 ${
+                viewportCompact
+                  ? "flex min-h-0 flex-1 flex-col gap-3"
+                  : "flex min-h-0 flex-1 flex-row items-stretch gap-3 overflow-x-auto overflow-y-visible"
+              }`}
             >
             {/* 左カラム：メイン部と同等の角／枠で囲う（狭ビューポートではスワイプドロワーでも表示） */}
             {!viewportCompact ? (
-              <AoLeftKinSideColumn measureRef={leftColumnMeasureRef} activeNames={activeNokorNames} />
+              <div className="min-h-0 shrink-0 overflow-y-auto overflow-x-visible">
+                <AoLeftKinSideColumn measureRef={leftColumnMeasureRef} activeNames={activeNokorNames} />
+              </div>
             ) : null}
             <div
-              className={`flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 flex-1 overflow-hidden" : "min-h-0"}`}
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
               style={{
                 gap: MAIN_COLUMN_STACK_GAP_PX,
-                ...(!viewportCompact && leftColumnPx
-                  ? { height: `${Math.round(leftColumnPx)}px`, overflow: "hidden" }
-                  : {}),
+                minWidth: 0,
+                ...(viewportCompact ? {} : { flex: "3 1 0%" }),
               }}
             >
             <AoOrnamentalFrame
@@ -2867,7 +2932,10 @@ export default function Home() {
               }}
             >
               <div className="flex min-h-full flex-col justify-start gap-3">
-                {visibleMessages(currentThread?.messages ?? []).map((m) => {
+                {chatTimelineRowsForRender(
+                  currentThread?.messages ?? [],
+                  Boolean(isTyping || typingId),
+                ).map((m) => {
                   const label = aiAvatarCaptionLabel(currentThread, m);
                   const avatarKey =
                     m.side === "user" ? "ジュチ" : label in AVATAR_SRC ? label : "不明";
@@ -2895,7 +2963,14 @@ export default function Home() {
                         style={{ filter: AO_CHAT_AVATAR_DROP_SHADOW_FILTER }}
                         aria-label="モデル情報と Raw プロンプト"
                         onClick={(e) => {
-                          openRawPromptPopover(e, "ai", m.usage ?? aoSyntheticMsgTurnUsage(), m.rawPrompts, m.id);
+                          openRawPromptPopover(
+                            e,
+                            "ai",
+                            m.usage ?? aoSyntheticMsgTurnUsage(),
+                            m.rawPrompts,
+                            m.id,
+                            m.completionMeta,
+                          );
                         }}
                       >
                         <AoP5FaceFrameMid
@@ -2953,7 +3028,14 @@ export default function Home() {
                       style={{ filter: AO_CHAT_AVATAR_DROP_SHADOW_FILTER }}
                       aria-label="モデル情報と Raw プロンプト（送信側）"
                       onClick={(e) => {
-                        openRawPromptPopover(e, "user", m.usage ?? aoSyntheticMsgTurnUsage(), m.rawPrompts, m.id);
+                        openRawPromptPopover(
+                          e,
+                          "user",
+                          m.usage ?? aoSyntheticMsgTurnUsage(),
+                          m.rawPrompts,
+                          m.id,
+                          m.completionMeta,
+                        );
                       }}
                     >
                       <AoP5FaceFrameMid
@@ -3059,7 +3141,9 @@ export default function Home() {
             </div>
             </section>
             </div>
-            {!viewportCompact ? <div className="min-h-0 min-w-0 shrink-0" aria-hidden /> : null}
+            {!viewportCompact ? (
+              <div className="min-h-0 min-w-0 basis-0" style={{ flex: "2 1 0%" }} aria-hidden />
+            ) : null}
             </div>
 
           </div>
@@ -3156,6 +3240,32 @@ export default function Home() {
                         )
                       </span>
                     </div>
+                    {rawPromptOverlay.completionMeta ? (
+                      <div className="shrink-0 border-t border-[#c9b896]/60 pt-1 tabular-nums">
+                        <div className="font-semibold">完了メタ</div>
+                        <div>
+                          finish_reason:{" "}
+                          {rawPromptOverlay.completionMeta.finishReason ?? "—"}
+                          {rawPromptOverlay.completionMeta.nativeFinishReason != null &&
+                          rawPromptOverlay.completionMeta.nativeFinishReason !==
+                            rawPromptOverlay.completionMeta.finishReason ? (
+                            <>
+                              {" "}
+                              （ネイティブ: {rawPromptOverlay.completionMeta.nativeFinishReason}）
+                            </>
+                          ) : null}
+                        </div>
+                        <div>
+                          形式再試行: {rawPromptOverlay.completionMeta.formatRetriesUsed} / empty フォールバック:{" "}
+                          {rawPromptOverlay.completionMeta.emptyAssistantFallback ? "あり" : "なし"}
+                        </div>
+                        <div>
+                          web_search: 実行 {rawPromptOverlay.completionMeta.webSearchInvocations} / 上限スキップ{" "}
+                          {rawPromptOverlay.completionMeta.webSearchSkippedByLimit}（ラウンド上限{" "}
+                          {rawPromptOverlay.completionMeta.webSearchMaxPerRound}）
+                        </div>
+                      </div>
+                    ) : null}
                     <div
                       className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words font-mono text-[#1a1208] [scrollbar-gutter:stable]"
                       style={{ fontSize: RAW_POPOVER_FS_MONO_PX }}

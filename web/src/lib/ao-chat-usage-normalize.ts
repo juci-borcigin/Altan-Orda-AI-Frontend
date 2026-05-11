@@ -1,4 +1,4 @@
-import type { MsgRawPromptBundle, MsgTurnUsage } from "@/lib/ao-state";
+import type { MsgChatCompletionMeta, MsgRawPromptBundle, MsgTurnUsage } from "@/lib/ao-state";
 
 function numTok(x: unknown): number {
   if (typeof x === "number" && Number.isFinite(x)) return Math.max(0, Math.floor(x));
@@ -48,4 +48,51 @@ export function normalizeRawPromptsFromApi(raw: unknown): MsgRawPromptBundle | u
     return { sent, received };
   }
   return undefined;
+}
+
+function numNonNeg(x: unknown): number | undefined {
+  if (typeof x === "number" && Number.isFinite(x)) return Math.max(0, Math.floor(x));
+  return undefined;
+}
+
+export function normalizeCompletionMetaFromApi(raw: unknown): MsgChatCompletionMeta | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  let finishReason: string | null = null;
+  if (o.finishReason !== undefined && o.finishReason !== null) {
+    if (typeof o.finishReason !== "string") return undefined;
+    finishReason = o.finishReason;
+  }
+
+  const nativeRaw = o.nativeFinishReason ?? o.native_finish_reason;
+  const nativeFinishReason =
+    nativeRaw === null || nativeRaw === undefined
+      ? null
+      : typeof nativeRaw === "string"
+        ? nativeRaw
+        : null;
+
+  if (typeof o.emptyAssistantFallback !== "boolean") return undefined;
+  const formatRetriesUsed = numNonNeg(o.formatRetriesUsed ?? o.format_retries_used);
+  const webSearchInvocations = numNonNeg(o.webSearchInvocations ?? o.web_search_invocations);
+  const webSearchSkippedByLimit = numNonNeg(o.webSearchSkippedByLimit ?? o.web_search_skipped_by_limit);
+  const webSearchMaxPerRound = numNonNeg(o.webSearchMaxPerRound ?? o.web_search_max_per_round);
+  if (
+    formatRetriesUsed === undefined ||
+    webSearchInvocations === undefined ||
+    webSearchSkippedByLimit === undefined ||
+    webSearchMaxPerRound === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    finishReason,
+    nativeFinishReason,
+    emptyAssistantFallback: o.emptyAssistantFallback,
+    formatRetriesUsed,
+    webSearchInvocations,
+    webSearchSkippedByLimit,
+    webSearchMaxPerRound,
+  };
 }

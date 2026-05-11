@@ -20,6 +20,17 @@ export type MsgRawPromptBundle = {
   received: string;
 };
 
+/** `/api/chat` が返す completion メタ（ログ・Raw 表示用。ライブ応答以外では省略されうる） */
+export type MsgChatCompletionMeta = {
+  finishReason: string | null;
+  nativeFinishReason: string | null;
+  emptyAssistantFallback: boolean;
+  formatRetriesUsed: number;
+  webSearchInvocations: number;
+  webSearchSkippedByLimit: number;
+  webSearchMaxPerRound: number;
+};
+
 export type Msg = {
   id: string;
   side: "user" | "ai";
@@ -34,6 +45,8 @@ export type Msg = {
   usage?: MsgTurnUsage;
   /** LLM 往復 Raw（AI／その直前のユーザー行に同一ターンで保持） */
   rawPrompts?: MsgRawPromptBundle;
+  /** finish_reason 等（同一ターンの AI 行・直前ユーザー行に複製可） */
+  completionMeta?: MsgChatCompletionMeta;
 };
 
 export type Thread = {
@@ -138,6 +151,25 @@ function isMsg(x: unknown): x is Msg {
     const rp = o.rawPrompts as Record<string, unknown>;
     if (typeof rp.sent !== "string" || typeof rp.received !== "string") return false;
   }
+  if (o.completionMeta !== undefined && o.completionMeta !== null) {
+    if (typeof o.completionMeta !== "object") return false;
+    const cm = o.completionMeta as Record<string, unknown>;
+    if (cm.finishReason !== null && typeof cm.finishReason !== "string") return false;
+    if (
+      cm.nativeFinishReason !== undefined &&
+      cm.nativeFinishReason !== null &&
+      typeof cm.nativeFinishReason !== "string"
+    ) {
+      return false;
+    }
+    if (typeof cm.emptyAssistantFallback !== "boolean") return false;
+    if (typeof cm.formatRetriesUsed !== "number" || !Number.isFinite(cm.formatRetriesUsed)) return false;
+    if (typeof cm.webSearchInvocations !== "number" || !Number.isFinite(cm.webSearchInvocations)) return false;
+    if (typeof cm.webSearchSkippedByLimit !== "number" || !Number.isFinite(cm.webSearchSkippedByLimit)) {
+      return false;
+    }
+    if (typeof cm.webSearchMaxPerRound !== "number" || !Number.isFinite(cm.webSearchMaxPerRound)) return false;
+  }
   return true;
 }
 
@@ -196,6 +228,9 @@ function msgRejectReason(m: unknown, path: string): string | null {
     const rp = o.rawPrompts as Record<string, unknown>;
     if (typeof rp.sent !== "string") return `${path}: rawPrompts.sent が string ではありません`;
     if (typeof rp.received !== "string") return `${path}: rawPrompts.received が string ではありません`;
+  }
+  if (o.completionMeta !== undefined && o.completionMeta !== null) {
+    if (typeof o.completionMeta !== "object") return `${path}: completionMeta が object ではありません`;
   }
   return null;
 }
