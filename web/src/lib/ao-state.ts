@@ -1,4 +1,5 @@
 import type { ProjectId } from "@/lib/ao-types";
+import { aoClampStoredTitleByUnits } from "@/lib/ao-title-width";
 
 /** アプリの表示バージョン（package.json と揃える） */
 export const AO_APP_VERSION = "0.1.0";
@@ -62,6 +63,8 @@ export type Thread = {
   sourceProvider?: string;
   /** 「新規」直後・初回送信前のみ true。論を変えた／別議事を選んだときに破棄される */
   ephemeral?: boolean;
+  /** サーバーから messages を遅延取得済みか（空スレも true になり得る） */
+  serverMessagesLoaded?: boolean;
 };
 
 export type AppState = {
@@ -74,6 +77,7 @@ export type AppState = {
 const PROJECT_IDS: ProjectId[] = [
   "debate",
   "chat",
+  "talk",
   "plan",
   "work",
   "mental",
@@ -90,6 +94,8 @@ const LEGACY_PROJECT_ID: Record<string, ProjectId> = {
   gungi: "work",
   nesho: "mental",
   kurultai: "debate",
+  /** 一時期の巷間論 ProjectId（TopicUiId の koukan と別物） */
+  koukan: "talk",
 };
 
 function isProjectId(x: unknown): x is ProjectId {
@@ -99,6 +105,18 @@ function isProjectId(x: unknown): x is ProjectId {
 function migrateProjectIdString(raw: string): ProjectId {
   if (isProjectId(raw)) return raw;
   return LEGACY_PROJECT_ID[raw] ?? "work";
+}
+
+function clampThreadTitleForMigrate(raw: unknown): void {
+  if (typeof raw !== "object" || raw == null) return;
+  const th = raw as Record<string, unknown>;
+  if (typeof th.title !== "string") return;
+  const t = th.title.trim();
+  if (!t) {
+    th.title = "";
+    return;
+  }
+  th.title = aoClampStoredTitleByUnits(t);
 }
 
 function migrateAppStateShape(data: unknown): unknown {
@@ -112,6 +130,9 @@ function migrateAppStateShape(data: unknown): unknown {
   if (typeof o.currentProjectId === "string") {
     o.currentProjectId = migrateProjectIdString(o.currentProjectId);
   }
+  if (o.currentProjectId === "chat") {
+    o.currentProjectId = "talk";
+  }
   if (Array.isArray(o.threads)) {
     o.threads = o.threads.map((t) => {
       if (!t || typeof t !== "object") return t;
@@ -119,6 +140,12 @@ function migrateAppStateShape(data: unknown): unknown {
       if (typeof th.projectId === "string") {
         th.projectId = migrateProjectIdString(th.projectId);
       }
+      const sp = typeof th.sourceProvider === "string" ? th.sourceProvider.trim().toLowerCase() : "";
+      const aoNative = !sp || sp === "ao";
+      if (th.projectId === "chat" && aoNative) {
+        th.projectId = "talk";
+      }
+      clampThreadTitleForMigrate(th);
       return th;
     });
   }
@@ -189,7 +216,13 @@ function isThread(x: unknown): x is Thread {
   if (o.supabaseThreadId !== undefined && typeof o.supabaseThreadId !== "string") {
     return false;
   }
+  if (o.serverMessagesLoaded !== undefined && typeof o.serverMessagesLoaded !== "boolean") {
+    return false;
+  }
   if (o.sourceProvider !== undefined && typeof o.sourceProvider !== "string") {
+    return false;
+  }
+  if (o.ephemeral !== undefined && typeof o.ephemeral !== "boolean") {
     return false;
   }
   return o.messages.every(isMsg);
@@ -247,6 +280,9 @@ function threadRejectReason(t: unknown, idx: number): string | null {
   }
   if (typeof o.updatedAt !== "number" || !Number.isFinite(o.updatedAt)) {
     return `${path}: updatedAt が有限の number ではありません`;
+  }
+  if (o.serverMessagesLoaded !== undefined && typeof o.serverMessagesLoaded !== "boolean") {
+    return `${path}: serverMessagesLoaded が boolean ではありません`;
   }
   if (!Array.isArray(o.messages)) return `${path}: messages が配列ではありません`;
   if (o.supabaseThreadId !== undefined && typeof o.supabaseThreadId !== "string") {

@@ -96,6 +96,7 @@ export const ALLY_LORE_SECTION_KEY: Record<string, AoPromptSectionKey> = {
 export const PROJECT_PROMPT_SECTION_KEY: Record<ProjectId, AoPromptSectionKey> = {
   debate: "project_debate",
   chat: "project_chat",
+  talk: "project_chat",
   plan: "project_plan",
   work: "project_work",
   mental: "project_mental",
@@ -116,11 +117,13 @@ export const AO_SETTINGS_GLOBAL_KEYS = [
 
 export const AO_SETTINGS_RULE_KEYS = ["rule_general", "rule_detail", "rule_format"] as const satisfies readonly AoPromptSectionKey[];
 
+export const AO_SETTINGS_HEADER_KEYS = ["header_profile", "header_thinking"] as const satisfies readonly AoPromptSectionKey[];
+
+export const AO_SETTINGS_MODE_KEYS = ["mode_casual", "mode_designate"] as const satisfies readonly AoPromptSectionKey[];
+
 export const AO_SETTINGS_HEADER_MODE_KEYS = [
-  "header_profile",
-  "header_thinking",
-  "mode_casual",
-  "mode_designate",
+  ...AO_SETTINGS_HEADER_KEYS,
+  ...AO_SETTINGS_MODE_KEYS,
 ] as const satisfies readonly AoPromptSectionKey[];
 
 /** コードバンドル既定（Supabase 未投入・行欠落時のフォールバック） */
@@ -455,6 +458,7 @@ function projectBlock(projectId: ProjectId, overrides?: Partial<Record<AoPromptS
     case "debate":
       return pick("project_debate", overrides);
     case "chat":
+    case "talk":
       return pick("project_chat", overrides);
     case "plan":
       return pick("project_plan", overrides);
@@ -512,6 +516,7 @@ export function getPrimarySpeakerForProject(projectId: ProjectId): string {
     case "mental":
       return "バイジュ";
     case "chat":
+    case "talk":
       return "クドゥカ・ベキ";
     case "notebook":
       return "タタ・トゥンガ";
@@ -545,7 +550,7 @@ export function getSpeakerAllowSet(projectId: ProjectId): Set<string> {
   if (projectId === "mental") {
     return new Set(["バイジュ"]);
   }
-  if (projectId === "chat") {
+  if (projectId === "chat" || projectId === "talk") {
     return new Set(["クドゥカ・ベキ"]);
   }
   if (projectId === "notebook") {

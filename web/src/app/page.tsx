@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -23,9 +24,24 @@ import {
   isAoNativeThread,
   projectIdsForTopic,
 } from "@/lib/ao-topics";
-import { IcoArrowLeft, IcoBook, IcoCoinBag, IcoExecute, IcoGear, IcoLogin, IcoLogout, IcoScroll } from "@/components/ao-action-icons";
+import {
+  IcoAgendaPageFirst,
+  IcoAgendaPageLast,
+  IcoAgendaPageNext,
+  IcoAgendaPagePrev,
+  IcoArrowLeft,
+  IcoBook,
+  IcoCheck,
+  IcoCoinBag,
+  IcoExecute,
+  IcoGear,
+  IcoLogin,
+  IcoLogout,
+  IcoRoundedPlus,
+  IcoScroll,
+} from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
-import { AoSettingsOverlay } from "@/components/AoSettingsOverlay";
+import { AoSettingsOverlay, AoSettingsSubpageTabs, type AoSettingsOverlayHandle, type AoSettingsSubpage } from "@/components/AoSettingsOverlay";
 import { AoUsageOverlay } from "@/components/AoUsageOverlay";
 import { runTypewriter } from "@/lib/ao-typewriter";
 import {
@@ -36,15 +52,16 @@ import {
   type MsgTurnUsage,
   type Thread,
   aoUid,
-  describeAppStateCoreRejection,
-  isAppStateCore,
   makeDefaultAppState,
   parseAppStateJson,
   pruneEphemeralEmptyThreads,
 } from "@/lib/ao-state";
+import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
+import { mergeMsgsHydrateFromServer, mergeThreadSummariesIntoState } from "@/lib/ao-thread-list-merge";
 import {
-  AO_KOUKAN_MAIN_TITLE_FIXED,
-  aoDisplayThreadTitle,
+  aoClampStoredThreadTitle,
+  aoClampTitleDraftInput,
+  aoThreadTitleChipLabel,
   aoThreadTitleForList,
   aoTitleSnippetFromFirstUserPost,
 } from "@/lib/ao-thread-title";
@@ -73,6 +90,12 @@ const MAIN_HEADER_ICON_PX = 18;
 /** メイン左上アイコン：枠なし・クリック時はわずかに縮小 */
 const AO_MAIN_ICON_BTN_CLASS =
   "rounded-none border-0 bg-transparent p-1 text-[#DBB961] outline-none transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90";
+/** 議事帯右上：年代記／使用量／設定（装飾枠なし） */
+const AO_MAIN_HEADER_ICON_BTN_CLASS =
+  "inline-flex items-center justify-center rounded-md border-0 bg-transparent p-1 text-[#3D1C08] outline-none transition-[transform,opacity] hover:bg-[#3D1C08]/[0.07] active:scale-[0.9] active:opacity-90";
+/** 邦主列：送信（帯びたボタン） */
+const AO_MAIN_SEND_BTN_CLASS =
+  "inline-flex shrink-0 items-center justify-center rounded-lg border border-[#8D5400]/50 bg-gradient-to-b from-[#fbf6e8] to-[#e9dcc6] px-2 py-1 shadow-[0_1px_2px_rgba(0,0,0,0.12)] outline-none transition-[transform,opacity,box-shadow] hover:border-[#8D5400]/80 hover:shadow-[0_2px_6px_rgba(0,0,0,0.14)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#8D5400]/50 disabled:hover:shadow-[0_1px_2px_rgba(0,0,0,0.12)] disabled:active:scale-100";
 /** メイン部のアイコン色（令旨/年代記/送信） */
 const AO_MAIN_ICON_FG = "#8D5400";
 
@@ -95,7 +118,18 @@ const AO_P5_BUBBLE_SHADOW_FILTER =
 /** 顔グラ画像のみへ適用（親に filter を付けると子の text-shadow が潰れることがある） */
 const AO_CHAT_AVATAR_DROP_SHADOW_FILTER = "drop-shadow(1px 1px 1px rgba(236,224,200,0.85))";
 
-const AO_THINKING_DOT_CYCLE = [".", "..", "...", ".", "..", "..."] as const;
+/** 議事オーバーレイ：1ページあたりの行数 */
+const AGENDA_PAGE_SIZE = 5;
+/** 議事オーバーレイ：ページ送り（アイコンのみ） */
+const AO_AGENDA_NAV_BTN_CLASS =
+  "flex items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-[#8D5400] outline-none transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:brightness-100";
+
+/** 帯ヘッダ左：議事ページの「新規」（アイコン＋短文） */
+const AO_SUBPAGE_HDR_NEW_BTN_CLASS =
+  "inline-flex items-center gap-1 rounded-sm border-0 bg-transparent px-0.5 py-0 text-[10px] font-semibold leading-none text-[#8D5400] transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90";
+
+/** 応答待ちインジケータ（フェーズ循環） */
+const AO_THINKING_DOT_CYCLE = [".", "..", "...", ""];
 
 function aoResolveUsdForOverlay(u: MsgTurnUsage): number | null {
   return u.estimatedUsd ?? estimateUsdFromTokensClient(u.promptTokens, u.completionTokens);
@@ -628,7 +662,9 @@ function threadSourceProviderUlusLabel(sourceProvider: string | undefined): stri
   return "";
 }
 
+/** クライアントのみ呼ぶこと（SSR では localStorage が無く、初期 HTML と不一致になり Hydration が崩れる） */
 function loadState(): AppState {
+  if (typeof window === "undefined") return makeDefaultAppState();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return makeDefaultAppState();
@@ -1014,10 +1050,12 @@ export default function Home() {
     getAoViewportCompactSnapshot,
     getAoViewportCompactServerSnapshot,
   );
-  const [state, setState] = useState<AppState | null>(null);
+  /** SSR と初回クライアント描画を一致させるため既定のみ。復元はマウント後の effect で行う */
+  const [state, setState] = useState<AppState>(() => makeDefaultAppState());
+  /** localStorage 復元より先に既定 state で saveState が走ると上書き事故になるため 1 回スキップ */
+  const persistReadyRef = useRef(false);
   /** 初期議事が兵馬論（work）に合わせる */
   const [selectedTopic, setSelectedTopic] = useState<TopicUiId | null>("heiba");
-  const [postMenuTopicId, setPostMenuTopicId] = useState<TopicUiId | null>(null);
   /** 年代記オーバーレイから議事を開いたあとはメイン入力をロックする（投稿メニュー等で解除） */
   const [composeLocked, setComposeLocked] = useState(false);
   const [titleEditing, setTitleEditing] = useState(false);
@@ -1025,7 +1063,11 @@ export default function Home() {
   const [contextOpen, setContextOpen] = useState(false);
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 設定ページ内サブ（帯タブと AoSettingsOverlay を同期） */
+  const [settingsEmbeddedSubpage, setSettingsEmbeddedSubpage] = useState<AoSettingsSubpage>("global");
   const [usageOpen, setUsageOpen] = useState(false);
+  /** 新規／過去ログ一覧を、令旨・年代記と同じメイン帯オーバーレイ内に表示 */
+  const [ronListOverlayOpen, setRonListOverlayOpen] = useState(false);
   const [contextChecks, setContextChecks] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [isThinking, setIsThinking] = useState(false);
@@ -1070,7 +1112,6 @@ export default function Home() {
   const mapBgHostRef = useRef<HTMLDivElement | null>(null);
   const [mapBgTileCount, setMapBgTileCount] = useState(1);
   const [viewportH, setViewportH] = useState<number>(0);
-  const postMenuAnchorRef = useRef<HTMLDivElement | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
   const selectedTopicRef = useRef<TopicUiId | null>(selectedTopic);
   const composeLockedRef = useRef(composeLocked);
@@ -1081,33 +1122,51 @@ export default function Home() {
   const [kinDrawerAnchorBottomPx, setKinDrawerAnchorBottomPx] = useState(96);
   /** body ではなくページ内に載せ、ヘッダ z-10 より確実に奥に描画する */
   const [compactKinPortalHost, setCompactKinPortalHost] = useState<HTMLDivElement | null>(null);
+  const [threadListAfterChatNonce, setThreadListAfterChatNonce] = useState(0);
+  const settingsOverlayRef = useRef<AoSettingsOverlayHandle>(null);
+  const [settingsSavePending, setSettingsSavePending] = useState(false);
+  /** 議事オーバーレイ内テーブルのページ（0 始まり） */
+  const [agendaPageIndex, setAgendaPageIndex] = useState(0);
+  /** 令旨／年代記オーバーレイ内一覧のページ（0 始まり） */
+  const [overlayListPageIndex, setOverlayListPageIndex] = useState(0);
+
+  const fetchThreadListWithTopic = useCallback(
+    async (bust: boolean, topic: TopicUiId | null, signal?: AbortSignal) => {
+      const pids = projectIdsForTopic(topic);
+      if (!pids?.length) return;
+      try {
+        const q = new URLSearchParams({ projects: pids.join(","), limit: "5", offset: "0" });
+        if (bust) q.set("bust", "1");
+        const r = await fetch(`/api/threads/list?${q}`, { signal });
+        if (!r.ok) return;
+        const data = (await r.json()) as { threads?: DbThreadRow[]; error?: string };
+        if (data.error) {
+          console.error("[ao] /api/threads/list:", data.error);
+          return;
+        }
+        if (!Array.isArray(data.threads)) return;
+        setState((prev) => mergeThreadSummariesIntoState(prev, data.threads ?? [], pids));
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        console.error("[ao] thread list fetch", e);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const r = await fetch("/api/state");
-        if (cancelled) return;
-        if (r.ok) {
-          const data = (await r.json()) as { state?: unknown; error?: string };
-          if (data.error) console.error("[ao] /api/state:", data.error);
-          if (data.state && isAppStateCore(data.state)) {
-            setState(data.state);
-            saveState(data.state);
-            return;
-          }
-          if (data.state) console.error(describeAppStateCoreRejection(data.state));
-        }
-      } catch {}
-      if (!cancelled) setState(loadState());
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!settingsOpen) setSettingsEmbeddedSubpage("global");
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    setState(loadState());
   }, []);
 
   useEffect(() => {
-    if (!state) return;
+    if (!persistReadyRef.current) {
+      persistReadyRef.current = true;
+      return;
+    }
     const t = Date.now();
     if (t - lastSavedRef.current < 400) return;
     lastSavedRef.current = t;
@@ -1115,29 +1174,107 @@ export default function Home() {
   }, [state]);
 
   const currentThread = useMemo(() => {
-    if (!state) return null;
     return state.threads.find((t) => t.id === state.currentThreadId) ?? null;
   }, [state]);
+
+  /** 年代記など：Supabase 同期済みメタのみで messages が空のとき、遅延取得 */
+  useEffect(() => {
+    const th = currentThread;
+    if (!th?.supabaseThreadId || th.ephemeral || th.messages.length > 0 || th.serverMessagesLoaded === true) {
+      return;
+    }
+    const sid = th.supabaseThreadId;
+    const clientId = th.id;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/threads/${encodeURIComponent(sid)}/messages`);
+        if (cancelled) return;
+        if (!r.ok) {
+          setState((p) => ({
+            ...p,
+            threads: p.threads.map((t) => {
+              if (t.id !== clientId) return t;
+              if (t.messages.length > 0) return { ...t, serverMessagesLoaded: true };
+              return { ...t, messages: [], serverMessagesLoaded: true };
+            }),
+          }));
+          return;
+        }
+        const data = (await r.json()) as { messages?: Msg[] };
+        const msgs = Array.isArray(data.messages) ? data.messages : [];
+        if (cancelled) return;
+        setState((p) => ({
+          ...p,
+          threads: p.threads.map((t) => {
+            if (t.id !== clientId) return t;
+            if (t.messages.length > 0) return { ...t, serverMessagesLoaded: true };
+            return { ...t, messages: msgs, serverMessagesLoaded: true };
+          }),
+        }));
+      } catch {
+        if (!cancelled) {
+          setState((p) => ({
+            ...p,
+            threads: p.threads.map((t) => {
+              if (t.id !== clientId) return t;
+              if (t.messages.length > 0) return { ...t, serverMessagesLoaded: true };
+              return { ...t, messages: [], serverMessagesLoaded: true };
+            }),
+          }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentThread?.id,
+    currentThread?.supabaseThreadId,
+    currentThread?.messages.length,
+    currentThread?.ephemeral,
+    currentThread?.serverMessagesLoaded,
+  ]);
   const topicProjectIds = useMemo(() => projectIdsForTopic(selectedTopic), [selectedTopic]);
 
-  function toggleTopic(id: TopicUiId) {
-    setComposeLocked(false);
-    setSelectedTopic((prev) => (prev === id ? null : id));
-  }
   const activeNokorNames = useMemo(() => activeNokorNamesForTopic(selectedTopic), [selectedTopic]);
 
   const topicThreads = useMemo(() => {
-    if (!state || !topicProjectIds?.length) return [];
+    if (!topicProjectIds?.length) return [];
     const allow = new Set(topicProjectIds);
     return state.threads
-      .filter((t) => allow.has(t.projectId) && !t.ephemeral)
+      .filter((t) => {
+        if (!allow.has(t.projectId)) return false;
+        /** 巷間論（talk）は Supabase 一覧が無いため、送信前の ephemeral 空スレも議事表に出す */
+        if (t.projectId === "talk") return true;
+        return !t.ephemeral;
+      })
       .sort(compareThreadsForGiList);
   }, [state, topicProjectIds]);
 
-  const postMenuThreads = useMemo(() => {
-    if (!state || !postMenuTopicId) return [];
-    return aoThreadsForPostMenu(state.threads, postMenuTopicId);
-  }, [state, postMenuTopicId]);
+  /** メイン右列：選択論の議事一覧（新規／過去ログテーブル用。ソート後は aoThreadsForPostMenu の上限まで） */
+  const ronSidebarThreads = useMemo(() => {
+    if (!selectedTopic) return [];
+    return aoThreadsForPostMenu(state.threads, selectedTopic);
+  }, [state.threads, selectedTopic]);
+
+  const agendaMaxPageIndex = useMemo(() => {
+    const n = ronSidebarThreads.length;
+    return Math.max(0, Math.ceil(n / AGENDA_PAGE_SIZE) - 1);
+  }, [ronSidebarThreads]);
+
+  const agendaRowsSlice = useMemo(() => {
+    const start = agendaPageIndex * AGENDA_PAGE_SIZE;
+    return ronSidebarThreads.slice(start, start + AGENDA_PAGE_SIZE);
+  }, [ronSidebarThreads, agendaPageIndex]);
+
+  useEffect(() => {
+    setAgendaPageIndex(0);
+  }, [selectedTopic]);
+
+  useEffect(() => {
+    setAgendaPageIndex((i) => Math.min(i, agendaMaxPageIndex));
+  }, [agendaMaxPageIndex]);
 
   /** メッセージ追記・タイプライター・応答待ちのたびに末尾スクロール用シグネチャ */
   const chatScrollSignature = useMemo(() => {
@@ -1190,10 +1327,8 @@ export default function Home() {
   }, [viewportCompact]);
 
   useEffect(() => {
-    if (viewportCompact) return;
     const el = ronListMeasureRef.current;
     if (!el) return;
-    // scrollHeight はルビ等のオーバーフローで過大になり得るため、レイアウト高さで同期する
     const sync = () =>
       setRonListPx(Math.max(1, el.offsetHeight || Math.ceil(el.getBoundingClientRect().height)));
     sync();
@@ -1204,7 +1339,7 @@ export default function Home() {
       ro.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, [viewportCompact]);
+  }, [viewportCompact, selectedTopic]);
 
   useEffect(() => {
     const sync = () => setViewportH(typeof window !== "undefined" ? window.innerHeight : 0);
@@ -1285,8 +1420,8 @@ export default function Home() {
       chronicleOpen ||
       settingsOpen ||
       usageOpen ||
-      rawPromptOverlay ||
-      postMenuTopicId
+      ronListOverlayOpen ||
+      rawPromptOverlay
     ) {
       setLeftKinDrawerOpen(false);
     }
@@ -1296,8 +1431,8 @@ export default function Home() {
     chronicleOpen,
     settingsOpen,
     usageOpen,
+    ronListOverlayOpen,
     rawPromptOverlay,
-    postMenuTopicId,
   ]);
 
   useEffect(() => {
@@ -1340,12 +1475,24 @@ export default function Home() {
   }, [leftColumnPx, viewportH, viewportCompact, kinDrawerAnchorBottomPx]);
 
   useEffect(() => {
-    currentThreadIdRef.current = state?.currentThreadId ?? null;
-  }, [state?.currentThreadId]);
+    currentThreadIdRef.current = state.currentThreadId ?? null;
+  }, [state.currentThreadId]);
 
   useEffect(() => {
     selectedTopicRef.current = selectedTopic;
   }, [selectedTopic]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    void fetchThreadListWithTopic(false, selectedTopic, ac.signal);
+    return () => ac.abort();
+  }, [selectedTopic, fetchThreadListWithTopic]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    void fetchThreadListWithTopic(true, selectedTopicRef.current, ac.signal);
+    return () => ac.abort();
+  }, [state.currentThreadId, threadListAfterChatNonce, fetchThreadListWithTopic]);
 
   useEffect(() => {
     composeLockedRef.current = composeLocked;
@@ -1360,22 +1507,8 @@ export default function Home() {
     });
   }
 
-  useEffect(() => {
-    if (!postMenuTopicId) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      const el = postMenuAnchorRef.current;
-      if (el && !el.contains(e.target as Node)) {
-        setPostMenuTopicId(null);
-        setSelectedTopic(null);
-      }
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, [postMenuTopicId]);
-
   function setCurrentThread(threadId: string) {
     setState((prev) => {
-      if (!prev) return prev;
       const pruned = pruneEphemeralEmptyThreads(prev);
       const th = pruned.threads.find((t) => t.id === threadId);
       if (!th) return pruned;
@@ -1394,61 +1527,58 @@ export default function Home() {
     setTitleDraft(currentThread?.title ?? "");
   }, [currentThread?.id, currentThread?.title, titleEditing]);
 
-  function onMainRonTabClick(topicId: TopicUiId) {
-    const prevSel = selectedTopicRef.current;
-    setComposeLocked(false);
+  function closeMainSubOverlaysExceptRon() {
+    setContextOpen(false);
+    setChronicleOpen(false);
+    setSettingsOpen(false);
+    setUsageOpen(false);
+  }
 
-    if (topicId === "koukan") {
-      setPostMenuTopicId(null);
-      setSelectedTopic(topicId);
-      setState((prev) => {
-        if (!prev) return prev;
-        const pruned = prevSel !== topicId ? pruneEphemeralEmptyThreads(prev) : prev;
-        const pid = aoPostingProjectIdForTopic("koukan");
-        const candidates = pruned.threads.filter((t) => t.projectId === pid && isAoNativeThread(t));
-        const sorted = [...candidates].sort((a, b) => b.updatedAt - a.updatedAt);
-        let th = sorted[0];
-        let threads = pruned.threads;
-        if (!th) {
-          th = createAoThreadForTopic("koukan");
-          threads = [th, ...threads];
-        }
-        const idx = threads.findIndex((t) => t.id === th.id);
-        const arr = [...threads];
-        arr[idx] = { ...arr[idx], title: "" };
-        return {
-          ...pruned,
-          threads: arr,
-          currentThreadId: th.id,
-          currentProjectId: pid,
-        };
+  function onMainRonTabClick(topicId: TopicUiId) {
+    const inChronicleOrReijitsu = Boolean(chronicleOpen || contextOpen);
+
+    if (!inChronicleOrReijitsu) {
+      setComposeLocked(false);
+    }
+
+    const prevSel = selectedTopicRef.current;
+    if (prevSel === topicId) {
+      if (inChronicleOrReijitsu) {
+        return;
+      }
+      setRonListOverlayOpen((o) => {
+        if (!o) closeMainSubOverlaysExceptRon();
+        return !o;
       });
-      setDraft("");
       return;
     }
 
-    setPostMenuTopicId((prev) => (prev === topicId ? null : topicId));
-    setSelectedTopic(topicId);
-    if (prevSel !== topicId) {
-      setState((prev) => (prev ? pruneEphemeralEmptyThreads(prev) : prev));
+    if (inChronicleOrReijitsu) {
+      setSelectedTopic(topicId);
+      setState((prev) => pruneEphemeralEmptyThreads(prev));
+      return;
     }
+
+    closeMainSubOverlaysExceptRon();
+    setSelectedTopic(topicId);
+    setRonListOverlayOpen(true);
+    setState((prev) => pruneEphemeralEmptyThreads(prev));
   }
 
   async function sendUserMessage() {
     const text = draft.trim();
-    if (!text || !state || !currentThread || isThinking || isTyping || composeLocked) return;
+    if (!text || !currentThread || isThinking || isTyping || composeLocked) return;
     setDraft("");
     const idx = state.threads.findIndex((t) => t.id === state.currentThreadId);
     if (idx < 0) return;
     const userMsg: Msg = { id: aoUid("m"), side: "user", speaker: "ジュチ", text, createdAt: Date.now() };
     const th = state.threads[idx];
     const snippet = aoTitleSnippetFromFirstUserPost(text);
-    const isKoukan = selectedTopicRef.current === "koukan";
-    const resolvedTitle = isKoukan ? AO_KOUKAN_MAIN_TITLE_FIXED : th.title.trim() || snippet || "議事";
+    const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
     const { ephemeral: _dropEphemeral, ...thPersist } = th;
     const nextThread: Thread = {
       ...thPersist,
-      title: isKoukan ? "" : th.title.trim() ? th.title : resolvedTitle,
+      title: th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
       messages: [...th.messages, userMsg],
       updatedAt: Date.now(),
     };
@@ -1493,7 +1623,6 @@ export default function Home() {
       }
       if (data.supabaseThreadId) {
         setState((prev) => {
-          if (!prev) return prev;
           const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
           if (ti < 0) return prev;
           const aa = [...prev.threads];
@@ -1518,7 +1647,6 @@ export default function Home() {
           rawPrompts: turnRaw,
         };
         setState((prev) => {
-          if (!prev) return prev;
           const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
           if (ti < 0) return prev;
           const nt = { ...prev.threads[ti], messages: [...prev.threads[ti].messages, shell], updatedAt: Date.now() };
@@ -1530,7 +1658,6 @@ export default function Home() {
         await runTypewriter(c.text || "", (visible) => {
           if (currentThreadIdRef.current !== nextThread.id) return;
           setState((prev) => {
-            if (!prev) return prev;
             const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
             if (ti < 0) return prev;
             const mi = prev.threads[ti].messages.findIndex((m) => m.id === msgId);
@@ -1546,7 +1673,6 @@ export default function Home() {
       const turnUsage = normalizeChatUsageFromApi(data.usage);
       if ((turnUsage && batchAiIds.length > 0) || turnRaw || turnUsage || turnCompletionMeta) {
         setState((prev) => {
-          if (!prev) return prev;
           const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
           if (ti < 0) return prev;
           const msgs = [...prev.threads[ti].messages];
@@ -1575,6 +1701,7 @@ export default function Home() {
           return { ...prev, threads: aa };
         });
       }
+      setThreadListAfterChatNonce((n) => n + 1);
     } catch (e) {
       console.error(e);
     } finally {
@@ -1587,10 +1714,37 @@ export default function Home() {
 
   const overlayMode = contextOpen ? "context" : chronicleOpen ? "chronicle" : null;
   const isContextMode = overlayMode === "context";
-  const anyMainOverlay = Boolean(overlayMode) || settingsOpen || usageOpen;
+  const anyMainOverlay = Boolean(overlayMode) || settingsOpen || usageOpen || ronListOverlayOpen;
+  const showRonAgendaPanel = Boolean(ronListOverlayOpen && !overlayMode && !settingsOpen && !usageOpen);
+
+  const overlayThreadsMaxPageIndex = useMemo(() => {
+    if (!overlayMode) return 0;
+    const n = topicThreads.length;
+    return Math.max(0, Math.ceil(n / AGENDA_PAGE_SIZE) - 1);
+  }, [overlayMode, topicThreads]);
+
+  const overlayThreadsSlice = useMemo(() => {
+    if (!overlayMode) return [];
+    const start = overlayListPageIndex * AGENDA_PAGE_SIZE;
+    return topicThreads.slice(start, start + AGENDA_PAGE_SIZE);
+  }, [overlayMode, topicThreads, overlayListPageIndex]);
+
+  useEffect(() => {
+    if (!overlayMode) return;
+    setOverlayListPageIndex(0);
+  }, [overlayMode, selectedTopic]);
+
+  useEffect(() => {
+    if (!overlayMode) return;
+    setOverlayListPageIndex((i) => Math.min(i, overlayThreadsMaxPageIndex));
+  }, [overlayMode, overlayThreadsMaxPageIndex]);
+
+  useEffect(() => {
+    if (overlayMode || settingsOpen || usageOpen) setRonListOverlayOpen(false);
+  }, [overlayMode, settingsOpen, usageOpen]);
+
   /** スマホのヘッダ帯ジェスチャを無効にする（オーバーレイ・議事メニュー・Raw 時は誤操作防止） */
-  const blockCompactKinHeaderSwipe =
-    anyMainOverlay || Boolean(rawPromptOverlay) || Boolean(postMenuTopicId);
+  const blockCompactKinHeaderSwipe = anyMainOverlay || Boolean(rawPromptOverlay);
 
   /**
    * ヘッダ下かつ画面中央帯の横スワイプのみ（document capture）。
@@ -1675,6 +1829,8 @@ export default function Home() {
   const compactExecuteIcoSize = viewportCompact
     ? Math.max(14, Math.round(Math.max(16, Math.round(JUCHI_SEND_BTN_MIN_H_PX * 1.25)) * 0.78))
     : Math.max(16, Math.round(JUCHI_SEND_BTN_MIN_H_PX * 1.25));
+  /** 令旨／年代記／設定／使用量サブページ帯の縦（論リストの実測に合わせる） */
+  const ronSubpageBandPx = Math.max(28, Math.round(ronListPx ?? (viewportCompact ? 96 : 140)));
 
   const chatRowGap = Math.max(
     2,
@@ -1755,6 +1911,7 @@ export default function Home() {
     ronColWidthPx,
     titleEditing,
     ronListPx,
+    anyMainOverlay,
   ]);
 
   const thinkingDotsText = AO_THINKING_DOT_CYCLE[thinkingDotsPhase];
@@ -1814,6 +1971,41 @@ export default function Home() {
     });
     setRawPromptOverlay({ variant: side, usage, completionMeta, rawPrompts, left, top });
   }
+
+  const hydrateRawFromServerIfNeeded = useCallback(
+    async (e: ReactMouseEvent<HTMLButtonElement>, side: "ai" | "user", m: Msg) => {
+      let rawPrompts = m.rawPrompts;
+      let usage = m.usage ?? aoSyntheticMsgTurnUsage();
+      let completionMeta = m.completionMeta;
+      const th = state.threads.find((t) => t.id === state.currentThreadId);
+      const sid = th?.supabaseThreadId;
+      if (!rawPrompts && sid && !th?.ephemeral) {
+        try {
+          const r = await fetch(`/api/threads/${encodeURIComponent(sid)}/messages?raw=1`);
+          if (r.ok) {
+            const data = (await r.json()) as { messages?: Msg[] };
+            const list = Array.isArray(data.messages) ? data.messages : [];
+            const found = list.find((x) => x.id === m.id);
+            if (found?.rawPrompts) rawPrompts = found.rawPrompts;
+            if (found?.usage) usage = found.usage;
+            if (found?.completionMeta) completionMeta = found.completionMeta;
+            setState((p) => {
+              const ti = p.threads.findIndex((t) => t.id === p.currentThreadId);
+              if (ti < 0) return p;
+              const merged = mergeMsgsHydrateFromServer(p.threads[ti]!.messages, list);
+              const aa = [...p.threads];
+              aa[ti] = { ...aa[ti]!, messages: merged };
+              return { ...p, threads: aa };
+            });
+          }
+        } catch {
+          /* Raw 未取得でもオーバーレイは開く */
+        }
+      }
+      openRawPromptPopover(e, side, usage, rawPrompts, m.id, completionMeta);
+    },
+    [state.threads, state.currentThreadId],
+  );
 
   /** zoom 対象のルートの外に描画しないと fixed が潰れ中身が空／端だけ見える */
   const kinDrawerPortalEl =
@@ -2039,181 +2231,6 @@ export default function Home() {
                 }`}
               >
           <div className={`relative z-10 flex min-h-0 flex-col ${viewportCompact ? "" : "flex-1"}`}>
-          {overlayMode && (
-            <div className="absolute inset-0 z-50 flex min-h-0 flex-col p-3 box-border ao-p5-parchment-surface">
-              <div className="flex min-h-0 flex-1 flex-col gap-[3px]">
-                {/* grid で中央列に minmax(0,1fr) を確保し「論エリア」が左右に潰れないようにする */}
-                <div className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3">
-                  <div className="shrink-0 pl-[25px] pt-1 text-left leading-tight whitespace-nowrap">
-                    {isContextMode ? (
-                      <AoRubyGold
-                        main="令　旨"
-                        rt="ジャルリグ"
-                        mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
-                        rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
-                      />
-                    ) : (
-                      <AoRubyGold
-                        main="年 代 記"
-                        rt="トプチヤン"
-                        mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
-                        rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
-                      />
-                    )}
-                  </div>
-
-                  {/* メイン画面の論エリアと同一構造（中央列のみが縮み、タブは横スクロール） */}
-                  <div className="flex min-w-0 justify-center self-start pt-1">
-                    <div className="inline-flex max-w-full flex-nowrap items-center justify-center gap-0 overflow-x-auto p-0">
-                      {AO_TOPICS.map((tp) => {
-                        const on = selectedTopic === tp.id;
-                        return (
-                          <button
-                            key={tp.id}
-                            type="button"
-                            className="rounded-none border-0 bg-transparent p-0"
-                            style={aoRonTabInlineStyleOverlay(tp.id, on)}
-                            onClick={() => toggleTopic(tp.id)}
-                            aria-pressed={selectedTopic === tp.id}
-                          >
-                            <div className={aoRonTabLabelOffsetClass(on)}>
-                              <AoP5NameplateSmFrame
-                                width={56}
-                                text={tp.label}
-                                maxChars={7}
-                                fontSizePx={11}
-                                variant="flush"
-                                fitToText
-                                style={{ filter: on ? "drop-shadow(0 1px 0 rgba(0,0,0,0.18))" : undefined }}
-                              />
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex shrink-0 items-center justify-end gap-1 self-start pt-1 pr-[25px]">
-                    {isContextMode ? (
-                      <button
-                        type="button"
-                        className="flex items-center justify-center rounded-sm border-0 bg-transparent p-1.5 transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90"
-                        aria-label="令旨を閉じる"
-                        onClick={() => {
-                          setPostMenuTopicId(null);
-                          setContextOpen(false);
-                          scheduleFocusMainPrompt();
-                        }}
-                      >
-                        <span style={{ color: AO_MAIN_ICON_FG }}>
-                          <IcoExecute size={20} />
-                        </span>
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="flex items-center justify-center rounded-sm border-0 bg-transparent p-1.5 transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90"
-                      aria-label="戻る"
-                      onClick={() => {
-                        setPostMenuTopicId(null);
-                        setContextOpen(false);
-                        setChronicleOpen(false);
-                        scheduleFocusMainPrompt();
-                      }}
-                    >
-                      <span style={{ color: AO_MAIN_ICON_FG }}>
-                        <IcoArrowLeft size={20} />
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                <div
-                  className="min-h-0 flex-1 overflow-y-scroll border border-solid [scrollbar-gutter:stable]"
-                  style={{ borderColor: "#3D1C08", borderWidth: 1, backgroundColor: "rgba(255,255,255,0.0)" }}
-                >
-                  {topicThreads.length === 0 ? (
-                    <>
-                      <div
-                        className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-1.5 text-[12px] text-[#3D1C08]"
-                        style={{ borderColor: "#3D1C08" }}
-                      >
-                        <div className="w-[24px]" />
-                        <div className="min-w-0 text-left">該当する議事はありません。</div>
-                        <div className="min-w-[52px] shrink-0 text-center text-[11px] leading-tight text-[#c2cad6]" />
-                        <div className="min-w-[108px] shrink-0 pr-[20px] text-right" />
-                      </div>
-                      {Array.from({ length: 14 }).map((_, i) => (
-                        <div
-                          key={`empty-row-${i}`}
-                          className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-1.5"
-                          style={{ borderColor: "#3D1C08", minHeight: 36 }}
-                        >
-                          <div className="w-[24px]" />
-                          <div />
-                          <div className="min-w-[52px] shrink-0" />
-                          <div className="min-w-[108px] shrink-0 pr-[20px]" />
-                        </div>
-                      ))}
-                    </>
-                  ) : (
-                    topicThreads.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        className="group/row grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-1.5 text-left text-[12px] hover:bg-[#143d5e]/60"
-                        style={{ borderColor: "#3D1C08" }}
-                        onClick={() => {
-                          if (isContextMode)
-                            setContextChecks((prev) =>
-                              prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id],
-                            );
-                          else {
-                            setCurrentThread(t.id);
-                            setComposeLocked(true);
-                          }
-                        }}
-                      >
-                        <div className="flex w-[24px] items-center justify-center">
-                          {isContextMode ? (
-                            <input type="checkbox" checked={contextChecks.includes(t.id)} readOnly className="ao-overlay-checkbox" />
-                          ) : null}
-                        </div>
-                        <span className="min-w-0 truncate text-[#3D1C08] group-hover/row:underline">
-                          {aoThreadTitleForList(t)}
-                        </span>
-                        <span className="min-w-[52px] shrink-0 whitespace-nowrap text-center text-[11px] leading-tight text-[#6A3F0A]/80">
-                          {threadSourceProviderUlusLabel(t.sourceProvider)}
-                        </span>
-                        <span className="min-w-0 shrink-0 whitespace-nowrap pr-[20px] text-right text-[12px] leading-tight text-[#6A3F0A]/80 tabular-nums">
-                          {formatDate(t.updatedAt)}
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-          {settingsOpen ? (
-            <AoSettingsOverlay
-              open={settingsOpen}
-              onClose={() => {
-                setSettingsOpen(false);
-                scheduleFocusMainPrompt();
-              }}
-            />
-          ) : null}
-          {usageOpen ? (
-            <AoUsageOverlay
-              open={usageOpen}
-              onClose={() => {
-                setUsageOpen(false);
-                scheduleFocusMainPrompt();
-              }}
-            />
-          ) : null}
-
           {/* ③ 論（縦）：左列 */}
           <div
             className="flex min-h-0 flex-1 flex-col px-0"
@@ -2297,73 +2314,10 @@ export default function Home() {
               </div>
 
               {/* 右：タイトル＋吹き出し（既存の中段をここで続ける） */}
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch">
-                <div ref={postMenuAnchorRef} className="relative z-[35] box-border min-w-0 overflow-visible">
-                  {postMenuTopicId ? (
-                    <div
-                      role="dialog"
-                      aria-label="議事の選択"
-                      className="absolute left-0 right-0 top-0 z-40 mt-0 border border-solid px-2 py-1.5"
-                      style={{
-                        borderColor: "#3D1C08",
-                        borderWidth: 1,
-                        backgroundColor: "#faf6ee",
-                        boxShadow: "0 10px 28px rgba(0,0,0,0.42)",
-                      }}
-                    >
-                      <div className="mb-1 border-b pb-1 text-center text-[11px] font-semibold text-[#3D1C08]" style={{ borderColor: "#3D1C08" }}>
-                        {AO_TOPICS.find((x) => x.id === postMenuTopicId)?.label ?? ""} — 議事
-                      </div>
-                      <button
-                        type="button"
-                        className="mb-1 w-full rounded-none border border-solid px-2 py-1.5 text-left text-[12px] font-semibold text-[#3D1C08] hover:bg-black/5"
-                        style={{ borderColor: "#3D1C08", backgroundColor: "#fffaf0" }}
-                        onClick={() => {
-                          const nt = createAoThreadForTopic(postMenuTopicId);
-                          setComposeLocked(false);
-                          setState((prev) => {
-                            if (!prev) return prev;
-                            const withoutGhost = prev.threads.filter(
-                              (t) => !(t.ephemeral && t.messages.length === 0 && t.projectId === nt.projectId),
-                            );
-                            return {
-                              ...prev,
-                              threads: [nt, ...withoutGhost],
-                              currentThreadId: nt.id,
-                              currentProjectId: nt.projectId,
-                            };
-                          });
-                          setDraft("");
-                          setPostMenuTopicId(null);
-                          scheduleFocusMainPrompt();
-                        }}
-                      >
-                        新規
-                      </button>
-                      <div className="max-h-[132px] overflow-y-auto pr-0.5">
-                        {postMenuThreads.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            className="flex w-full items-center justify-between gap-2 border-b px-1 py-1 text-left text-[11px] text-[#3D1C08] last:border-b-0 hover:bg-black/5"
-                            style={{ borderColor: "#3D1C08" }}
-                            onClick={() => {
-                              setComposeLocked(false);
-                              setCurrentThread(t.id);
-                              setPostMenuTopicId(null);
-                              scheduleFocusMainPrompt();
-                            }}
-                          >
-                            <span className="min-w-0 flex-1 truncate">{aoThreadTitleForList(t)}</span>
-                            <span className="shrink-0 tabular-nums text-[10px] text-[#6A3F0A]/80">{formatDateDay(t.updatedAt)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* タイトル行（右に令旨/年代記）＋吹き出し（右にユーザー） */}
+              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col self-stretch">
+                {!anyMainOverlay ? (
+                <>
+                {/* タイトル行（右上：年代記／使用量／設定）＋吹き出し（右にユーザー） */}
                 <div
                   className={`mt-0 flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 shrink-0 overflow-x-hidden overflow-y-visible" : "flex-1 overflow-visible"}`}
                   style={{
@@ -2400,82 +2354,75 @@ export default function Home() {
                             paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
                           }}
                         >
-                          {selectedTopic !== "koukan" ? (
-                            titleEditing ? (
-                              <input
-                                ref={titleInputRef}
-                                value={titleDraft}
-                                onChange={(e) => setTitleDraft(e.target.value)}
-                                onBlur={() => {
-                                  setTitleEditing(false);
-                                  if (!state || !currentThread) return;
-                                  if (!isAoNativeThread(currentThread)) {
-                                    setTitleDraft(currentThread.title);
-                                    return;
-                                  }
-                                  const trimmed = titleDraft.trim();
-                                  setState((prev) => {
-                                    if (!prev) return prev;
-                                    const ti = prev.threads.findIndex((t) => t.id === currentThread.id);
-                                    if (ti < 0) return prev;
-                                    const arr = [...prev.threads];
-                                    arr[ti] = { ...arr[ti], title: trimmed };
-                                    return { ...prev, threads: arr };
-                                  });
-                                }}
-                                style={{ fontSize: compactGijiTitleFs }}
-                                className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
-                              />
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTitleDraft(currentThread?.title ?? "");
-                                  setTitleEditing(true);
-                                }}
-                                style={{ fontSize: compactGijiTitleFs }}
-                                className="flex min-h-0 w-full min-w-0 items-center justify-center rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
-                              >
-                                『
-                                {currentThread?.title?.trim()
-                                  ? aoDisplayThreadTitle(currentThread.title.trim())
-                                  : "タイトル未設定"}
-                                』
-                              </button>
-                            )
-                          ) : (
-                            <div
-                              className="flex min-h-0 w-full min-w-0 shrink-0 items-center justify-center px-1 py-0 font-serif font-semibold leading-tight text-[#3D1C08]"
+                          {titleEditing ? (
+                            <input
+                              ref={titleInputRef}
+                              value={titleDraft}
+                              onChange={(e) => {
+                                setTitleDraft(aoClampTitleDraftInput(e.target.value));
+                              }}
+                              onBlur={() => {
+                                setTitleEditing(false);
+                                if (!currentThread) return;
+                                if (!isAoNativeThread(currentThread)) {
+                                  setTitleDraft(currentThread.title);
+                                  return;
+                                }
+                                const trimmed = aoClampStoredThreadTitle(titleDraft);
+                                setState((prev) => {
+                                  const ti = prev.threads.findIndex((t) => t.id === currentThread.id);
+                                  if (ti < 0) return prev;
+                                  const arr = [...prev.threads];
+                                  arr[ti] = { ...arr[ti], title: trimmed };
+                                  return { ...prev, threads: arr };
+                                });
+                              }}
                               style={{ fontSize: compactGijiTitleFs }}
-                              aria-label={AO_KOUKAN_MAIN_TITLE_FIXED.trim()}
+                              className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTitleDraft(currentThread?.title ?? "");
+                                setTitleEditing(true);
+                              }}
+                              style={{ fontSize: compactGijiTitleFs }}
+                              className="flex min-h-0 w-full min-w-0 items-center justify-center rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
                             >
-                              {AO_KOUKAN_MAIN_TITLE_FIXED}
-                            </div>
+                              『{aoThreadTitleChipLabel(currentThread)}』
+                            </button>
                           )}
                         </div>
                       </AoOrnamentalFrame>
                       </div>
-                      <div className="flex min-w-0 flex-col justify-center">
-                        <AoOrnamentalFrame
-                          scale={0.5}
-                          contentInsetPx={GIJI_CHIP_ORNAMENT_INSET_PX}
-                          className="w-full max-w-full overflow-visible"
-                          contentClassName="overflow-visible"
-                          contentStyle={{ padding: GIJI_CHIP_ORNAMENT_CONTENT_PAD }}
-                        >
-                        <div
-                          className="ao-p5-parchment-surface box-border flex h-full w-full items-center justify-center gap-0 px-0"
-                          style={{
-                            height: gijiTitleChipHPx ?? compactRonTitleChipH,
-                            minHeight: 0,
-                          }}
-                        >
+                      <div
+                        className="flex min-w-0 shrink-0 flex-col justify-center"
+                        style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}
+                      >
+                        <div className="flex w-full items-center justify-center gap-0.5">
                           <button
                             type="button"
-                            className={`flex h-full min-h-0 flex-1 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
+                            className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                            aria-label="年代記"
+                            onClick={() => {
+                              setRonListOverlayOpen(false);
+                              setChronicleOpen(true);
+                              setContextOpen(false);
+                              setUsageOpen(false);
+                              setSettingsOpen(false);
+                            }}
+                          >
+                            <span className="ao-p5-kurultai-ink-icon">
+                              <IcoBook size={compactGijiChipIconPx} />
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                             aria-label="AI API 使用量を表示"
                             onClick={() => {
-                              setPostMenuTopicId(null);
+                              setRonListOverlayOpen(false);
                               setChronicleOpen(false);
                               setContextOpen(false);
                               setSettingsOpen(false);
@@ -2488,10 +2435,10 @@ export default function Home() {
                           </button>
                           <button
                             type="button"
-                            className={`flex h-full min-h-0 flex-1 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
+                            className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                             aria-label="設定を開く"
                             onClick={() => {
-                              setPostMenuTopicId(null);
+                              setRonListOverlayOpen(false);
                               setContextOpen(false);
                               setChronicleOpen(false);
                               setUsageOpen(false);
@@ -2503,7 +2450,6 @@ export default function Home() {
                             </span>
                           </button>
                         </div>
-                      </AoOrnamentalFrame>
                       </div>
                       <div className="isolate flex min-h-0 min-w-0 flex-col overflow-visible pr-0">
                       <div
@@ -2572,65 +2518,32 @@ export default function Home() {
                           rtClassName="text-[8px] font-serif text-[#6A3F0A]/80"
                         />
                       </div>
-                      <div className="relative z-30 flex w-full justify-center pt-0.5">
+                      <div className="relative z-30 flex w-full items-center justify-center gap-1.5 px-0.5 pt-0.5">
                         <button
                           type="button"
                           disabled={composeLocked}
                           onClick={() => void sendUserMessage()}
                           aria-label="送信"
-                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40 ${AO_MAIN_ICON_BTN_CLASS}`}
+                          className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
-                          <span className="ao-p5-kurultai-ink-icon">
+                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
                             <IcoExecute size={compactExecuteIcoSize} />
                           </span>
                         </button>
-                      </div>
-
-                      <div className="mt-1 w-full">
-                        <AoOrnamentalFrame
-                          scale={0.5}
-                          contentInsetPx={GIJI_CHIP_ORNAMENT_INSET_PX}
-                          className="w-full max-w-full overflow-visible"
-                          contentClassName="overflow-visible"
-                          contentStyle={{ padding: GIJI_CHIP_ORNAMENT_CONTENT_PAD }}
+                        <button
+                          type="button"
+                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS}`}
+                          aria-label="令旨"
+                          onClick={() => {
+                            setRonListOverlayOpen(false);
+                            setContextOpen(true);
+                            setChronicleOpen(false);
+                          }}
                         >
-                          <div
-                            className="ao-p5-parchment-surface box-border flex w-full items-center justify-center gap-1 px-0"
-                            style={{
-                              height: gijiTitleChipHPx ?? compactRonTitleChipH,
-                              minHeight: 0,
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className={`flex h-full min-h-0 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
-                              aria-label="令旨"
-                              onClick={() => {
-                                setPostMenuTopicId(null);
-                                setContextOpen(true);
-                                setChronicleOpen(false);
-                              }}
-                            >
-                              <span className="ao-p5-kurultai-ink-icon">
-                                <IcoScroll size={compactGijiChipIconPx} />
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              className={`flex h-full min-h-0 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
-                              aria-label="年代記"
-                              onClick={() => {
-                                setPostMenuTopicId(null);
-                                setChronicleOpen(true);
-                                setContextOpen(false);
-                              }}
-                            >
-                              <span className="ao-p5-kurultai-ink-icon">
-                                <IcoBook size={compactGijiChipIconPx} />
-                              </span>
-                            </button>
-                          </div>
-                        </AoOrnamentalFrame>
+                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
+                            <IcoScroll size={compactGijiChipIconPx} />
+                          </span>
+                        </button>
                       </div>
                     </div>
                     </div>
@@ -2656,112 +2569,101 @@ export default function Home() {
                             paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
                           }}
                         >
-                          {selectedTopic !== "koukan" ? (
-                            titleEditing ? (
-                              <input
-                                ref={titleInputRef}
-                                value={titleDraft}
-                                onChange={(e) => setTitleDraft(e.target.value)}
-                                onBlur={() => {
-                                  setTitleEditing(false);
-                                  if (!state || !currentThread) return;
-                                  if (!isAoNativeThread(currentThread)) {
-                                    setTitleDraft(currentThread.title);
-                                    return;
-                                  }
-                                  const trimmed = titleDraft.trim();
-                                  setState((prev) => {
-                                    if (!prev) return prev;
-                                    const ti = prev.threads.findIndex((t) => t.id === currentThread.id);
-                                    if (ti < 0) return prev;
-                                    const arr = [...prev.threads];
-                                    arr[ti] = { ...arr[ti], title: trimmed };
-                                    return { ...prev, threads: arr };
-                                  });
-                                }}
-                                style={{ fontSize: compactGijiTitleFs }}
-                                className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
-                              />
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTitleDraft(currentThread?.title ?? "");
-                                  setTitleEditing(true);
-                                }}
-                                style={{ fontSize: compactGijiTitleFs }}
-                                className="flex min-h-0 w-full min-w-0 items-center justify-center rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
-                              >
-                                『
-                                {currentThread?.title?.trim()
-                                  ? aoDisplayThreadTitle(currentThread.title.trim())
-                                  : "タイトル未設定"}
-                                』
-                              </button>
-                            )
-                          ) : (
-                            <div
-                              className="flex min-h-0 w-full min-w-0 shrink-0 items-center justify-center px-1 py-0 font-serif font-semibold leading-tight text-[#3D1C08]"
+                          {titleEditing ? (
+                            <input
+                              ref={titleInputRef}
+                              value={titleDraft}
+                              onChange={(e) => {
+                                setTitleDraft(aoClampTitleDraftInput(e.target.value));
+                              }}
+                              onBlur={() => {
+                                setTitleEditing(false);
+                                if (!currentThread) return;
+                                if (!isAoNativeThread(currentThread)) {
+                                  setTitleDraft(currentThread.title);
+                                  return;
+                                }
+                                const trimmed = aoClampStoredThreadTitle(titleDraft);
+                                setState((prev) => {
+                                  const ti = prev.threads.findIndex((t) => t.id === currentThread.id);
+                                  if (ti < 0) return prev;
+                                  const arr = [...prev.threads];
+                                  arr[ti] = { ...arr[ti], title: trimmed };
+                                  return { ...prev, threads: arr };
+                                });
+                              }}
                               style={{ fontSize: compactGijiTitleFs }}
-                              aria-label={AO_KOUKAN_MAIN_TITLE_FIXED.trim()}
+                              className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTitleDraft(currentThread?.title ?? "");
+                                setTitleEditing(true);
+                              }}
+                              style={{ fontSize: compactGijiTitleFs }}
+                              className="flex min-h-0 w-full min-w-0 items-center justify-center rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
                             >
-                              {AO_KOUKAN_MAIN_TITLE_FIXED}
-                            </div>
+                              『{aoThreadTitleChipLabel(currentThread)}』
+                            </button>
                           )}
                         </div>
                       </AoOrnamentalFrame>
                     </div>
 
-                    {/* 旧「令旨/年代記」の位置：使用量/設定（ヘッダから移設） */}
-                    <div className="shrink-0">
-                      <AoOrnamentalFrame
-                        scale={0.5}
-                        contentInsetPx={GIJI_CHIP_ORNAMENT_INSET_PX}
-                        className="max-w-full overflow-visible"
-                        contentClassName="overflow-visible"
-                        contentStyle={{ padding: GIJI_CHIP_ORNAMENT_CONTENT_PAD }}
-                      >
-                        <div
-                          className="ao-p5-parchment-surface box-border flex h-full items-center gap-0 px-0"
-                          style={{
-                            height: gijiTitleChipHPx ?? compactRonTitleChipH,
-                            minHeight: 0,
+                    {/* 議事帯右上：年代記・使用量・設定（装飾枠なし） */}
+                    <div className="flex shrink-0 flex-col justify-center self-stretch" style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}>
+                      <div className="flex items-center justify-end gap-0.5">
+                        <button
+                          type="button"
+                          className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                          aria-label="年代記"
+                          onClick={() => {
+                            setRonListOverlayOpen(false);
+                            setChronicleOpen(true);
+                            setContextOpen(false);
+                            setUsageOpen(false);
+                            setSettingsOpen(false);
                           }}
                         >
-                          <button
-                            type="button"
-                            className={`flex h-full min-h-0 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
-                            aria-label="AI API 使用量を表示"
-                            onClick={() => {
-                              setPostMenuTopicId(null);
-                              setChronicleOpen(false);
-                              setContextOpen(false);
-                              setSettingsOpen(false);
-                              setUsageOpen(true);
-                            }}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoCoinBag size={compactGijiChipIconPx} />
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`flex h-full min-h-0 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
-                            aria-label="設定を開く"
-                            onClick={() => {
-                              setPostMenuTopicId(null);
-                              setContextOpen(false);
-                              setChronicleOpen(false);
-                              setUsageOpen(false);
-                              setSettingsOpen(true);
-                            }}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoGear size={compactGijiChipIconPx} />
-                            </span>
-                          </button>
-                        </div>
-                      </AoOrnamentalFrame>
+                          <span className="ao-p5-kurultai-ink-icon">
+                            <IcoBook size={compactGijiChipIconPx} />
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                          aria-label="AI API 使用量を表示"
+                          onClick={() => {
+                            setRonListOverlayOpen(false);
+                            setChronicleOpen(false);
+                            setContextOpen(false);
+                            setSettingsOpen(false);
+                            setUsageOpen(true);
+                          }}
+                        >
+                          <span className="ao-p5-kurultai-ink-icon">
+                            <IcoCoinBag size={compactGijiChipIconPx} />
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                          aria-label="設定を開く"
+                          onClick={() => {
+                            setRonListOverlayOpen(false);
+                            setContextOpen(false);
+                            setChronicleOpen(false);
+                            setUsageOpen(false);
+                            setSettingsOpen(true);
+                          }}
+                        >
+                          <span className="ao-p5-kurultai-ink-icon">
+                            <IcoGear size={compactGijiChipIconPx} />
+                          </span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <div className="flex min-h-0 flex-1 items-stretch pb-0" style={{ gap: chatRowGap }}>
@@ -2832,71 +2734,440 @@ export default function Home() {
                           rtClassName="text-[8px] font-serif text-[#6A3F0A]/80"
                         />
                       </div>
-                      <div className="relative z-30 flex w-full justify-center pt-0.5">
+                      <div className="relative z-30 flex w-full items-center justify-center gap-1.5 px-0.5 pt-0.5">
                         <button
                           type="button"
                           disabled={composeLocked}
                           onClick={() => void sendUserMessage()}
                           aria-label="送信"
-                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40 ${AO_MAIN_ICON_BTN_CLASS}`}
+                          className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
-                          <span className="ao-p5-kurultai-ink-icon">
+                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
                             <IcoExecute size={compactExecuteIcoSize} />
                           </span>
                         </button>
-                      </div>
-
-                      <div className="mt-1 w-full">
-                        <AoOrnamentalFrame
-                          scale={0.5}
-                          contentInsetPx={GIJI_CHIP_ORNAMENT_INSET_PX}
-                          className="w-full max-w-full overflow-visible"
-                          contentClassName="overflow-visible"
-                          contentStyle={{ padding: GIJI_CHIP_ORNAMENT_CONTENT_PAD }}
+                        <button
+                          type="button"
+                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS}`}
+                          aria-label="令旨"
+                          onClick={() => {
+                            setRonListOverlayOpen(false);
+                            setContextOpen(true);
+                            setChronicleOpen(false);
+                          }}
                         >
-                          <div
-                            className="ao-p5-parchment-surface box-border flex w-full items-center justify-center gap-1 px-0"
-                            style={{
-                              height: gijiTitleChipHPx ?? compactRonTitleChipH,
-                              minHeight: 0,
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className={`flex h-full min-h-0 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
-                              aria-label="令旨"
-                              onClick={() => {
-                                setPostMenuTopicId(null);
-                                setContextOpen(true);
-                                setChronicleOpen(false);
-                              }}
-                            >
-                              <span className="ao-p5-kurultai-ink-icon">
-                                <IcoScroll size={compactGijiChipIconPx} />
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              className={`flex h-full min-h-0 items-center justify-center ${AO_MAIN_ICON_BTN_CLASS}`}
-                              aria-label="年代記"
-                              onClick={() => {
-                                setPostMenuTopicId(null);
-                                setChronicleOpen(true);
-                                setContextOpen(false);
-                              }}
-                            >
-                              <span className="ao-p5-kurultai-ink-icon">
-                                <IcoBook size={compactGijiChipIconPx} />
-                              </span>
-                            </button>
-                          </div>
-                        </AoOrnamentalFrame>
+                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
+                            <IcoScroll size={compactGijiChipIconPx} />
+                          </span>
+                        </button>
                       </div>
                     </div>
                   </div>
                     </>
                   )}
                 </div>
+                </>
+                ) : (
+                <>
+                  <div className="shrink-0 w-full" style={{ height: ronSubpageBandPx }} aria-hidden />
+                  <div
+                    className="pointer-events-auto absolute inset-x-0 top-0 z-[50] box-border flex min-h-0 flex-col overflow-hidden"
+                    style={{ height: ronSubpageBandPx }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={
+                      showRonAgendaPanel
+                        ? "議事一覧"
+                        : isContextMode
+                          ? "令旨"
+                          : overlayMode === "chronicle"
+                            ? "年代記"
+                            : settingsOpen
+                              ? "設定"
+                              : "使用量"
+                    }
+                  >
+                    <AoOrnamentalFrame
+                      scale={0.5}
+                      rootDisplay="flex"
+                      contentInsetPx={ronListFrameInsetPx}
+                      className="box-border flex h-full min-h-0 w-full flex-col overflow-hidden"
+                      contentClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+                      contentStyle={{ padding: ronListParchmentPadStr }}
+                    >
+                      <div className="ao-p5-parchment-surface flex h-full min-h-0 flex-col gap-0.5 overflow-hidden">
+                        {showRonAgendaPanel && selectedTopic ? (
+                          <div className="grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-x-0.5 px-0.5 py-0">
+                              <div className="flex min-w-0 justify-start">
+                                <button
+                                  type="button"
+                                  className={AO_SUBPAGE_HDR_NEW_BTN_CLASS}
+                                  aria-label="新規議事を作成"
+                                  onClick={() => {
+                                    const nt = createAoThreadForTopic(selectedTopic);
+                                    setComposeLocked(false);
+                                    setRonListOverlayOpen(false);
+                                    setState((prev) => {
+                                      const withoutGhost = prev.threads.filter(
+                                        (t) =>
+                                          !(t.ephemeral && t.messages.length === 0 && t.projectId === nt.projectId),
+                                      );
+                                      return {
+                                        ...prev,
+                                        threads: [nt, ...withoutGhost],
+                                        currentThreadId: nt.id,
+                                        currentProjectId: nt.projectId,
+                                      };
+                                    });
+                                    setDraft("");
+                                    scheduleFocusMainPrompt();
+                                  }}
+                                >
+                                  <IcoRoundedPlus size={14} className="shrink-0" />
+                                  新規
+                                </button>
+                              </div>
+                              <div className="flex shrink-0 items-center justify-center gap-px">
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="先頭ページ"
+                                  disabled={agendaPageIndex <= 0}
+                                  onClick={() => setAgendaPageIndex(0)}
+                                >
+                                  <IcoAgendaPageFirst size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="前のページ"
+                                  disabled={agendaPageIndex <= 0}
+                                  onClick={() => setAgendaPageIndex((i) => Math.max(0, i - 1))}
+                                >
+                                  <IcoAgendaPagePrev size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="次のページ"
+                                  disabled={agendaPageIndex >= agendaMaxPageIndex}
+                                  onClick={() =>
+                                    setAgendaPageIndex((i) => Math.min(agendaMaxPageIndex, i + 1))
+                                  }
+                                >
+                                  <IcoAgendaPageNext size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="末尾ページ"
+                                  disabled={agendaPageIndex >= agendaMaxPageIndex}
+                                  onClick={() => setAgendaPageIndex(agendaMaxPageIndex)}
+                                >
+                                  <IcoAgendaPageLast size={16} />
+                                </button>
+                              </div>
+                              <div className="flex min-w-0 justify-end">
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="戻る"
+                                  onClick={() => {
+                                    setContextOpen(false);
+                                    setChronicleOpen(false);
+                                    setSettingsOpen(false);
+                                    setUsageOpen(false);
+                                    setRonListOverlayOpen(false);
+                                    scheduleFocusMainPrompt();
+                                  }}
+                                >
+                                  <IcoArrowLeft size={14} className="shrink-0" />
+                                </button>
+                              </div>
+                            </div>
+                        ) : (
+                        <div className="grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-x-0.5 px-0.5 py-0">
+                          <div className="flex min-w-0 justify-start">
+                            {isContextMode ? (
+                              <AoRubyGold
+                                main="令　旨"
+                                rt="ジャルリグ"
+                                mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
+                                rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
+                              />
+                            ) : overlayMode === "chronicle" ? (
+                              <AoRubyGold
+                                main="年 代 記"
+                                rt="トプチヤン"
+                                mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
+                                rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
+                              />
+                            ) : settingsOpen ? (
+                              <div className="min-w-0 shrink-0" aria-hidden />
+                            ) : (
+                              <AoRubyGold
+                                main="使　用　量"
+                                rt="　"
+                                mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
+                                rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
+                              />
+                            )}
+                          </div>
+                          <div className="flex min-w-0 w-full shrink-0 items-center justify-center gap-px">
+                            {settingsOpen ? (
+                              <div className="flex max-w-full flex-wrap items-center justify-center gap-x-1 gap-y-0.5 px-0.5">
+                                <AoRubyGold
+                                  main="設　定"
+                                  rt="　"
+                                  mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
+                                  rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
+                                />
+                                <AoSettingsSubpageTabs
+                                  active={settingsEmbeddedSubpage}
+                                  onChange={setSettingsEmbeddedSubpage}
+                                />
+                              </div>
+                            ) : overlayMode ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="先頭ページ"
+                                  disabled={overlayListPageIndex <= 0}
+                                  onClick={() => setOverlayListPageIndex(0)}
+                                >
+                                  <IcoAgendaPageFirst size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="前のページ"
+                                  disabled={overlayListPageIndex <= 0}
+                                  onClick={() => setOverlayListPageIndex((i) => Math.max(0, i - 1))}
+                                >
+                                  <IcoAgendaPagePrev size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="次のページ"
+                                  disabled={overlayListPageIndex >= overlayThreadsMaxPageIndex}
+                                  onClick={() =>
+                                    setOverlayListPageIndex((i) =>
+                                      Math.min(overlayThreadsMaxPageIndex, i + 1),
+                                    )
+                                  }
+                                >
+                                  <IcoAgendaPageNext size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={AO_AGENDA_NAV_BTN_CLASS}
+                                  aria-label="末尾ページ"
+                                  disabled={overlayListPageIndex >= overlayThreadsMaxPageIndex}
+                                  onClick={() => setOverlayListPageIndex(overlayThreadsMaxPageIndex)}
+                                >
+                                  <IcoAgendaPageLast size={16} />
+                                </button>
+                              </>
+                            ) : (
+                              <span className="inline-block w-0 max-w-0 shrink-0 overflow-hidden" aria-hidden />
+                            )}
+                          </div>
+                          <div className="flex min-w-0 shrink-0 items-center justify-end gap-0.5">
+                            {overlayMode && isContextMode ? (
+                              <button
+                                type="button"
+                                className={AO_AGENDA_NAV_BTN_CLASS}
+                                aria-label="令旨を閉じる"
+                                onClick={() => {
+                                  setContextOpen(false);
+                                  setRonListOverlayOpen(false);
+                                  scheduleFocusMainPrompt();
+                                }}
+                              >
+                                <IcoExecute size={14} />
+                              </button>
+                            ) : null}
+                            {settingsOpen ? (
+                              <button
+                                type="button"
+                                className={`${AO_AGENDA_NAV_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-40`}
+                                aria-label={settingsSavePending ? "保存中" : "確定"}
+                                disabled={settingsSavePending}
+                                onClick={() => {
+                                  void (async () => {
+                                    if (!settingsOverlayRef.current) return;
+                                    setSettingsSavePending(true);
+                                    try {
+                                      await settingsOverlayRef.current.confirmSave();
+                                    } finally {
+                                      setSettingsSavePending(false);
+                                    }
+                                  })();
+                                }}
+                              >
+                                {settingsSavePending ? (
+                                  <span className="whitespace-nowrap px-0.5 text-[9px] leading-none text-[#8D5400]">
+                                    保存中…
+                                  </span>
+                                ) : (
+                                  <IcoCheck size={14} />
+                                )}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className={AO_AGENDA_NAV_BTN_CLASS}
+                              aria-label="戻る"
+                              onClick={() => {
+                                setContextOpen(false);
+                                setChronicleOpen(false);
+                                setSettingsOpen(false);
+                                setUsageOpen(false);
+                                setRonListOverlayOpen(false);
+                                scheduleFocusMainPrompt();
+                              }}
+                            >
+                              <IcoArrowLeft size={14} className="shrink-0" />
+                            </button>
+                          </div>
+                        </div>
+                        )}
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-0.5 pb-0.5">
+                          {overlayMode ? (
+                            <div
+                              className="min-h-0 flex-1 overflow-y-scroll border border-solid [scrollbar-gutter:stable]"
+                              style={{ borderColor: "#3D1C08", borderWidth: 1, backgroundColor: "rgba(255,255,255,0.0)" }}
+                            >
+                              {topicThreads.length === 0 ? (
+                                <>
+                                  <div
+                                    className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-[11px] text-[#3D1C08]"
+                                    style={{ borderColor: "#3D1C08" }}
+                                  >
+                                    <div className="w-[24px]" />
+                                    <div className="min-w-0 text-left">該当する議事はありません。</div>
+                                    <div className="min-w-[52px] shrink-0 text-center text-[11px] leading-tight text-[#c2cad6]" />
+                                    <div className="min-w-[108px] shrink-0 pr-[20px] text-right" />
+                                  </div>
+                                  {Array.from({ length: Math.max(0, AGENDA_PAGE_SIZE - 1) }).map((_, i) => (
+                                    <div
+                                      key={`sub-empty-row-${i}`}
+                                      className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5"
+                                      style={{ borderColor: "#3D1C08", minHeight: 18 }}
+                                    >
+                                      <div className="w-[24px]" />
+                                      <div />
+                                      <div className="min-w-[52px] shrink-0" />
+                                      <div className="min-w-[108px] shrink-0 pr-[20px]" />
+                                    </div>
+                                  ))}
+                                </>
+                              ) : (
+                                overlayThreadsSlice.map((t) => (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    className="group/row grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-left text-[11px] hover:bg-[#143d5e]/60"
+                                    style={{ borderColor: "#3D1C08" }}
+                                    onClick={() => {
+                                      if (isContextMode)
+                                        setContextChecks((prev) =>
+                                          prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id],
+                                        );
+                                      else {
+                                        setCurrentThread(t.id);
+                                        setComposeLocked(true);
+                                      }
+                                    }}
+                                  >
+                                    <div className="flex w-[24px] items-center justify-center">
+                                      {isContextMode ? (
+                                        <input
+                                          type="checkbox"
+                                          checked={contextChecks.includes(t.id)}
+                                          readOnly
+                                          className="ao-overlay-checkbox"
+                                        />
+                                      ) : null}
+                                    </div>
+                                    <span className="min-w-0 truncate text-[#3D1C08] group-hover/row:underline">
+                                      {aoThreadTitleForList(t)}
+                                    </span>
+                                    <span className="min-w-[52px] shrink-0 whitespace-nowrap text-center text-[11px] leading-tight text-[#6A3F0A]/80">
+                                      {threadSourceProviderUlusLabel(t.sourceProvider)}
+                                    </span>
+                                    <span className="min-w-0 shrink-0 whitespace-nowrap pr-[20px] text-right text-[11px] leading-tight text-[#6A3F0A]/80 tabular-nums">
+                                      {formatDate(t.updatedAt)}
+                                    </span>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          ) : null}
+                          {showRonAgendaPanel && selectedTopic ? (
+                            <div
+                              className={`min-h-0 flex-1 overflow-y-auto border border-solid [scrollbar-gutter:stable] ${viewportCompact ? "text-[10px]" : "text-[11px]"}`}
+                              style={{ borderColor: "#3D1C08", borderWidth: 1, backgroundColor: "rgba(255,250,240,0.35)" }}
+                            >
+                              <table className="w-full border-collapse text-[#3D1C08]">
+                                <tbody>
+                                  {agendaRowsSlice.map((t) => (
+                                    <tr
+                                      key={t.id}
+                                      className="cursor-pointer border-b border-[#3D1C08] last:border-b-0 hover:bg-[#143d5e]/15"
+                                      onClick={() => {
+                                        setComposeLocked(false);
+                                        setCurrentThread(t.id);
+                                        setRonListOverlayOpen(false);
+                                        scheduleFocusMainPrompt();
+                                      }}
+                                    >
+                                      <td className="max-w-0 px-1.5 py-0.5">
+                                        <span className="block truncate">{aoThreadTitleForList(t)}</span>
+                                      </td>
+                                      <td className="w-[52px] whitespace-nowrap px-1 py-0.5 text-center text-[#6A3F0A]/90">
+                                        {threadSourceProviderUlusLabel(t.sourceProvider)}
+                                      </td>
+                                      <td className="w-[76px] whitespace-nowrap px-1.5 py-0.5 text-right tabular-nums text-[#6A3F0A]/90">
+                                        {formatDateDay(t.updatedAt)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : null}
+                          {settingsOpen ? (
+                            <AoSettingsOverlay
+                              ref={settingsOverlayRef}
+                              embedded
+                              open={settingsOpen}
+                              embeddedSubpage={settingsEmbeddedSubpage}
+                              onEmbeddedSubpageChange={setSettingsEmbeddedSubpage}
+                              onClose={() => {
+                                setSettingsOpen(false);
+                                scheduleFocusMainPrompt();
+                              }}
+                            />
+                          ) : null}
+                          {usageOpen ? (
+                            <AoUsageOverlay
+                              embedded
+                              open={usageOpen}
+                              onClose={() => {
+                                setUsageOpen(false);
+                                scheduleFocusMainPrompt();
+                              }}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    </AoOrnamentalFrame>
+                  </div>
+                </>
+                )}
               </div>
             </div>
           </div>
@@ -2963,14 +3234,7 @@ export default function Home() {
                         style={{ filter: AO_CHAT_AVATAR_DROP_SHADOW_FILTER }}
                         aria-label="モデル情報と Raw プロンプト"
                         onClick={(e) => {
-                          openRawPromptPopover(
-                            e,
-                            "ai",
-                            m.usage ?? aoSyntheticMsgTurnUsage(),
-                            m.rawPrompts,
-                            m.id,
-                            m.completionMeta,
-                          );
+                          void hydrateRawFromServerIfNeeded(e, "ai", m);
                         }}
                       >
                         <AoP5FaceFrameMid
@@ -3028,14 +3292,7 @@ export default function Home() {
                       style={{ filter: AO_CHAT_AVATAR_DROP_SHADOW_FILTER }}
                       aria-label="モデル情報と Raw プロンプト（送信側）"
                       onClick={(e) => {
-                        openRawPromptPopover(
-                          e,
-                          "user",
-                          m.usage ?? aoSyntheticMsgTurnUsage(),
-                          m.rawPrompts,
-                          m.id,
-                          m.completionMeta,
-                        );
+                        void hydrateRawFromServerIfNeeded(e, "user", m);
                       }}
                     >
                       <AoP5FaceFrameMid

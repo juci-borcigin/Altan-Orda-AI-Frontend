@@ -1,9 +1,12 @@
 import type { Msg, Thread } from "@/lib/ao-state";
+import {
+  AO_THREAD_TITLE_MAX_UNITS,
+  aoClampStoredTitleByUnits,
+  formatTitleForDisplayUnits,
+  sliceByMaxTitleUnits,
+} from "@/lib/ao-title-width";
 
-/** メイン議事タイトル欄（巷間論タブ時）：編集不可・中央表示の固定文言 */
-export const AO_KOUKAN_MAIN_TITLE_FIXED = "　巷　間　論　";
-
-/** 議事タイトル自動生成：最初のユーザー投稿から、先頭の改行より前で最初の「。」まで（「。」が無ければその行全体） */
+/** 議事タイトル自動生成：最初のユーザー投稿から、先頭の改行より前で最初の「。」まで（「。」が無ければその行全体）。最大 16 単位まで。 */
 export function aoTitleSnippetFromFirstUserPost(text: string): string {
   const lines = text.split(/\r?\n/);
   let line = "";
@@ -16,19 +19,30 @@ export function aoTitleSnippetFromFirstUserPost(text: string): string {
   if (!line.trim()) return "";
   const periodIdx = line.indexOf("。");
   const segment = periodIdx >= 0 ? line.slice(0, periodIdx) : line;
-  return segment.trim();
+  const trimmed = segment.trim();
+  if (!trimmed) return "";
+  return aoClampStoredTitleByUnits(trimmed, AO_THREAD_TITLE_MAX_UNITS);
 }
 
-/** メイン以外も含む一覧表示の既定の最大文字数（これを超えたら「...」） */
-export const AO_THREAD_TITLE_DISPLAY_MAX_CHARS = 24;
+/** 一覧・見出し表示の既定最大（幅単位で超えたら「…」） */
+export const AO_THREAD_TITLE_DISPLAY_MAX_CHARS = AO_THREAD_TITLE_MAX_UNITS;
 
-/** 一覧・見出し表示用：長すぎる stored タイトルを maxChars 文字まで「...」省略 */
-export function aoDisplayThreadTitle(storedTitle: string, maxChars = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
-  const t = storedTitle.trim();
-  if (!t) return "";
-  const chars = [...t];
-  if (chars.length <= maxChars) return t;
-  return chars.slice(0, maxChars).join("") + "...";
+/** 保存・入力の最大（幅単位。半角は 0.5） */
+export const AO_THREAD_TITLE_STORE_MAX_CHARS = AO_THREAD_TITLE_MAX_UNITS;
+
+/** 一覧・見出し表示用：stored が maxUnits を超える場合のみ省略（「…」） */
+export function aoDisplayThreadTitle(storedTitle: string, maxUnits = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
+  return formatTitleForDisplayUnits(storedTitle, maxUnits);
+}
+
+/** 保存用：先頭から最大 maxUnits（半角 0.5） */
+export function aoClampStoredThreadTitle(raw: string, maxUnits = AO_THREAD_TITLE_STORE_MAX_CHARS): string {
+  return aoClampStoredTitleByUnits(raw, maxUnits);
+}
+
+/** 入力中：trim せずに単位上限で切る（IME 中の揺れを避ける） */
+export function aoClampTitleDraftInput(raw: string, maxUnits = AO_THREAD_TITLE_STORE_MAX_CHARS): string {
+  return sliceByMaxTitleUnits(raw, maxUnits);
 }
 
 function aoFirstUserPlainText(messages: readonly Msg[]): string {
@@ -39,10 +53,20 @@ function aoFirstUserPlainText(messages: readonly Msg[]): string {
 }
 
 /** サイド／オーバーレイ一覧：保存タイトルが空なら初回ユーザー投稿からスニペットを表示 */
-export function aoThreadTitleForList(thread: Thread, maxChars = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
+export function aoThreadTitleForList(thread: Thread, maxUnits = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
   const stored = thread.title.trim();
-  if (stored) return aoDisplayThreadTitle(stored, maxChars);
+  if (stored) return aoDisplayThreadTitle(stored, maxUnits);
   const snippet = aoTitleSnippetFromFirstUserPost(aoFirstUserPlainText(thread.messages));
-  if (snippet) return aoDisplayThreadTitle(snippet, maxChars);
+  if (snippet) return aoDisplayThreadTitle(snippet, maxUnits);
   return "（無題）";
+}
+
+/** メイン議事タイトル帯：保存が空のときは一覧と同じスニペット／無題はプレースホルダ */
+export function aoThreadTitleChipLabel(thread: Thread | null, maxUnits = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
+  if (!thread) return "タイトル未設定";
+  const stored = thread.title.trim();
+  if (stored) return aoDisplayThreadTitle(stored, maxUnits);
+  const listLabel = aoThreadTitleForList(thread, maxUnits);
+  if (listLabel !== "（無題）") return listLabel;
+  return "タイトル未設定";
 }

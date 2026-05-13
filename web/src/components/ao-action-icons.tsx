@@ -1,6 +1,7 @@
 /**
- * アイコン SVG（Phosphor Icons 系・fill は currentColor）
- * viewBox 0 0 256 256 — size で任意スケール可
+ * アイコン SVG
+ * - ヘッダのログイン／ログアウト等：256 系（塗り solid）
+ * - メイン周り（使用量・設定・年代記・令旨・送信）：24 系（線画 stroke、currentColor）
  */
 
 import type { ReactNode } from "react";
@@ -23,39 +24,120 @@ function IconSvg({
   );
 }
 
-/** コイン袋（使用量） */
+function IconStroke24({
+  size,
+  className,
+  strokeWidth = 1.85,
+  children,
+}: {
+  size: number;
+  className?: string;
+  strokeWidth?: number;
+  children: ReactNode;
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      {children}
+    </svg>
+  );
+}
+
+/** 折れ線グラフ（使用量・API 推移のイメージ） */
 export function IcoCoinBag({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconSvg size={size} className={className}>
-      <path d="M184,89.57V84c0-25.08-37.83-44-88-44S8,58.92,8,84v40c0,20.89,26.25,37.49,64,42.46V172c0,25.08,37.83,44,88,44s88-18.92,88-44V132C248,111.3,222.58,94.68,184,89.57ZM56,146.87C36.41,141.4,24,132.39,24,124V109.93c8.16,5.78,19.09,10.44,32,13.57Zm80-23.37c12.91-3.13,23.84-7.79,32-13.57V124c0,8.39-12.41,17.4-32,22.87Zm-16,71.37C100.41,189.4,88,180.39,88,172v-4.17c2.63.1,5.29.17,8,.17,3.88,0,7.67-.13,11.39-.35A121.92,121.92,0,0,0,120,171.41Zm0-44.62A163,163,0,0,1,96,152a163,163,0,0,1-24-1.75V126.46A183.74,183.74,0,0,0,96,128a183.74,183.74,0,0,0,24-1.54Zm64,48a165.45,165.45,0,0,1-48,0V174.4a179.48,179.48,0,0,0,24,1.6,183.74,183.74,0,0,0,24-1.54ZM232,172c0,8.39-12.41,17.4-32,22.87V171.5c12.91-3.13,23.84-7.79,32-13.57Z" />
-    </IconSvg>
+    <IconStroke24 size={size} className={className} strokeWidth={1.75}>
+      <path d="M3.5 19.5h17" />
+      <path d="M3.5 19.5V7" />
+      <polyline points="5.5,16.5 9,13.5 12.5,15 16,9.5 19.5,11.5" />
+    </IconStroke24>
   );
 }
 
 /** 歯車（設定） */
 export function IcoGear({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconSvg size={size} className={className}>
-      <path d="M237.94,107.21a8,8,0,0,0-3.89-5.4l-29.83-17-.12-33.62a8,8,0,0,0-2.83-6.08,111.91,111.91,0,0,0-36.72-20.67,8,8,0,0,0-6.46.59L128,41.85,97.88,25a8,8,0,0,0-6.47-.6A111.92,111.92,0,0,0,54.73,45.15a8,8,0,0,0-2.83,6.07l-.15,33.65-29.83,17a8,8,0,0,0-3.89,5.4,106.47,106.47,0,0,0,0,41.56,8,8,0,0,0,3.89,5.4l29.83,17,.12,33.63a8,8,0,0,0,2.83,6.08,111.91,111.91,0,0,0,36.72,20.67,8,8,0,0,0,6.46-.59L128,214.15,158.12,231a7.91,7.91,0,0,0,3.9,1,8.09,8.09,0,0,0,2.57-.42,112.1,112.1,0,0,0,36.68-20.73,8,8,0,0,0,2.83-6.07l.15-33.65,29.83-17a8,8,0,0,0,3.89-5.4A106.47,106.47,0,0,0,237.94,107.21ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z" />
-    </IconSvg>
+    <IconStroke24 size={size} className={className} strokeWidth={1.7}>
+      <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </IconStroke24>
   );
 }
 
-/** 巻物（令旨） */
+/** 巻物（令旨・左右の軸＋紙面で scroll UI と差別化） */
 export function IcoScroll({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconSvg size={size} className={className}>
-      <path d="M220.8,169.6A8,8,0,0,0,216,168h-8V64a32,32,0,0,0-32-32H40A32,32,0,0,0,8,64C8,77.61,18.05,85.54,19.2,86.4h0A7.89,7.89,0,0,0,24,88a8,8,0,0,0,4.87-14.33h0C28.83,73.62,24,69.74,24,64a16,16,0,0,1,32,0V192a32,32,0,0,0,32,32H200a32,32,0,0,0,32-32C232,178.39,222,170.46,220.8,169.6ZM104,96h64a8,8,0,0,1,0,16H104a8,8,0,0,1,0-16Zm-8,40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H104A8,8,0,0,1,96,136Zm104,72H107.71A31.82,31.82,0,0,0,112,192a26.92,26.92,0,0,0-1.21-8h102a12.58,12.58,0,0,1,3.23,8A16,16,0,0,1,200,208Z" />
-    </IconSvg>
+    <IconStroke24 size={size} className={className} strokeWidth={1.75}>
+      <ellipse cx="6.2" cy="12" rx="2.6" ry="6.2" />
+      <path d="M8.4 6.8h7.2a1 1 0 0 1 1 1v8.4a1 1 0 0 1-1 1H8.4a1 1 0 0 1-1-1V7.8a1 1 0 0 1 1-1Z" />
+      <ellipse cx="17.8" cy="12" rx="2.6" ry="6.2" />
+      <path d="M10.2 10h3.6M10.2 12h4.2M10.2 14h3.2" />
+    </IconStroke24>
   );
 }
 
-/** 本（年代記） */
+/** 議事「新規」— 角丸枠＋（新規・追加の汎用） */
+export function IcoRoundedPlus({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.65}>
+      <rect x="4.5" y="4.5" width="15" height="15" rx="3" />
+      <path d="M12 8v8M8 12h8" strokeWidth={2.05} />
+    </IconStroke24>
+  );
+}
+
+/** 議事一覧ページ送り（先頭・前・次・末尾） */
+export function IcoAgendaPageFirst({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.7}>
+      <path d="M16 8l-4 4 4 4M11 8l-4 4 4 4" />
+    </IconStroke24>
+  );
+}
+export function IcoAgendaPagePrev({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.7}>
+      <path d="M14 8l-4 4 4 4" />
+    </IconStroke24>
+  );
+}
+export function IcoAgendaPageNext({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.7}>
+      <path d="M10 8l4 4-4 4" />
+    </IconStroke24>
+  );
+}
+export function IcoAgendaPageLast({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.7}>
+      <path d="M8 8l4 4-4 4M13 8l4 4-4 4" />
+    </IconStroke24>
+  );
+}
+
+/** 背表紙の並び（年代記・過去ログ） */
 export function IcoBook({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconSvg size={size} className={className}>
-      <path d="M216,32V192a8,8,0,0,1-8,8H72a16,16,0,0,0-16,16H192a8,8,0,0,1,0,16H48a8,8,0,0,1-8-8V56A32,32,0,0,1,72,24H208A8,8,0,0,1,216,32Z" />
-    </IconSvg>
+    <IconStroke24 size={size} className={className} strokeWidth={1.75}>
+      <path d="M3.5 19.5h17" />
+      <rect x="4.2" y="9.2" width="2.4" height="10.3" rx="0.4" />
+      <rect x="7.4" y="6" width="2.4" height="13.5" rx="0.4" />
+      <rect x="10.6" y="10" width="2.4" height="9.5" rx="0.4" />
+      <rect x="13.8" y="7.2" width="2.4" height="12.3" rx="0.4" />
+      <rect x="17" y="10.8" width="2.4" height="8.7" rx="0.4" />
+    </IconStroke24>
   );
 }
 
@@ -68,12 +150,14 @@ export function IcoArrowLeft({ size = 18, className }: { size?: number; classNam
   );
 }
 
-/** 実行・送信（矢印を円形に収めた形） */
+/** 送信（紙飛行機・線画） */
 export function IcoExecute({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconSvg size={size} className={className}>
-      <path d="M221.66,133.66l-72,72A8,8,0,0,1,136,200V136H40a8,8,0,0,1,0-16h96V56a8,8,0,0,1,13.66-5.66l72,72A8,8,0,0,1,221.66,133.66Z" />
-    </IconSvg>
+    <IconStroke24 size={size} className={className}>
+      <path d="M22 2 11 13" />
+      <path d="M22 2 3 10l8 3 11-11" />
+      <path d="M3 10l8 3-1.5 8.5L11 13" />
+    </IconStroke24>
   );
 }
 

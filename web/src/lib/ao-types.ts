@@ -1,10 +1,10 @@
 /**
- * Supabase `threads.project_id` と一致させる論 ID。
- * 巷間論は chat / chatgpt / claude（一覧では gemini を除外）。
+ * Supabase `threads.project_id` と一致させる論 ID（巷間論の `talk` はクライアント専用・DB には出さない）。
  */
 export type ProjectId =
   | "debate"
   | "chat"
+  | "talk"
   | "plan"
   | "work"
   | "mental"
@@ -17,6 +17,7 @@ export type ProjectId =
 const PROJECT_IDS = new Set<string>([
   "debate",
   "chat",
+  "talk",
   "plan",
   "work",
   "mental",

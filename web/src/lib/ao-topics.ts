@@ -11,7 +11,8 @@ export const AO_TOPICS: Array<{
   projectIds: readonly ProjectId[];
 }> = [
   { id: "kurultai", label: "大会盟", projectIds: ["debate"] },
-  { id: "koukan", label: "巷間論", projectIds: ["chat", "chatgpt", "claude"] },
+  /** 巷間論は Supabase に出さない `talk` のみ（一覧・同期はローカル） */
+  { id: "koukan", label: "巷間論", projectIds: ["talk"] },
   { id: "shisei", label: "為政論", projectIds: ["plan"] },
   { id: "heiba", label: "兵馬論", projectIds: ["work"] },
   { id: "shinki", label: "心気論", projectIds: ["mental"] },
@@ -40,7 +41,7 @@ export function isAoNativeThread(t: { sourceProvider?: string }): boolean {
 
 /**
  * 論タブに応じた僚友ハイライト（主担当＋副担当。クリックでは切り替えない）。
- * メイン投稿時の project_id は `aoPostingProjectIdForTopic` を参照（巷間論は `chat`・ログは API 側でスキップ）。
+ * メイン投稿時の project_id は `aoPostingProjectIdForTopic` を参照（巷間論は `talk`・DB 永続化は API 側でスキップ）。
  */
 export function activeNokorNamesForTopic(topicId: TopicUiId | null): Set<string> {
   if (!topicId) return new Set();
@@ -78,7 +79,7 @@ export function aoPostingProjectIdForTopic(topicId: TopicUiId): ProjectId {
     case "kurultai":
       return "debate";
     case "koukan":
-      return "chat";
+      return "talk";
     case "shisei":
       return "plan";
     case "heiba":
@@ -92,13 +93,17 @@ export function aoPostingProjectIdForTopic(topicId: TopicUiId): ProjectId {
   }
 }
 
-/** 投稿メニュー：AO ネイティブ議事かつ当該論の project_id、最大 20 件 */
+/** 投稿メニュー：AO ネイティブ議事かつ当該論の project_id（巷間論 talk は ephemeral 空も含む）。UI ページング用に十分な件数まで */
 export function aoThreadsForPostMenu(threads: Thread[], topicId: TopicUiId): Thread[] {
   const pid = aoPostingProjectIdForTopic(topicId);
   return threads
-    .filter((t) => isAoNativeThread(t) && t.projectId === pid && !t.ephemeral)
+    .filter((t) => {
+      if (!isAoNativeThread(t) || t.projectId !== pid) return false;
+      if (pid === "talk") return true;
+      return !t.ephemeral;
+    })
     .sort(compareThreadsForGiList)
-    .slice(0, 20);
+    .slice(0, 120);
 }
 
 /** 選択中の論用・空の AO 下書き（初回送信まで ephemeral。DB 行は送信時のみ） */

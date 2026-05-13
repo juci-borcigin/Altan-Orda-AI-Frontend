@@ -5,7 +5,7 @@ import { isProjectId } from "@/lib/ao-types";
 /**
  * Supabase `ao_project_llm`。未設定・空はフォールバック（env の LLM_MODEL）。
  */
-export async function loadProjectLlmModel(supa: SupabaseClient, projectId: ProjectId): Promise<string | null> {
+async function loadProjectLlmModelOne(supa: SupabaseClient, projectId: ProjectId): Promise<string | null> {
   const { data, error } = await supa.from("ao_project_llm").select("model_id").eq("project_id", projectId).maybeSingle();
   if (error) {
     console.error("[ao-project-llm] load:", error.message);
@@ -13,6 +13,13 @@ export async function loadProjectLlmModel(supa: SupabaseClient, projectId: Proje
   }
   const m = typeof data?.model_id === "string" ? data.model_id.trim() : "";
   return m.length ? m : null;
+}
+
+export async function loadProjectLlmModel(supa: SupabaseClient, projectId: ProjectId): Promise<string | null> {
+  const primary = await loadProjectLlmModelOne(supa, projectId);
+  if (primary) return primary;
+  if (projectId === "talk") return loadProjectLlmModelOne(supa, "chat");
+  return null;
 }
 
 export async function loadProjectLlmOverrides(supa: SupabaseClient): Promise<Partial<Record<ProjectId, string>>> {

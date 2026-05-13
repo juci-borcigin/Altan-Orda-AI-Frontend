@@ -163,6 +163,7 @@ function trimHistory(projectId: ProjectId, messages: InMsg[]): InMsg[] {
     projectId === "gemini" ||
     projectId === "claude" ||
     projectId === "chat" ||
+    projectId === "talk" ||
     projectId === "chatgpt";
   const max = short ? 12 : 20;
   if (messages.length <= max) return messages;
@@ -212,7 +213,7 @@ function filterChunks(chunks: OutChunk[], projectId: ProjectId): OutChunk[] {
     if (allow.has(c.speaker)) return c;
     return {
       speaker: "不明",
-      text: `（speaker不許可: ${c.speaker}）${c.text}`,
+      text: c.text ?? "",
     };
   });
 }
@@ -505,9 +506,9 @@ function normalizeDbSourceProvider(sp: string | null | undefined): string | null
   return t.length ? t : null;
 }
 
-/** 巷間論（project_id=chat）はログに残さない */
+/** 巷間論（talk）および旧 chat ネイティブは Supabase に残さない */
 function allowsSupabaseThreadPersist(projectId: ProjectId): boolean {
-  return projectId !== "chat";
+  return projectId !== "chat" && projectId !== "talk";
 }
 
 /**
@@ -814,26 +815,6 @@ export async function POST(req: Request) {
   let persistMessages = false;
   let lastCompletionJson: CompletionJson | null = null;
 
-  if (supa && body.clientThreadId?.trim()) {
-    try {
-      const plan = await prepareChatPersistence(supa, body);
-      persistMessages = plan.persistMessages;
-      persistedThreadUuid = plan.threadUuid;
-      if (persistMessages && persistedThreadUuid) {
-        const { error: ue } = await supa.from("messages").insert({
-          thread_id: persistedThreadUuid,
-          role: "user",
-          text: lastUser,
-          provider: "openrouter",
-          model_id: effectiveModel,
-        });
-        if (ue) console.error("[chat] persist user message:", ue.message);
-      }
-    } catch (e) {
-      console.error("[chat] supabase user persist", e);
-    }
-  }
-
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...trimmed];
 
   const url = `${baseUrl}/chat/completions`;
@@ -1082,48 +1063,63 @@ export async function POST(req: Request) {
       ` format_retries=${formatRetry} empty_fallback=${emptyAssistantFallback}`,
   );
 
-  if (persistMessages && persistedThreadUuid && supa && chunks.length > 0) {
+  if (supa && body.clientThreadId?.trim() && allowsSupabaseThreadPersist(projectId) && chunks.length > 0) {
     try {
-      const rawPayload = {
-        rawContent: finalContent,
-        completion: lastCompletionJson,
-      };
-      const usdRow = usagePayload.estimatedUsd;
-      const rows = chunks.map((c, i) => ({
-        thread_id: persistedThreadUuid,
-        role: "assistant",
-        text: c.text,
-        persona: c.speaker,
-        provider: "openrouter",
-        model_id: effectiveModel,
-        raw_response: i === 0 ? rawPayload : null,
-        prompt_tokens: i === 0 ? usageAgg.prompt : null,
-        completion_tokens: i === 0 ? usageAgg.completion : null,
-        token_count: i === 0 ? usageAgg.prompt + usageAgg.completion : null,
-        usd_estimate: i === 0 ? usdRow : null,
-        raw_prompt_sent: i === 0 ? rawPromptSentLive : null,
-        raw_prompt_received: i === 0 ? rawPromptReceivedLive : null,
-      }));
-      const { data: insertedRows, error: ae } = await supa
-        .from("messages")
-        .insert(rows)
-        .select("id, text");
-      if (ae) console.error("[chat] persist assistant messages:", ae.message);
-      await supa
-        .from("threads")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", persistedThreadUuid);
+      const plan = await prepareChatPersistence(supa, body);
+      persistMessages = plan.persistMessages;
+      persistedThreadUuid = plan.threadUuid;
+      if (persistMessages && persistedThreadUuid) {
+        const { error: ue } = await supa.from("messages").insert({
+          thread_id: persistedThreadUuid,
+          role: "user",
+          text: lastUser,
+          provider: "openrouter",
+          model_id: effectiveModel,
+        });
+        if (ue) console.error("[chat] persist user message:", ue.message);
+        else {
+          const rawPayload = {
+            rawContent: finalContent,
+            completion: lastCompletionJson,
+          };
+          const usdRow = usagePayload.estimatedUsd;
+          const rows = chunks.map((c, i) => ({
+            thread_id: persistedThreadUuid,
+            role: "assistant",
+            text: c.text,
+            persona: c.speaker,
+            provider: "openrouter",
+            model_id: effectiveModel,
+            raw_response: i === 0 ? rawPayload : null,
+            prompt_tokens: i === 0 ? usageAgg.prompt : null,
+            completion_tokens: i === 0 ? usageAgg.completion : null,
+            token_count: i === 0 ? usageAgg.prompt + usageAgg.completion : null,
+            usd_estimate: i === 0 ? usdRow : null,
+            raw_prompt_sent: i === 0 ? rawPromptSentLive : null,
+            raw_prompt_received: i === 0 ? rawPromptReceivedLive : null,
+          }));
+          const { data: insertedRows, error: ae } = await supa
+            .from("messages")
+            .insert(rows)
+            .select("id, text");
+          if (ae) console.error("[chat] persist assistant messages:", ae.message);
+          await supa
+            .from("threads")
+            .update({ updated_at: new Date().toISOString() })
+            .eq("id", persistedThreadUuid);
 
-      const oai = process.env.OPENAI_API_KEY?.trim();
-      if (oai && insertedRows?.length) {
-        void storeEmbeddingsForMessageTexts(
-          supa,
-          insertedRows.map((r: { id: string; text: string }) => ({ id: r.id, text: r.text })),
-          oai,
-        ).catch((e) => console.error("[chat] embedding pipeline", e));
+          const oai = process.env.OPENAI_API_KEY?.trim();
+          if (oai && insertedRows?.length) {
+            void storeEmbeddingsForMessageTexts(
+              supa,
+              insertedRows.map((r: { id: string; text: string }) => ({ id: r.id, text: r.text })),
+              oai,
+            ).catch((e) => console.error("[chat] embedding pipeline", e));
+          }
+        }
       }
     } catch (e) {
-      console.error("[chat] supabase assistant persist", e);
+      console.error("[chat] supabase turn persist", e);
     }
   }
 

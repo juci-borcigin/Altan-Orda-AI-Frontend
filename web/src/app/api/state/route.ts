@@ -1,157 +1,27 @@
 import { NextResponse } from "next/server";
 import type { ProjectId } from "@/lib/ao-types";
 import {
+  buildMessagesFromDbRows,
+  type DbMessageRow,
+  type DbThreadRow,
+  msFromDb,
+} from "@/lib/ao-supabase-thread-map";
+import {
   isAppStateCore,
   makeDefaultAppState,
   type AppState,
-  type Msg,
-  type MsgRawPromptBundle,
-  type MsgTurnUsage,
   type Thread,
 } from "@/lib/ao-state";
-import { usagePromptCompletionFromStoredRawResponse } from "@/lib/ao-completion-usage";
-import { estimateCompletionUsd } from "@/lib/ao-usage-estimate";
-import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-text";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-
-type DbThreadRow = {
-  id: string;
-  client_thread_id: string | null;
-  title: string;
-  project_id: string;
-  created_at: string;
-  updated_at: string;
-  source_provider: string | null;
-};
-
-type DbMessageRow = {
-  id: string;
-  thread_id: string;
-  role: string;
-  text: string;
-  persona: string | null;
-  created_at: string;
-  model_id?: string | null;
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
-  token_count?: number | null;
-  usd_estimate?: string | number | null;
-  raw_prompt_sent?: string | null;
-  raw_prompt_received?: string | null;
-  /** `{ rawContent, completion }` 形式（assistant 先頭行のみ） */
-  raw_response?: unknown | null;
-};
 
 const THREAD_PAGE_SIZE = 1000;
 /** PostgREST の .in() が長大になりすぎないよう thread_id を分割 */
 const MESSAGE_IN_CHUNK = 100;
 
-/**
- * DB の日時が不正だと `getTime()` が NaN になる。`JSON.stringify` は NaN を null にし、
- * クライアントの `isMsg` / `isThread`（typeof x === "number"）が落ちて localStorage にフォールバックする。
- */
-function msFromDb(iso: string): number {
-  const t = new Date(iso).getTime();
-  return Number.isFinite(t) ? t : 0;
-}
-
 function chunkIds<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
-}
-
-function parseUsdEstimate(v: unknown): number | null {
-  if (v == null) return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function intTok(v: unknown): number {
-  if (v == null) return 0;
-  if (typeof v === "number") return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
-  if (typeof v === "string") {
-    const t = v.trim();
-    if (!t) return 0;
-    const n = Number(t);
-    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
-  }
-  return 0;
-}
-
-function rawPromptBundleFromRow(row: DbMessageRow): MsgRawPromptBundle | undefined {
-  const sent = row.raw_prompt_sent;
-  const received = row.raw_prompt_received;
-  if (typeof sent === "string" && typeof received === "string") {
-    return { sent, received };
-  }
-  return undefined;
-}
-
-/** assistant 行の先頭チャンクにだけ付く使用量を Msg 形式へ（カラムが 0 のときは raw_response.completion を参照） */
-function usageFromAssistantRow(row: DbMessageRow): MsgTurnUsage | undefined {
-  if (row.role !== "assistant") return undefined;
-
-  let pt = intTok(row.prompt_tokens);
-  let ct = intTok(row.completion_tokens);
-  if (pt === 0 && ct === 0) {
-    const inferred = usagePromptCompletionFromStoredRawResponse(row.raw_response);
-    if (inferred) {
-      pt = inferred.promptTokens;
-      ct = inferred.completionTokens;
-    }
-  }
-
-  const modelIdRaw = typeof row.model_id === "string" ? row.model_id.trim() : "";
-  const modelId = modelIdRaw || "—";
-
-  let estimatedUsd = parseUsdEstimate(row.usd_estimate);
-  if (estimatedUsd == null && (pt > 0 || ct > 0)) {
-    estimatedUsd = estimateCompletionUsd(pt, ct);
-  }
-
-  const hasTokens = pt > 0 || ct > 0;
-  const rawOnly = rawPromptBundleFromRow(row);
-  if (!hasTokens && estimatedUsd == null && modelId === "—" && !rawOnly) return undefined;
-
-  return {
-    promptTokens: pt,
-    completionTokens: ct,
-    totalTokens: pt + ct,
-    estimatedUsd,
-    modelId,
-  };
-}
-
-/** 同一ターンの連続 assistant 行へ先頭行の usage/raw を伝播し、その直前の user にも複製する（クライアント挙動に合わせる） */
-function hydrateMsgTurnUsageAndRaw(msgs: Msg[]): void {
-  for (let i = 1; i < msgs.length; i++) {
-    const m = msgs[i]!;
-    if (m.side !== "ai") continue;
-    const prev = msgs[i - 1]!;
-    if (prev.side !== "ai") continue;
-    msgs[i] = {
-      ...m,
-      usage: m.usage ?? prev.usage,
-      rawPrompts: m.rawPrompts ?? prev.rawPrompts,
-    };
-  }
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i]!;
-    if (m.side !== "ai") continue;
-    if (!m.usage && !m.rawPrompts) continue;
-    for (let j = i - 1; j >= 0; j--) {
-      if (msgs[j]!.side === "user") {
-        const u = msgs[j]!;
-        msgs[j] = {
-          ...u,
-          usage: u.usage ?? m.usage,
-          rawPrompts: u.rawPrompts ?? m.rawPrompts,
-        };
-        break;
-      }
-    }
-  }
 }
 
 /** 既定の max-rows（1000）を超える threads もすべて取得 */
@@ -191,6 +61,7 @@ async function fetchMessagesBatched(
   return out;
 }
 
+/** 全 threads・全 messages を一括で返す（移行・デバッグ用。通常 UI は /api/threads/list を使用） */
 export async function GET() {
   const supa = getSupabaseAdmin();
   if (!supa) {
@@ -234,27 +105,8 @@ export async function GET() {
     const tid = tr.id;
     const clientId = tr.client_thread_id?.trim() || tid;
     const rawMsgs = byThread.get(tid) ?? [];
-    const msgs: Msg[] = rawMsgs.map((row) => {
-      const isUser = row.role === "user";
-      const text = isUser
-        ? row.text
-        : displayTextForClaudeImportedAssistant(tr.source_provider, row.role, row.text);
-      const msg: Msg = {
-        id: String(row.id),
-        side: isUser ? "user" : "ai",
-        speaker: isUser ? "ジュチ" : row.persona || "不明",
-        text,
-        createdAt: msFromDb(row.created_at),
-      };
-      if (!isUser) {
-        const usage = usageFromAssistantRow(row);
-        const rawPrompts = rawPromptBundleFromRow(row);
-        if (usage) msg.usage = usage;
-        if (rawPrompts) msg.rawPrompts = rawPrompts;
-      }
-      return msg;
-    });
-    hydrateMsgTurnUsageAndRaw(msgs);
+    const sp = typeof tr.source_provider === "string" ? tr.source_provider : null;
+    const msgs = buildMessagesFromDbRows(rawMsgs, sp);
 
     const thread: Thread = {
       id: clientId,
@@ -264,6 +116,7 @@ export async function GET() {
       createdAt: msFromDb(tr.created_at),
       updatedAt: msFromDb(tr.updated_at),
       messages: msgs,
+      serverMessagesLoaded: true,
     };
     if (typeof tr.source_provider === "string" && tr.source_provider.trim()) {
       thread.sourceProvider = tr.source_provider.trim();
