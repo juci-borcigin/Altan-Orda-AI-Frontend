@@ -17,8 +17,12 @@ export type Phase5ProjectRuntime = {
   history_max_messages: number;
   profile_inject: boolean;
   web_search_enabled: boolean;
+  web_search_min_rounds: number;
   web_search_max_rounds: number;
   web_search_max_per_round: number;
+  web_search_tavily_max_results: number;
+  web_search_result_max_chars: number;
+  web_search_snippet_max_chars: number;
   max_completion_tokens: number | null;
 };
 
@@ -93,7 +97,7 @@ export async function loadPhase5ChatBundle(
   const { data: project, error: pErr } = await supa
     .from("ao_projects")
     .select(
-      "project_id, label_ja, main_persona_key, process, tone, rag_enabled, rag_when, rag_match_count, rag_match_threshold, rag_max_chars, history_max_messages, profile_inject, web_search_enabled, web_search_max_rounds, web_search_max_per_round, max_completion_tokens",
+      "project_id, label_ja, main_persona_key, process, tone, rag_enabled, rag_when, rag_match_count, rag_match_threshold, rag_max_chars, history_max_messages, profile_inject, web_search_enabled, web_search_min_rounds, web_search_max_rounds, web_search_max_per_round, web_search_tavily_max_results, web_search_result_max_chars, web_search_snippet_max_chars, max_completion_tokens",
     )
     .eq("project_id", dbPid)
     .maybeSingle();
@@ -167,8 +171,12 @@ export async function loadPhase5ChatBundle(
     history_max_messages: project.history_max_messages ?? 20,
     profile_inject: project.profile_inject ?? false,
     web_search_enabled: project.web_search_enabled ?? true,
+    web_search_min_rounds: project.web_search_min_rounds ?? 0,
     web_search_max_rounds: project.web_search_max_rounds ?? 2,
     web_search_max_per_round: project.web_search_max_per_round ?? 4,
+    web_search_tavily_max_results: project.web_search_tavily_max_results ?? 5,
+    web_search_result_max_chars: project.web_search_result_max_chars ?? 12_000,
+    web_search_snippet_max_chars: project.web_search_snippet_max_chars ?? 450,
     max_completion_tokens: project.max_completion_tokens ?? null,
   };
 

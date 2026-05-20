@@ -290,7 +290,15 @@ function completionHeaders(apiKey: string, baseUrl: string): Record<string, stri
   return h;
 }
 
-async function tavilySearch(query: string, signal: AbortSignal): Promise<string> {
+async function tavilySearch(
+  query: string,
+  signal: AbortSignal,
+  opts?: {
+    maxResults?: number;
+    snippetMaxChars?: number;
+    resultMaxChars?: number;
+  },
+): Promise<string> {
   const key = process.env.TAVILY_API_KEY?.trim();
   if (!key) {
     return JSON.stringify({ error: "TAVILY_API_KEY is not configured" });
@@ -307,7 +315,7 @@ async function tavilySearch(query: string, signal: AbortSignal): Promise<string>
       api_key: key,
       query: q,
       search_depth: "basic",
-      max_results: 5,
+      max_results: Math.max(1, Math.min(20, opts?.maxResults ?? 5)),
       include_answer: true,
     }),
     signal,
@@ -339,13 +347,14 @@ async function tavilySearch(query: string, signal: AbortSignal): Promise<string>
   for (const r of data.results ?? []) {
     const title = r.title ?? "";
     const url = r.url ?? "";
-    const snippet = (r.content ?? "").slice(0, 450).trim();
+    const snippetMax = Math.max(80, opts?.snippetMaxChars ?? 450);
+    const snippet = (r.content ?? "").slice(0, snippetMax).trim();
     if (title || url) {
       lines.push([title && url ? `${title} — ${url}` : title || url, snippet].filter(Boolean).join("\n"));
     }
   }
   const joined = lines.length ? lines.join("\n\n---\n\n") : "(検索結果なし)";
-  const maxChars = 12_000;
+  const maxChars = Math.max(2000, opts?.resultMaxChars ?? 12_000);
   if (joined.length <= maxChars) return joined;
   return `${joined.slice(0, maxChars)}\n\n---\n\n（以下 Tavily 結果は長さのため省略）`;
 }
@@ -698,9 +707,12 @@ export async function POST(req: Request) {
     maxTokens = Math.min(resolveCompletionCeiling(), phase5Ctx.bundle.runtime.max_completion_tokens);
   }
 
+  const userTurnCount = trimmed.filter((m) => m.role === "user").length;
+  const webSearchMinRounds = phase5Ctx?.bundle.runtime.web_search_min_rounds ?? 0;
   const tavilyEnabled =
     Boolean(process.env.TAVILY_API_KEY?.trim()) &&
-    (phase5Ctx ? phase5Ctx.bundle.runtime.web_search_enabled : true);
+    (phase5Ctx ? phase5Ctx.bundle.runtime.web_search_enabled : true) &&
+    userTurnCount > webSearchMinRounds;
   const tavilySuffix = tavilyEnabled
     ? "\n\n【ツール】最新の事実・ニュース・数値の確認などに必要なときのみ `web_search` を使う（引数は query のみ）。不要な検索はしない。"
     : "";
@@ -1064,7 +1076,11 @@ export async function POST(req: Request) {
           }
           let toolText: string;
           try {
-            toolText = await tavilySearch(query, AbortSignal.timeout(requestTimeoutMs()));
+            toolText = await tavilySearch(query, AbortSignal.timeout(requestTimeoutMs()), {
+              maxResults: phase5Ctx?.bundle.runtime.web_search_tavily_max_results,
+              snippetMaxChars: phase5Ctx?.bundle.runtime.web_search_snippet_max_chars,
+              resultMaxChars: phase5Ctx?.bundle.runtime.web_search_result_max_chars,
+            });
           } catch (e: unknown) {
             toolText = JSON.stringify({
               error: "search_failed",

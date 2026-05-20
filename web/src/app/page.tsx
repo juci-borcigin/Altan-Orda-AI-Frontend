@@ -14,6 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  AO_KOUKAN_THREAD_DISPLAY_TITLE,
   AO_TOPICS,
   type TopicUiId,
   activeNokorNamesForTopic,
@@ -41,6 +42,7 @@ import {
   IcoScroll,
 } from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
+import { AoReijitsuOverlay, type AoReijitsuOverlayHandle } from "@/components/AoReijitsuOverlay";
 import { AoSettingsOverlay, AoSettingsSubpageTabs, type AoSettingsOverlayHandle, type AoSettingsSubpage } from "@/components/AoSettingsOverlay";
 import { AoUsageOverlay } from "@/components/AoUsageOverlay";
 import { runTypewriter } from "@/lib/ao-typewriter";
@@ -58,9 +60,6 @@ import {
 } from "@/lib/ao-state";
 import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
 import { mergeMsgsHydrateFromServer, mergeThreadSummariesIntoState } from "@/lib/ao-thread-list-merge";
-import {
-  AO_KOUKAN_THREAD_DISPLAY_TITLE,
-} from "@/lib/ao-topics";
 import {
   aoClampStoredThreadTitle,
   aoClampTitleDraftInput,
@@ -1071,7 +1070,6 @@ export default function Home() {
   const [usageOpen, setUsageOpen] = useState(false);
   /** 新規／過去ログ一覧を、令旨・年代記と同じメイン帯オーバーレイ内に表示 */
   const [ronListOverlayOpen, setRonListOverlayOpen] = useState(false);
-  const [contextChecks, setContextChecks] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingDotsPhase, setThinkingDotsPhase] = useState(0);
@@ -1127,7 +1125,9 @@ export default function Home() {
   const [compactKinPortalHost, setCompactKinPortalHost] = useState<HTMLDivElement | null>(null);
   const [threadListAfterChatNonce, setThreadListAfterChatNonce] = useState(0);
   const settingsOverlayRef = useRef<AoSettingsOverlayHandle>(null);
+  const reijitsuOverlayRef = useRef<AoReijitsuOverlayHandle>(null);
   const [settingsSavePending, setSettingsSavePending] = useState(false);
+  const [reijitsuSavePending, setReijitsuSavePending] = useState(false);
   /** 議事オーバーレイ内テーブルのページ（0 始まり） */
   const [agendaPageIndex, setAgendaPageIndex] = useState(0);
   /** 令旨／年代記オーバーレイ内一覧のページ（0 始まり） */
@@ -2947,7 +2947,7 @@ export default function Home() {
                                   onChange={setSettingsEmbeddedSubpage}
                                 />
                               </div>
-                            ) : overlayMode ? (
+                            ) : overlayMode === "chronicle" ? (
                               <>
                                 <button
                                   type="button"
@@ -2990,23 +2990,42 @@ export default function Home() {
                                   <IcoAgendaPageLast size={16} />
                                 </button>
                               </>
+                            ) : overlayMode === "context" ? (
+                              <span className="px-1 text-[10px] font-semibold text-[#6A3F0A]/85">
+                                {selectedTopic
+                                  ? (AO_TOPICS.find((t) => t.id === selectedTopic)?.label ?? "")
+                                  : ""}
+                              </span>
                             ) : (
                               <span className="inline-block w-0 max-w-0 shrink-0 overflow-hidden" aria-hidden />
                             )}
                           </div>
                           <div className="flex min-w-0 shrink-0 items-center justify-end gap-0.5">
-                            {overlayMode && isContextMode ? (
+                            {isContextMode ? (
                               <button
                                 type="button"
-                                className={AO_AGENDA_NAV_BTN_CLASS}
-                                aria-label="令旨を閉じる"
+                                className={`${AO_AGENDA_NAV_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-40`}
+                                aria-label={reijitsuSavePending ? "保存中" : "令旨を保存"}
+                                disabled={reijitsuSavePending || !selectedTopic}
                                 onClick={() => {
-                                  setContextOpen(false);
-                                  setRonListOverlayOpen(false);
-                                  scheduleFocusMainPrompt();
+                                  void (async () => {
+                                    if (!reijitsuOverlayRef.current) return;
+                                    setReijitsuSavePending(true);
+                                    try {
+                                      await reijitsuOverlayRef.current.confirmSave();
+                                    } finally {
+                                      setReijitsuSavePending(false);
+                                    }
+                                  })();
                                 }}
                               >
-                                <IcoExecute size={14} />
+                                {reijitsuSavePending ? (
+                                  <span className="whitespace-nowrap px-0.5 text-[9px] leading-none text-[#8D5400]">
+                                    保存中…
+                                  </span>
+                                ) : (
+                                  <IcoCheck size={14} />
+                                )}
                               </button>
                             ) : null}
                             {settingsOpen ? (
@@ -3055,7 +3074,19 @@ export default function Home() {
                         </div>
                         )}
                         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-0.5 pb-0.5">
-                          {overlayMode ? (
+                          {isContextMode && selectedTopic ? (
+                            <div
+                              className="min-h-0 flex-1 overflow-y-auto border border-solid [scrollbar-gutter:stable] px-0.5 py-1"
+                              style={{ borderColor: "#3D1C08", borderWidth: 1, backgroundColor: "rgba(255,250,240,0.35)" }}
+                            >
+                              <AoReijitsuOverlay
+                                ref={reijitsuOverlayRef}
+                                projectId={aoPostingProjectIdForTopic(selectedTopic)}
+                                topicLabel={AO_TOPICS.find((t) => t.id === selectedTopic)?.label ?? ""}
+                              />
+                            </div>
+                          ) : null}
+                          {overlayMode === "chronicle" ? (
                             <div
                               className="min-h-0 flex-1 overflow-y-scroll border border-solid [scrollbar-gutter:stable]"
                               style={{ borderColor: "#3D1C08", borderWidth: 1, backgroundColor: "rgba(255,255,255,0.0)" }}
@@ -3092,26 +3123,11 @@ export default function Home() {
                                     className="group/row grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-left text-[11px] hover:bg-[#143d5e]/60"
                                     style={{ borderColor: "#3D1C08" }}
                                     onClick={() => {
-                                      if (isContextMode)
-                                        setContextChecks((prev) =>
-                                          prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id],
-                                        );
-                                      else {
-                                        setCurrentThread(t.id);
-                                        setComposeLocked(true);
-                                      }
+                                      setCurrentThread(t.id);
+                                      setComposeLocked(true);
                                     }}
                                   >
-                                    <div className="flex w-[24px] items-center justify-center">
-                                      {isContextMode ? (
-                                        <input
-                                          type="checkbox"
-                                          checked={contextChecks.includes(t.id)}
-                                          readOnly
-                                          className="ao-overlay-checkbox"
-                                        />
-                                      ) : null}
-                                    </div>
+                                    <div className="w-[24px]" />
                                     <span className="min-w-0 truncate text-[#3D1C08] group-hover/row:underline">
                                       {aoThreadTitleForList(t)}
                                     </span>
