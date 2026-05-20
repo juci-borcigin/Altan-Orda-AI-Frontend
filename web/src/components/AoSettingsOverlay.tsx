@@ -404,7 +404,7 @@ export const AoSettingsOverlay = forwardRef<AoSettingsOverlayHandle, Props>(func
                     const presetValues = new Set(AO_LLM_MODEL_PRESETS.map((p) => p.value));
                     const showCustom = modelVal !== "" && !presetValues.has(modelVal);
                     const effectiveModelId = modelVal.trim() || envDefaultModel.trim();
-                    const modelSourceLabel = modelVal.trim() ? "論別（ao_project_llm）" : "環境既定（LLM_MODEL）";
+                    const modelSourceLabel = modelVal.trim() ? "論別（ao_projects.model_id）" : "環境既定（LLM_MODEL）";
                     const modelTitle = `${effectiveModelId || "（未設定）"} — ${modelSourceLabel}`;
                     return (
                       <div key={tp.id} className="flex flex-col gap-1.5 border-b pb-2 last:border-b-0" style={{ borderColor: `${AO_INK}22` }}>

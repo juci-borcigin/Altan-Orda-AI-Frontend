@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { RAG_DEFAULT_KIND } from "./rag-context";
+import type { EmbedKind } from "./rag-embed-types";
 
 /** Step 7-1 相当: 本文をチャンク化（トークンの近似: 約3文字≈1トークン） */
 const CHUNK_CHARS = 500 * 3;
@@ -42,16 +44,33 @@ async function openAiEmbed(text: string, apiKey: string): Promise<number[]> {
   return emb;
 }
 
+export type EmbeddingMessageRow = {
+  id: string;
+  text: string;
+  /** threads.source_provider。`gemini` のときベクトル化しない */
+  threadSourceProvider?: string | null;
+  /** threads.title に「テスト」を含むときベクトル化しない（テスト議事の運用用） */
+  threadTitle?: string | null;
+  /** 正規化済み ao 論 ID（plan, chat, …） */
+  embedProjectId?: string | null;
+  embedKind?: EmbedKind;
+};
+
 /** assistant メッセージ保存後、非同期で embeddings へ書き込み（失敗はログのみ） */
 export async function storeEmbeddingsForMessageTexts(
   supa: SupabaseClient,
-  rows: Array<{ id: string; text: string }>,
+  rows: EmbeddingMessageRow[],
   openaiKey: string,
 ): Promise<void> {
   const key = openaiKey.trim();
   if (!key || rows.length === 0) return;
 
   for (const row of rows) {
+    const sp = (row.threadSourceProvider ?? "").trim().toLowerCase();
+    if (sp === "gemini") continue;
+    const title = (row.threadTitle ?? "").trim();
+    if (title.includes("テスト")) continue;
+
     const chunks = chunkText(row.text);
     if (!chunks.length) continue;
 
@@ -65,6 +84,8 @@ export async function storeEmbeddingsForMessageTexts(
           source_type: "message",
           chunk_text: chunk,
           embedding,
+          kind: row.embedKind ?? RAG_DEFAULT_KIND,
+          project_id: row.embedProjectId ?? null,
         });
         if (error) console.error("[embed] insert chunk:", error.message);
       } catch (e) {

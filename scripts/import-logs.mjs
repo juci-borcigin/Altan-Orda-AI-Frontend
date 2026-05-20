@@ -9,12 +9,17 @@
  *   node scripts/import-logs.mjs --provider gemini-activity --file ./マイアクティビティ.json
  *   （Gemini: titleUrl で会話をまとめ、details / userInteractions から全ターンを復元）
  *   node scripts/import-logs.mjs --provider gemini --file ./gems.html
+ *   node scripts/import-logs.mjs --provider nblm --file ./NotebookLM\ Conversation.json
+ *   （nblm は既定で project_id=study, source_facet=study。--facet で上書き可）
  *
- *   --project-id 軍議ゲル | オゴデイ・ウルス | gemini | claude | …（任意）
- *   --facet do|feel|think|chat（Claude 一括取り込みの既定 facet。会話ごとの推定は未実装）
+ *   --project-id 軍議ゲル | オゴデイ・ウルス | gemini | claude | study | …（任意）
+ *   --facet do|feel|think|chat|study（Claude 一括は do〜chat、NotebookLM 等は study。会話ごとの推定は未実装）
  *   --dry-run  DB に書かず JSON を stdout のみ
  *   --dry-run-limit N  dry-run 時に先頭 N スレッドだけ詳細を出す（既定 40）
- *   --max-threads N  先頭 N スレッドだけ取り込む（本番のスモーク用）。全件を後から流すと先頭 N 件は二重になるので注意
+ *   --max-threads N  先頭 N スレッドだけ取り込む（本番のスモーク用）
+ *
+ *   上書き: source_native_id と source_provider が両方あるパックは、同キーの既存 threads を
+ *   DELETE（messages は CASCADE）してから再挿入する（再実行で二重化しない。手動変更は消える）。
  *
  * ChatGPT エクスポート:
  *   conversations.json は「会話オブジェクト 1 本」または「会話オブジェクトの配列」のどちらにも対応。
@@ -32,6 +37,7 @@ import dotenv from "dotenv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../web/.env") });
+dotenv.config({ path: path.join(__dirname, "../web/.env.local") });
 
 /** UI ラベル → ao-types ProjectId（Supabase threads.project_id と一致） */
 const GEL_TO_PROJECT = {
@@ -56,7 +62,15 @@ const RAW_PROJECT_IDS = new Set([
   "claude",
 ]);
 
-const FACETS = new Set(["do", "feel", "think", "chat"]);
+function normalizeImportProjectId(id) {
+  if (id === "talk") return "chat";
+  if (id === "study") return "notebook";
+  return id;
+}
+
+const NBLM_DEFAULT_THREAD_TITLE = "ジュチとGolden Horde (NotebookLM)";
+
+const FACETS = new Set(["do", "feel", "think", "chat", "study"]);
 
 function parseArgs(argv) {
   const o = { dryRun: false, dryRunLimit: 40 };
@@ -78,16 +92,26 @@ function parseArgs(argv) {
   return o;
 }
 
+/** 取り込み専用の任意 project_id（Supabase threads.project_id は text。UI の ProjectId 外も可） */
+function isCustomImportProjectId(t) {
+  if (t.length < 1 || t.length > 64) return false;
+  return /^[a-zA-Z0-9_-]+$/.test(t);
+}
+
 function resolveProjectId(label, provider) {
   if (label) {
     const t = label.trim();
     if (RAW_PROJECT_IDS.has(t)) return t;
+    const legacy = normalizeImportProjectId(t);
+    if (RAW_PROJECT_IDS.has(legacy)) return legacy;
     const mapped = GEL_TO_PROJECT[t];
-    if (mapped) return mapped;
+    if (mapped) return normalizeImportProjectId(mapped);
+    if (isCustomImportProjectId(t)) return t;
   }
   if (provider === "claude") return "claude";
   if (provider === "gemini-activity") return "gemini";
   if (provider === "chatgpt") return "chatgpt";
+  if (provider === "nblm" || provider === "notebooklm") return "notebook";
   return "work";
 }
 
@@ -143,6 +167,7 @@ function adaptChatGPTConversationObject(data, defaults, sourceFacet) {
     sourceNativeId: native,
     sourceProvider: "chatgpt",
     persona: defaults.persona,
+    threadUpdatedAtIso: isoFromUnknown(data.update_time ?? data.updated_at),
   };
 }
 
@@ -197,7 +222,99 @@ function adaptClaudeExportConversation(conv, sourceFacet) {
     sourceNativeId: conv.uuid != null ? String(conv.uuid) : null,
     sourceProvider: "claude",
     persona: null,
+    threadUpdatedAtIso: isoFromUnknown(conv.updated_at),
   };
+}
+
+/** ISO 8601 文字列または数値 ms から DB 用 ISO（無ければ null） */
+function isoFromUnknown(v) {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return new Date(v).toISOString();
+  if (typeof v === "string" && v.trim()) {
+    const d = Date.parse(v.trim());
+    if (!Number.isNaN(d)) return new Date(d).toISOString();
+  }
+  return null;
+}
+
+/** NotebookLM エクスポート 1 メッセージの並び替え用時刻（ms） */
+function nblmMessageTimeMs(m) {
+  if (typeof m.updated_at === "number" && Number.isFinite(m.updated_at)) return m.updated_at;
+  const iso = m.created_at;
+  if (typeof iso === "string" && iso.trim()) {
+    const t = Date.parse(iso.trim());
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+}
+
+function nblmExtractText(m) {
+  const parts = Array.isArray(m.contents) ? m.contents : [];
+  const bits = [];
+  for (const c of parts) {
+    if (!c || typeof c !== "object") continue;
+    if (c.type === "text" && typeof c.content === "string" && c.content.trim()) bits.push(c.content.trim());
+  }
+  return bits.join("\n\n").trim();
+}
+
+/**
+ * NotebookLM の「NotebookLM Conversation.json」
+ * - chatGroupId ごとに 1 threads
+ * - id が *_summary の assistant を先頭に、その他は created_at / updated_at 相当で時系列
+ */
+function adaptNotebookLmAll(raw, sourceFacet, fixedTitle = NBLM_DEFAULT_THREAD_TITLE) {
+  const data = JSON.parse(raw);
+  if (!Array.isArray(data)) throw new Error("NotebookLM: トップレベルはメッセージの配列を想定します");
+  /** @type {Map<string, object[]>} */
+  const byGroup = new Map();
+  for (const m of data) {
+    if (!m || typeof m !== "object") continue;
+    const gid = m.chatGroupId != null ? String(m.chatGroupId).trim() : "";
+    if (!gid) continue;
+    const arr = byGroup.get(gid) ?? [];
+    arr.push(m);
+    byGroup.set(gid, arr);
+  }
+  const packs = [];
+  const multi = byGroup.size > 1;
+  for (const [chatGroupId, msgs] of byGroup) {
+    const summaryMsgs = msgs.filter(
+      (m) =>
+        typeof m.id === "string" &&
+        m.id.endsWith("_summary") &&
+        String(m.role || "").toLowerCase() === "assistant",
+    );
+    const rest = msgs.filter((m) => !summaryMsgs.includes(m));
+    rest.sort((a, b) => nblmMessageTimeMs(a) - nblmMessageTimeMs(b));
+
+    const turns = [];
+    for (const sm of summaryMsgs) {
+      const text = nblmExtractText(sm);
+      if (text) turns.push({ role: "assistant", text, raw: sm });
+    }
+    for (const m of rest) {
+      const role = String(m.role || "").toLowerCase();
+      if (role !== "user" && role !== "assistant") continue;
+      const text = nblmExtractText(m);
+      if (!text) continue;
+      turns.push({ role, text, raw: m });
+    }
+
+    const titleBase = String(fixedTitle || NBLM_DEFAULT_THREAD_TITLE).slice(0, 500);
+    const title = multi ? `${titleBase} (${chatGroupId.slice(0, 8)})`.slice(0, 500) : titleBase;
+    const maxMs = msgs.length ? Math.max(...msgs.map(nblmMessageTimeMs)) : 0;
+    packs.push({
+      title,
+      turns,
+      sourceFacet,
+      sourceNativeId: chatGroupId,
+      sourceProvider: "nblm",
+      persona: null,
+      threadUpdatedAtIso: maxMs > 0 ? new Date(maxMs).toISOString() : null,
+    });
+  }
+  return packs.filter((p) => p.turns.length > 0);
 }
 
 /** 旧形式 { messages: [{ role: human }] } */
@@ -220,6 +337,7 @@ function adaptClaudeLegacy(data, sourceFacet) {
     sourceNativeId: data.uuid != null ? String(data.uuid) : null,
     sourceProvider: "claude",
     persona: null,
+    threadUpdatedAtIso: isoFromUnknown(data.updated_at),
   };
 }
 
@@ -454,6 +572,7 @@ function adaptGeminiActivityAll(raw) {
       sourceNativeId,
       sourceProvider: "gemini",
       persona,
+      threadUpdatedAtIso: isoFromUnknown(segments[segments.length - 1]?.time),
     });
   }
   return packs;
@@ -480,6 +599,7 @@ function adaptGeminiHtml(raw, defaults) {
       sourceNativeId: null,
       sourceProvider: "gemini",
       persona: null,
+      threadUpdatedAtIso: null,
       defaults,
     },
   ];
@@ -495,10 +615,45 @@ function adaptClaudeExportAll(raw, sourceFacet) {
   return [adaptClaudeLegacy(data, sourceFacet)].filter((p) => p.turns.length > 0);
 }
 
-async function supabaseInsert(
+async function supabaseDeleteThreadsByNative(baseUrl, key, sourceProvider, sourceNativeId) {
+  const sp = String(sourceProvider).trim();
+  const nid = String(sourceNativeId).trim();
+  if (!sp || !nid) return;
+  const enc = encodeURIComponent;
+  const url = `${baseUrl}/rest/v1/threads?source_provider=eq.${enc(sp)}&source_native_id=eq.${enc(nid)}`;
+  const r = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Prefer: "return=minimal",
+    },
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`threads delete ${r.status}: ${t.slice(0, 400)}`);
+  }
+}
+
+/**
+ * threads + messages を投入。source_native_id と source_provider が両方あるときは
+ * 同キーの既存 threads を先に DELETE（messages は CASCADE）してから挿入する。
+ */
+async function supabaseImportPack(
   baseUrl,
   key,
-  { title, projectId, turns, provider, modelId, persona, sourceFacet, sourceProvider, sourceNativeId },
+  {
+    title,
+    projectId,
+    turns,
+    provider,
+    modelId,
+    persona,
+    sourceFacet,
+    sourceProvider,
+    sourceNativeId,
+    threadUpdatedAtIso,
+  },
 ) {
   const hdr = {
     apikey: key,
@@ -506,16 +661,26 @@ async function supabaseInsert(
     "Content-Type": "application/json",
     Prefer: "return=representation",
   };
+
+  const native = sourceNativeId != null ? String(sourceNativeId).trim() : "";
+  const sp = sourceProvider != null ? String(sourceProvider).trim() : "";
+  if (native && sp) {
+    await supabaseDeleteThreadsByNative(baseUrl, key, sp, native);
+  }
+
+  const threadBody = {
+    title,
+    project_id: projectId,
+    source_facet: sourceFacet,
+    source_provider: sourceProvider,
+    source_native_id: native || null,
+  };
+  if (threadUpdatedAtIso) threadBody.updated_at = threadUpdatedAtIso;
+
   const tr = await fetch(`${baseUrl}/rest/v1/threads`, {
     method: "POST",
     headers: hdr,
-    body: JSON.stringify({
-      title,
-      project_id: projectId,
-      source_facet: sourceFacet,
-      source_provider: sourceProvider,
-      source_native_id: sourceNativeId,
-    }),
+    body: JSON.stringify(threadBody),
   });
   const trText = await tr.text();
   if (!tr.ok) throw new Error(`threads insert ${tr.status}: ${trText.slice(0, 400)}`);
@@ -543,10 +708,14 @@ async function supabaseInsert(
 
 async function main() {
   const args = parseArgs(process.argv);
+  if (args.provider) {
+    args.provider = String(args.provider).trim().toLowerCase();
+    if (args.provider === "notebooklm") args.provider = "nblm";
+  }
   if (!args.provider || !args.file) {
     console.error(
-      "Usage: node scripts/import-logs.mjs --provider chatgpt|claude|gemini|gemini-activity --file path [options]\n" +
-        "  --project-id ラベル  --facet do|feel|think|chat  --persona 名前  --dry-run  --dry-run-limit N  --max-threads N",
+      "Usage: node scripts/import-logs.mjs --provider chatgpt|claude|gemini|gemini-activity|nblm --file path [options]\n" +
+        "  --project-id ラベル  --facet do|feel|think|chat|study  --persona 名前  --dry-run  --dry-run-limit N  --max-threads N",
     );
     process.exit(1);
   }
@@ -554,15 +723,15 @@ async function main() {
   const baseUrl = process.env.SUPABASE_URL?.trim().replace(/\/$/, "");
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!args.dryRun && (!baseUrl || !key)) {
-    throw new Error("web/.env に SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が必要です");
+    throw new Error("web/.env または web/.env.local に SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が必要です");
   }
 
   const raw = fs.readFileSync(path.resolve(args.file), "utf8");
   const projectId = resolveProjectId(args.projectIdLabel, args.provider);
 
-  let facet = (args.facet || "chat").toLowerCase().trim();
+  let facet = (args.facet || (args.provider === "nblm" ? "study" : "chat")).toLowerCase().trim();
   if (!FACETS.has(facet)) {
-    throw new Error(`--facet は do|feel|think|chat のいずれかにしてください: ${args.facet}`);
+    throw new Error(`--facet は do|feel|think|chat|study のいずれかにしてください: ${args.facet}`);
   }
 
   const defChatgpt = {
@@ -579,6 +748,11 @@ async function main() {
     provider: "openrouter",
     modelId: "google/gemini-2.5-flash",
     persona: args.persona || "ソルコクタニ",
+  };
+  const defNblm = {
+    provider: "nblm",
+    modelId: "notebooklm",
+    persona: args.persona || "タタ・トゥンガ",
   };
 
   /** @type {Array<object>} */
@@ -608,6 +782,12 @@ async function main() {
       defaults: defGemini,
       persona: p.persona || defGemini.persona,
     }));
+  } else if (args.provider === "nblm") {
+    packs = adaptNotebookLmAll(raw, facet).map((p) => ({
+      ...p,
+      defaults: defNblm,
+      persona: p.persona ?? defNblm.persona,
+    }));
   } else throw new Error(`Unknown provider: ${args.provider}`);
 
   for (const p of packs) {
@@ -624,7 +804,7 @@ async function main() {
 
   if (args.maxThreads != null && args.maxThreads < packs.length) {
     console.log(
-      `[import-logs] --max-threads ${args.maxThreads}: 先頭 ${args.maxThreads} スレッドのみ処理（全 ${packs.length} 中）。全件を後から流すとこの先頭は二重になるので、スモーク後は削除するか別 DB で試してください。`,
+      `[import-logs] --max-threads ${args.maxThreads}: 先頭 ${args.maxThreads} スレッドのみ（全 ${packs.length} 中）。source_native_id がある場合は再実行で同キーを上書きします。`,
     );
     packs = packs.slice(0, args.maxThreads);
   }
@@ -666,8 +846,8 @@ async function main() {
     const pack = packs[i];
     const n = i + 1;
     const titleShort = pack.title.length > 100 ? `${pack.title.slice(0, 100)}…` : pack.title;
-    console.log(`[import-logs] (${n}/${total}) inserting… ${titleShort}`);
-    await supabaseInsert(baseUrl, key, {
+    console.log(`[import-logs] (${n}/${total}) importing… ${titleShort}`);
+    await supabaseImportPack(baseUrl, key, {
       title: pack.title,
       projectId,
       turns: pack.turns,
@@ -677,6 +857,7 @@ async function main() {
       sourceFacet: pack.sourceFacet,
       sourceProvider: pack.sourceProvider,
       sourceNativeId: pack.sourceNativeId,
+      threadUpdatedAtIso: pack.threadUpdatedAtIso ?? null,
     });
     console.log(`[import-logs] (${n}/${total}) Import OK messages=${pack.turns.length} | ${pack.title}`);
   }

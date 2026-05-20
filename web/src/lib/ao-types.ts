@@ -1,10 +1,7 @@
-/**
- * Supabase `threads.project_id` と一致させる論 ID（巷間論の `talk` はクライアント専用・DB には出さない）。
- */
+/** Supabase `threads.project_id` および AO ネイティブ議事の論 ID（DB と一致） */
 export type ProjectId =
   | "debate"
   | "chat"
-  | "talk"
   | "plan"
   | "work"
   | "mental"
@@ -17,7 +14,6 @@ export type ProjectId =
 const PROJECT_IDS = new Set<string>([
   "debate",
   "chat",
-  "talk",
   "plan",
   "work",
   "mental",
@@ -27,6 +23,16 @@ const PROJECT_IDS = new Set<string>([
   "chatgpt",
   "claude",
 ]);
+
+/** 旧クライアント ID・取り込み表記 → 現行 ProjectId */
+export function normalizeProjectId(raw: string): ProjectId | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (t === "talk") return "chat";
+  if (t === "study") return "notebook";
+  if (isProjectId(t)) return t;
+  return null;
+}
 
 export function isProjectId(x: string): x is ProjectId {
   return PROJECT_IDS.has(x);

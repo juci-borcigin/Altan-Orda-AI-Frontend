@@ -1,4 +1,9 @@
-import type { MsgChatCompletionMeta, MsgRawPromptBundle, MsgTurnUsage } from "@/lib/ao-state";
+import type {
+  MsgChatCompletionMeta,
+  MsgRagMeta,
+  MsgRawPromptBundle,
+  MsgTurnUsage,
+} from "@/lib/ao-state";
 
 function numTok(x: unknown): number {
   if (typeof x === "number" && Number.isFinite(x)) return Math.max(0, Math.floor(x));
@@ -86,6 +91,39 @@ export function normalizeCompletionMetaFromApi(raw: unknown): MsgChatCompletionM
     return undefined;
   }
 
+  let rag: MsgRagMeta | undefined;
+  const ragRaw = o.rag;
+  if (ragRaw && typeof ragRaw === "object") {
+    const r = ragRaw as Record<string, unknown>;
+    const hitCount = numNonNeg(r.hitCount ?? r.hit_count);
+    const matchThreshold =
+      typeof r.matchThreshold === "number" && Number.isFinite(r.matchThreshold)
+        ? r.matchThreshold
+        : typeof r.match_threshold === "number" && Number.isFinite(r.match_threshold)
+          ? r.match_threshold
+          : undefined;
+    if (
+      typeof r.isFirstUserTurn === "boolean" &&
+      typeof r.injected === "boolean" &&
+      hitCount !== undefined &&
+      matchThreshold !== undefined
+    ) {
+      const topSim = r.topSimilarity ?? r.top_similarity;
+      rag = {
+        isFirstUserTurn: r.isFirstUserTurn,
+        hitCount,
+        topSimilarity:
+          topSim === null || topSim === undefined
+            ? null
+            : typeof topSim === "number" && Number.isFinite(topSim)
+              ? topSim
+              : null,
+        injected: r.injected,
+        matchThreshold,
+      };
+    }
+  }
+
   return {
     finishReason,
     nativeFinishReason,
@@ -94,5 +132,6 @@ export function normalizeCompletionMetaFromApi(raw: unknown): MsgChatCompletionM
     webSearchInvocations,
     webSearchSkippedByLimit,
     webSearchMaxPerRound,
+    ...(rag ? { rag } : {}),
   };
 }

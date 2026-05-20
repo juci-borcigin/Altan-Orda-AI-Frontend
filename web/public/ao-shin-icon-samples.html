@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新規アイコン SVG 候補プレビュー</title>
+  <style>
+    :root {
+      --ink: #3d1c08;
+      --gold: #dbb961;
+      --parchment: #f6f4ee;
+      --muted: #6a3f0a99;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-serif, "Hiragino Mincho ProN", serif;
+      background: linear-gradient(180deg, #2a1810 0%, #1a0f08 100%);
+      color: var(--ink);
+      padding: 24px 16px 48px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--gold);
+      letter-spacing: 0.15em;
+      margin-bottom: 8px;
+    }
+    p.lead {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #c9b89e;
+      margin: 0 0 24px;
+      line-height: 1.6;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 14px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .card {
+      background: var(--parchment);
+      border: 1px solid var(--ink);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      padding: 12px 10px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .card .num {
+      font-size: 0.65rem;
+      color: var(--muted);
+      align-self: flex-start;
+    }
+    .card svg {
+      display: block;
+      width: 40px;
+      height: 40px;
+    }
+    .card .label {
+      font-size: 0.68rem;
+      text-align: center;
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .hint {
+      max-width: 640px;
+      margin: 28px auto 0;
+      font-size: 0.7rem;
+      color: #a89880;
+      text-align: center;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>新規 — SVG 候補プレビュー</h1>
+  <p class="lead">viewBox 24×24・線色 #3D1C08（帯の墨色に合わせた仮置き）<br />ブラウザでこのファイルを開いてください。</p>
+  <div class="grid">
+    <!-- 1 白紙の巻物 -->
+    <div class="card">
+      <span class="num">1</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M8 5h6a3 3 0 0 1 3 3v10a2 2 0 0 1-2 2H8V5Z" stroke="currentColor" stroke-width="1.35" />
+        <path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="1.35" />
+        <path d="M11 9h3M11 12h3M11 15h2" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.35" />
+      </svg>
+      <span class="label">白紙の巻物</span>
+    </div>
+    <!-- 2 巻物＋（＋は紙面中央） -->
+    <div class="card">
+      <span class="num">2</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7.5 6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9V6Z" />
+        <path d="M7.5 6H6a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 6 18h1.5" />
+        <path d="M12 9.2v5.6M9.2 12h5.6" stroke-width="2.05" />
+      </svg>
+      <span class="label">巻物＋プラス（中央）</span>
+    </div>
+    <!-- 3 羽ペン -->
+    <div class="card">
+      <span class="num">3</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M5 19c2-5 8-13 14-15 0 6-4 12-9 15" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M6.5 17.5 8 19M4 20l2-1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+        <path d="M12 9c2 1.5 3.5 3.5 4 6" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.4" />
+      </svg>
+      <span class="label">羽ペン</span>
+    </div>
+    <!-- 4 開いた本・白ページ -->
+    <div class="card">
+      <span class="num">4</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 5v14" stroke="currentColor" stroke-width="1.2" />
+        <path d="M12 5H8.5A2.5 2.5 0 0 0 6 7.5V18l6-2" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round" />
+        <path d="M12 5h3.5A2.5 2.5 0 0 1 18 7.5V18l-6-2" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round" />
+        <path d="M8 10h3M8 13h2.5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round" opacity="0.25" />
+      </svg>
+      <span class="label">開いた本（白頁）</span>
+    </div>
+    <!-- 5 印鑑 -->
+    <div class="card">
+      <span class="num">5</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="12" cy="11" r="6.5" stroke="currentColor" stroke-width="1.35" />
+        <path d="M8.5 11h7M11 8.5v5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.45" />
+        <path d="M7 18.5h10" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" />
+        <path d="M8 18.5v-1.5M16 18.5v-1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+      </svg>
+      <span class="label">印（簡略）</span>
+    </div>
+    <!-- 6 角丸＋ -->
+    <div class="card">
+      <span class="num">6</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="4.5" y="4.5" width="15" height="15" rx="3" stroke="currentColor" stroke-width="1.35" />
+        <path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+      <span class="label">角丸枠＋</span>
+    </div>
+    <!-- 7 破線枠＋ -->
+    <div class="card">
+      <span class="num">7</span>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2.2 2" />
+        <path d="M12 9v6M9 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+      <span class="label">破線枠＋</span>
+    </div>
+  </div>
+  <p class="hint">
+    ファイル: <code style="color:#dbb961">web/public/ao-shin-icon-samples.html</code><br />
+    開発サーバー起動中なら <code style="color:#dbb961">/ao-shin-icon-samples.html</code> でも開けます。
+  </p>
+</body>
+</html>

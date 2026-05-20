@@ -1,1 +1,4 @@
 /node_modules/
+
+# Cursor MCP（トークン等を含むためコミットしない）
+.cursor/mcp.json

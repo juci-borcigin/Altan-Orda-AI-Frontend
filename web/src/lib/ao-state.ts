@@ -21,6 +21,15 @@ export type MsgRawPromptBundle = {
   received: string;
 };
 
+/** RAG 注入のメタ（Raw チップ要約用） */
+export type MsgRagMeta = {
+  isFirstUserTurn: boolean;
+  hitCount: number;
+  topSimilarity: number | null;
+  injected: boolean;
+  matchThreshold: number;
+};
+
 /** `/api/chat` が返す completion メタ（ログ・Raw 表示用。ライブ応答以外では省略されうる） */
 export type MsgChatCompletionMeta = {
   finishReason: string | null;
@@ -30,6 +39,7 @@ export type MsgChatCompletionMeta = {
   webSearchInvocations: number;
   webSearchSkippedByLimit: number;
   webSearchMaxPerRound: number;
+  rag?: MsgRagMeta;
 };
 
 export type Msg = {
@@ -77,7 +87,6 @@ export type AppState = {
 const PROJECT_IDS: ProjectId[] = [
   "debate",
   "chat",
-  "talk",
   "plan",
   "work",
   "mental",
@@ -94,8 +103,9 @@ const LEGACY_PROJECT_ID: Record<string, ProjectId> = {
   gungi: "work",
   nesho: "mental",
   kurultai: "debate",
-  /** 一時期の巷間論 ProjectId（TopicUiId の koukan と別物） */
-  koukan: "talk",
+  koukan: "chat",
+  talk: "chat",
+  study: "notebook",
 };
 
 function isProjectId(x: unknown): x is ProjectId {
@@ -130,20 +140,12 @@ function migrateAppStateShape(data: unknown): unknown {
   if (typeof o.currentProjectId === "string") {
     o.currentProjectId = migrateProjectIdString(o.currentProjectId);
   }
-  if (o.currentProjectId === "chat") {
-    o.currentProjectId = "talk";
-  }
   if (Array.isArray(o.threads)) {
     o.threads = o.threads.map((t) => {
       if (!t || typeof t !== "object") return t;
       const th = { ...(t as Record<string, unknown>) };
       if (typeof th.projectId === "string") {
         th.projectId = migrateProjectIdString(th.projectId);
-      }
-      const sp = typeof th.sourceProvider === "string" ? th.sourceProvider.trim().toLowerCase() : "";
-      const aoNative = !sp || sp === "ao";
-      if (th.projectId === "chat" && aoNative) {
-        th.projectId = "talk";
       }
       clampThreadTitleForMigrate(th);
       return th;

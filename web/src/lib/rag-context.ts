@@ -1,4 +1,107 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  buildRagEmbedQuery,
+  normalizeEmbedProjectId,
+  normalizeRagQuery,
+} from "./rag-embed-query";
+
+export { buildRagEmbedQuery, normalizeEmbedProjectId, normalizeRagQuery } from "./rag-embed-query";
+
+/** cosine 類似度の下限。0.7 では作戦AO等の実クエリが 0 件になりやすい（probe-rag で要調整） */
+export const RAG_MATCH_THRESHOLD = 0.5;
+
+/** RAG 検索で既定とする embeddings.kind */
+export const RAG_DEFAULT_KIND = "thread" as const;
+
+export type RagMatchRow = {
+  chunk_text?: string;
+  similarity?: number;
+  project_id?: string | null;
+  kind?: string | null;
+};
+
+export type RagSearchResult = {
+  block: string;
+  hitCount: number;
+  topSimilarity: number | null;
+};
+
+export type RagSearchOptions = {
+  enabled?: boolean;
+  when?: "first_user" | "every_user";
+  isFirstUserTurn: boolean;
+  match_count?: number;
+  match_threshold?: number;
+  max_chars?: number;
+  /** ao 論 ID（plan, chat 等）。null なら全論横断 */
+  filter_project_id?: string | null;
+  filter_kind?: string | null;
+  project_label_ja?: string | null;
+};
+
+/** embeddings 検索（Phase5: rag_when / 件数 / 閾値 / Kind・論フィルタ） */
+export async function searchRagChunks(
+  supa: SupabaseClient,
+  lastUserText: string,
+  isFirstUserTurn: boolean,
+  openaiKey: string,
+  opts?: Partial<RagSearchOptions>,
+): Promise<RagSearchResult> {
+  const empty: RagSearchResult = { block: "", hitCount: 0, topSimilarity: null };
+  const enabled = opts?.enabled ?? true;
+  const when = opts?.when ?? "first_user";
+  if (!enabled || !lastUserText.trim()) return empty;
+  if (when === "first_user" && !isFirstUserTurn) return empty;
+
+  const filterProjectId =
+    opts?.filter_project_id !== undefined
+      ? opts.filter_project_id
+      : null;
+  const filterKind = opts?.filter_kind ?? RAG_DEFAULT_KIND;
+
+  const query = buildRagEmbedQuery({
+    lastUserText,
+    projectLabelJa: opts?.project_label_ja,
+    projectId: filterProjectId,
+  });
+  if (!query) return empty;
+
+  const emb = await openAiEmbed(query, openaiKey);
+  const match_count = opts?.match_count ?? 5;
+  const match_threshold = opts?.match_threshold ?? RAG_MATCH_THRESHOLD;
+  const { data, error } = await supa.rpc("match_embeddings", {
+    query_embedding: emb,
+    match_count,
+    match_threshold,
+    filter_project_id: filterProjectId,
+    filter_kind: filterKind,
+  });
+  if (error) {
+    console.error("[rag] match_embeddings:", error.message);
+    return empty;
+  }
+  const rows = (Array.isArray(data) ? data : []) as RagMatchRow[];
+  if (rows.length === 0) {
+    console.info(
+      `[rag] 0 hits query_chars=${query.length} threshold=${match_threshold} project=${filterProjectId ?? "*"} kind=${filterKind}`,
+    );
+    return empty;
+  }
+  const topSimilarity =
+    typeof rows[0]?.similarity === "number" ? rows[0].similarity : null;
+  console.info(
+    `[rag] ${rows.length} hits top_sim=${topSimilarity?.toFixed(4) ?? "?"} threshold=${match_threshold} when=${when} project=${filterProjectId ?? "*"} kind=${filterKind}`,
+  );
+  let block = rows
+    .map((row) => row.chunk_text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n---\n");
+  const maxChars = opts?.max_chars ?? 0;
+  if (maxChars > 0 && block.length > maxChars) {
+    block = `${block.slice(0, maxChars)}\n\n---\n\n（RAG ブロックは長さのため省略）`;
+  }
+  return { block, hitCount: rows.length, topSimilarity };
+}
 
 async function openAiEmbed(text: string, apiKey: string): Promise<number[]> {
   const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -22,29 +125,14 @@ async function openAiEmbed(text: string, apiKey: string): Promise<number[]> {
   return emb;
 }
 
-/** 初回ユーザー発言のみ embeddings 検索（Profile は ao-prompts のハードコードに統一） */
 async function loadRagBlock(
   supa: SupabaseClient,
   userMessage: string,
   isFirstUserTurn: boolean,
   openaiKey: string,
 ): Promise<string> {
-  if (!isFirstUserTurn || !userMessage.trim()) return "";
-  const emb = await openAiEmbed(userMessage, openaiKey);
-  const { data, error } = await supa.rpc("match_embeddings", {
-    query_embedding: emb,
-    match_count: 5,
-    match_threshold: 0.7,
-  });
-  if (error) {
-    console.error("[rag] match_embeddings:", error.message);
-    return "";
-  }
-  if (!Array.isArray(data) || data.length === 0) return "";
-  return data
-    .map((row: { chunk_text?: string }) => row.chunk_text?.trim() ?? "")
-    .filter(Boolean)
-    .join("\n---\n");
+  const { block } = await searchRagChunks(supa, userMessage, isFirstUserTurn, openaiKey);
+  return block;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { AO_KOUKAN_THREAD_DISPLAY_TITLE } from "@/lib/ao-topics";
 import type { Msg, Thread } from "@/lib/ao-state";
 import {
   AO_THREAD_TITLE_MAX_UNITS,
@@ -52,8 +53,13 @@ function aoFirstUserPlainText(messages: readonly Msg[]): string {
   return "";
 }
 
+export function isKoukanThread(thread: Pick<Thread, "projectId">): boolean {
+  return thread.projectId === "chat";
+}
+
 /** サイド／オーバーレイ一覧：保存タイトルが空なら初回ユーザー投稿からスニペットを表示 */
 export function aoThreadTitleForList(thread: Thread, maxUnits = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
+  if (isKoukanThread(thread)) return AO_KOUKAN_THREAD_DISPLAY_TITLE;
   const stored = thread.title.trim();
   if (stored) return aoDisplayThreadTitle(stored, maxUnits);
   const snippet = aoTitleSnippetFromFirstUserPost(aoFirstUserPlainText(thread.messages));
@@ -64,6 +70,7 @@ export function aoThreadTitleForList(thread: Thread, maxUnits = AO_THREAD_TITLE_
 /** メイン議事タイトル帯：保存が空のときは一覧と同じスニペット／無題はプレースホルダ */
 export function aoThreadTitleChipLabel(thread: Thread | null, maxUnits = AO_THREAD_TITLE_DISPLAY_MAX_CHARS): string {
   if (!thread) return "タイトル未設定";
+  if (isKoukanThread(thread)) return AO_KOUKAN_THREAD_DISPLAY_TITLE;
   const stored = thread.title.trim();
   if (stored) return aoDisplayThreadTitle(stored, maxUnits);
   const listLabel = aoThreadTitleForList(thread, maxUnits);

@@ -10,10 +10,25 @@ import {
   getSpeakerAllowSet,
   isAllySpeakerName,
 } from "@/lib/ao-prompts";
-import type { ProjectId } from "@/lib/ao-types";
+import { tryBuildPhase5ChatSystem } from "@/lib/phase5/build-chat-system";
+import { Phase5DbConfigError } from "@/lib/phase5/phase5-db-errors";
+import { decodeAssistantTextForUi, isPhase5EligibleProject } from "@/lib/phase5/load-phase5-chat";
+import {
+  appendMarkdownFormatRetrySystem,
+  filterSpeakerChunks,
+  isAssistantOutputParseFallback,
+  parseAssistantOutput,
+} from "@/lib/phase5/phase5-chat-output";
+import { normalizeProjectId, type ProjectId } from "@/lib/ao-types";
 import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
 import { buildJapanNowSystemPrefix } from "@/lib/ao-chat-context";
-import { buildRagInjectionBlock } from "@/lib/rag-context";
+import {
+  RAG_DEFAULT_KIND,
+  RAG_MATCH_THRESHOLD,
+  normalizeEmbedProjectId,
+  searchRagChunks,
+  type RagSearchResult,
+} from "@/lib/rag-context";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
@@ -112,11 +127,15 @@ function resolveCompletionCeiling(): number {
   return Math.max(256, Math.min(8192, Math.floor(n)));
 }
 
-function resolveMaxTokens(): number {
+function resolveMaxTokens(projectId?: ProjectId): number {
   const ceiling = resolveCompletionCeiling();
   const raw = process.env.LLM_MAX_TOKENS?.trim();
   const n = raw ? Number(raw) : NaN;
-  const requested = Number.isFinite(n) ? Math.floor(n) : DEFAULT_MAX_TOKENS;
+  let requested = Number.isFinite(n) ? Math.floor(n) : DEFAULT_MAX_TOKENS;
+  /** 巷間論は軽量・クレジット節約（OpenRouter 402 回避） */
+  if (projectId === "chat") {
+    requested = Math.min(requested, 3072);
+  }
   return Math.max(256, Math.min(ceiling, requested));
 }
 
@@ -163,7 +182,6 @@ function trimHistory(projectId: ProjectId, messages: InMsg[]): InMsg[] {
     projectId === "gemini" ||
     projectId === "claude" ||
     projectId === "chat" ||
-    projectId === "talk" ||
     projectId === "chatgpt";
   const max = short ? 12 : 20;
   if (messages.length <= max) return messages;
@@ -506,9 +524,9 @@ function normalizeDbSourceProvider(sp: string | null | undefined): string | null
   return t.length ? t : null;
 }
 
-/** 巷間論（talk）および旧 chat ネイティブは Supabase に残さない */
+/** 巷間論（chat）は Supabase に残さない */
 function allowsSupabaseThreadPersist(projectId: ProjectId): boolean {
-  return projectId !== "chat" && projectId !== "talk";
+  return projectId !== "chat";
 }
 
 /**
@@ -591,8 +609,17 @@ async function prepareChatPersistence(
   return { threadUuid: ins.id as string, persistMessages: true };
 }
 
+function phase5DbConfigResponse(e: unknown): NextResponse {
+  const detail =
+    e instanceof Phase5DbConfigError
+      ? e.message
+      : e instanceof Error
+        ? e.message
+        : String(e);
+  return NextResponse.json({ error: "phase5_db_config", detail }, { status: 503 });
+}
+
 export async function POST(req: Request) {
-  const maxTokens = resolveMaxTokens();
   const mockMode = isMockMode();
   const dryRunMode = isDryRunMode();
 
@@ -603,7 +630,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const projectId = body.projectId;
+  const projectId = normalizeProjectId(String(body.projectId ?? ""));
+  if (!projectId) {
+    return NextResponse.json({ error: "Invalid projectId" }, { status: 400 });
+  }
+  let maxTokens = resolveMaxTokens(projectId);
 
   const { baseUrl, apiKey, model } = resolveLlmConfig();
   if (!apiKey && !mockMode && !dryRunMode) {
@@ -624,18 +655,62 @@ export async function POST(req: Request) {
     }
   }
   const userMsgs = Array.isArray(body.messages) ? body.messages : [];
-  const trimmed = trimHistory(projectId, userMsgs);
+  const userOnlyPre = userMsgs.filter((m) => m.role === "user");
+  const lastUserPre = userOnlyPre[userOnlyPre.length - 1]?.content ?? "";
+  const isFirstUserTurnPre = userOnlyPre.length === 1;
+  const casualModePre = lastUserPre.includes("雑談");
+
+  const phase5Required = Boolean(supaForModel) && isPhase5EligibleProject(projectId);
+  let phase5Ctx: Awaited<ReturnType<typeof tryBuildPhase5ChatSystem>> = null;
+  if (phase5Required) {
+    try {
+      phase5Ctx = await tryBuildPhase5ChatSystem({
+        supa: supaForModel!,
+        projectId,
+        messages: userMsgs,
+        lastUser: lastUserPre,
+        isFirstUserTurn: isFirstUserTurnPre,
+        casualMode: casualModePre,
+        openAiKey: process.env.OPENAI_API_KEY?.trim(),
+      });
+    } catch (e) {
+      console.error("[chat] tryBuildPhase5ChatSystem", e);
+      return phase5DbConfigResponse(e);
+    }
+    if (!phase5Ctx) {
+      return phase5DbConfigResponse(
+        new Phase5DbConfigError(`ao_projects が未設定です（論: ${projectId}）`),
+      );
+    }
+  }
+
+  const trimmed = phase5Ctx
+    ? phase5Ctx.trimmedEncoded
+    : trimHistory(projectId, userMsgs);
 
   const userOnly = trimmed.filter((m) => m.role === "user");
   const lastUser = userOnly[userOnly.length - 1]?.content ?? "";
   const isFirstUserTurn = userOnly.length === 1;
-  const casualMode = lastUser.includes("雑談");
-  const namedSpeaker = detectNamedSpeaker(lastUser);
+  const casualMode = casualModePre;
+  const namedSpeaker = detectNamedSpeaker(lastUserPre);
 
-  const tavilyEnabled = Boolean(process.env.TAVILY_API_KEY?.trim());
+  if (phase5Ctx?.bundle.runtime.max_completion_tokens) {
+    maxTokens = Math.min(resolveCompletionCeiling(), phase5Ctx.bundle.runtime.max_completion_tokens);
+  }
+
+  const tavilyEnabled =
+    Boolean(process.env.TAVILY_API_KEY?.trim()) &&
+    (phase5Ctx ? phase5Ctx.bundle.runtime.web_search_enabled : true);
   const tavilySuffix = tavilyEnabled
     ? "\n\n【ツール】最新の事実・ニュース・数値の確認などに必要なときのみ `web_search` を使う（引数は query のみ）。不要な検索はしない。"
     : "";
+
+  let maxToolRounds = MAX_TOOL_ROUNDS;
+  let webSearchMaxPerRound = resolveWebSearchMaxPerRound();
+  if (phase5Ctx) {
+    maxToolRounds = phase5Ctx.bundle.runtime.web_search_max_rounds;
+    webSearchMaxPerRound = phase5Ctx.bundle.runtime.web_search_max_per_round;
+  }
 
   const completionMetaStub: MsgChatCompletionMeta = {
     finishReason: null,
@@ -644,12 +719,12 @@ export async function POST(req: Request) {
     formatRetriesUsed: 0,
     webSearchInvocations: 0,
     webSearchSkippedByLimit: 0,
-    webSearchMaxPerRound: resolveWebSearchMaxPerRound(),
+    webSearchMaxPerRound,
   };
 
   const supa = supaForModel;
   let promptOverrides: Partial<Record<AoPromptSectionKey, string>> = {};
-  if (supa) {
+  if (supa && !phase5Required) {
     try {
       promptOverrides = await loadAoPromptOverrides(supa);
     } catch (e) {
@@ -659,20 +734,23 @@ export async function POST(req: Request) {
 
   const nowPrefix = buildJapanNowSystemPrefix();
 
-  let system =
-    nowPrefix +
-    "\n\n" +
-    buildAoSystemPrompt(
-      {
-        projectId,
-        lastUserText: lastUser,
-        isFirstUserTurn,
-        casualMode,
-        namedSpeaker,
-      },
-      promptOverrides,
-    ) +
-    tavilySuffix;
+  let system = phase5Ctx
+    ? phase5Ctx.system + tavilySuffix
+    : nowPrefix +
+      "\n\n" +
+      buildAoSystemPrompt(
+        {
+          projectId,
+          lastUserText: lastUserPre,
+          isFirstUserTurn,
+          casualMode,
+          namedSpeaker,
+        },
+        promptOverrides,
+      ) +
+      tavilySuffix;
+
+  let phase5RagMeta = phase5Ctx?.ragMeta;
 
   if (dryRunMode) {
     const provider = baseUrl.includes("openrouter.ai") ? "openrouter" : "openai_direct";
@@ -781,35 +859,50 @@ export async function POST(req: Request) {
     });
   }
 
-  let injectionBlock = "";
-  if (supa) {
-    try {
-      injectionBlock = await buildRagInjectionBlock({
-        supa,
-        userMessage: lastUser,
-        isFirstUserTurn,
-        openAiKey: process.env.OPENAI_API_KEY,
-      });
-    } catch (e) {
-      console.error("[chat] rag injection", e);
-    }
-  }
+  let ragMeta: RagSearchResult & { injected: boolean; threshold: number } = phase5RagMeta ?? {
+    block: "",
+    hitCount: 0,
+    topSimilarity: null,
+    injected: false,
+    threshold: RAG_MATCH_THRESHOLD,
+  };
 
-  system =
-    nowPrefix +
-    "\n\n" +
-    buildAoSystemPrompt(
-      {
-        projectId,
-        lastUserText: lastUser,
-        isFirstUserTurn,
-        casualMode,
-        namedSpeaker,
-        injectionBlock: injectionBlock || undefined,
-      },
-      promptOverrides,
-    ) +
-    tavilySuffix;
+  if (!phase5Ctx) {
+    let injectionBlock = "";
+    if (supa) {
+      try {
+        const oai = process.env.OPENAI_API_KEY?.trim();
+        if (oai) {
+          const rag = await searchRagChunks(supa, lastUserPre, isFirstUserTurn, oai, {
+            filter_project_id: normalizeEmbedProjectId(projectId),
+            filter_kind: RAG_DEFAULT_KIND,
+          });
+          ragMeta = { ...rag, injected: Boolean(rag.block.trim()), threshold: RAG_MATCH_THRESHOLD };
+          if (rag.block.trim()) {
+            injectionBlock = `## 関連する過去の議論\n${rag.block.trim()}`;
+          }
+        }
+      } catch (e) {
+        console.error("[chat] rag injection", e);
+      }
+    }
+
+    system =
+      nowPrefix +
+      "\n\n" +
+      buildAoSystemPrompt(
+        {
+          projectId,
+          lastUserText: lastUserPre,
+          isFirstUserTurn,
+          casualMode,
+          namedSpeaker,
+          injectionBlock: injectionBlock || undefined,
+        },
+        promptOverrides,
+      ) +
+      tavilySuffix;
+  }
 
   let persistedThreadUuid: string | null = null;
   let persistMessages = false;
@@ -836,12 +929,10 @@ export async function POST(req: Request) {
     resolveCompletionCeiling(),
     tavilyEnabled ? Math.max(maxTokens, MIN_COMPLETION_TOKENS_WITH_WEB_TOOLS) : maxTokens,
   );
-  const webSearchMaxPerRound = resolveWebSearchMaxPerRound();
-
   try {
     while (true) {
       completionRoundCount += 1;
-      const forceNoTools = toolRounds >= MAX_TOOL_ROUNDS;
+      const forceNoTools = toolRounds >= maxToolRounds;
       const payload: Record<string, unknown> = {
         model: effectiveModel,
         temperature: 0.7,
@@ -887,15 +978,20 @@ export async function POST(req: Request) {
             completionRoundCount,
           );
         }
-        // C: JSONL 形式が崩れている（1行も JSON として読めない）場合は、最大2回だけ再思考させる
-        const probeChunks = parseJsonl(finalContent);
-        if (formatRetry < MAX_FORMAT_RETRY && isJsonlParseFallback(probeChunks, finalContent)) {
-          formatRetry += 1;
-          // 次ラウンドはツール無しで、形式強制の追記を入れて再実行（同一文言の連続積みは避ける）
-          appendFormatRetrySystem(messages);
-          // toolRounds を MAX にして強制的に tool_choice=none へ
-          toolRounds = MAX_TOOL_ROUNDS;
-          continue;
+        if (formatRetry < MAX_FORMAT_RETRY) {
+          const needsRetry = phase5Ctx
+            ? isAssistantOutputParseFallback(
+                parseAssistantOutput(finalContent, phase5Ctx.bundle.mainSpeakerName),
+                finalContent,
+              )
+            : isJsonlParseFallback(parseJsonl(finalContent), finalContent);
+          if (needsRetry) {
+            formatRetry += 1;
+            if (phase5Ctx) appendMarkdownFormatRetrySystem(messages);
+            else appendFormatRetrySystem(messages);
+            toolRounds = maxToolRounds;
+            continue;
+          }
         }
         lastFinishReason = typeof choice0?.finish_reason === "string" ? choice0.finish_reason : null;
         lastNativeFinishReason =
@@ -1021,26 +1117,43 @@ export async function POST(req: Request) {
 
   const usagePayload = await buildTurnUsagePayload(effectiveModel, usageAgg.prompt, usageAgg.completion);
 
-  // JSONL が崩れた場合の最終フォールバック（MAX_FORMAT_RETRY 後でも平文が来るモデルがある）。
-  // 「不明」扱いで speaker不許可に落とさず、名指し先 or 主担当へ割り当てて 1 吹き出しに収める。
-  // finalContent が空でも remap する（長大コンテキスト・ツール多段後に API が空文字のみ返すことがある）。
-  const parsed = parseJsonl(finalContent);
   const trimmedFinal = finalContent.trim();
-  const emptyAssistantFallback =
-    trimmedFinal.length === 0 && isJsonlParseFallback(parsed, finalContent);
-  const rawChunks = isJsonlParseFallback(parsed, finalContent)
+  const defaultSpeaker =
+    phase5Ctx?.bundle.mainSpeakerName ?? getPrimarySpeakerForProject(projectId);
+  const parsed = phase5Ctx
+    ? parseAssistantOutput(finalContent, defaultSpeaker)
+    : parseJsonl(finalContent);
+  const parseFallback = phase5Ctx
+    ? isAssistantOutputParseFallback(parsed, finalContent)
+    : isJsonlParseFallback(parsed, finalContent);
+  const emptyAssistantFallback = trimmedFinal.length === 0 && parseFallback;
+  const rawChunks = parseFallback
     ? [
         {
-          speaker: namedSpeaker && isAllySpeakerName(namedSpeaker) ? namedSpeaker : getPrimarySpeakerForProject(projectId),
+          speaker:
+            namedSpeaker && isAllySpeakerName(namedSpeaker) ? namedSpeaker : defaultSpeaker,
           text:
             trimmedFinal.length > 0
               ? trimmedFinal
-              : "（応答本文が空でした。入力が非常に長いターンやツール往復のあとに、モデルが JSONL を返さなかった可能性があります。履歴を分けるか短くして再度お試しください。）",
+              : "（応答本文が空でした。入力が非常に長いターンやツール往復のあとに、モデルが指定形式を返さなかった可能性があります。履歴を分けるか短くして再度お試しください。）",
         },
       ]
     : parsed;
+  const filtered = phase5Ctx
+    ? filterSpeakerChunks(
+        rawChunks,
+        phase5Ctx.bundle.allowedSpeakerNames,
+        phase5Ctx.bundle.mainSpeakerName,
+      )
+    : filterChunks(rawChunks, projectId);
+  const decoded = phase5Ctx
+    ? filtered.map((c) => ({
+        ...c,
+        text: decodeAssistantTextForUi(c.text, phase5Ctx.bundle.glossary),
+      }))
+    : filtered;
   const chunks = mergeConsecutiveSameSpeakerChunks(
-    chunksNamedSpeakerMustLead(filterChunks(rawChunks, projectId), namedSpeaker),
+    chunksNamedSpeakerMustLead(decoded, namedSpeaker),
   );
   const rawPromptSentLive = serializeOutboundChatMessages(messages);
   const rawPromptReceivedLive = finalContent;
@@ -1053,6 +1166,13 @@ export async function POST(req: Request) {
     webSearchInvocations: webSearchInvocationCount,
     webSearchSkippedByLimit,
     webSearchMaxPerRound,
+    rag: {
+      isFirstUserTurn,
+      hitCount: ragMeta.hitCount,
+      topSimilarity: ragMeta.topSimilarity,
+      injected: ragMeta.injected,
+      matchThreshold: ragMeta.threshold,
+    },
   };
 
   console.info(
@@ -1110,9 +1230,22 @@ export async function POST(req: Request) {
 
           const oai = process.env.OPENAI_API_KEY?.trim();
           if (oai && insertedRows?.length) {
+            const { data: threadMeta } = await supa
+              .from("threads")
+              .select("source_provider,title,project_id")
+              .eq("id", persistedThreadUuid)
+              .maybeSingle();
             void storeEmbeddingsForMessageTexts(
               supa,
-              insertedRows.map((r: { id: string; text: string }) => ({ id: r.id, text: r.text })),
+              insertedRows.map((r: { id: string; text: string }) => ({
+                id: r.id,
+                text: r.text,
+                threadSourceProvider: threadMeta?.source_provider ?? null,
+                threadTitle: threadMeta?.title ?? null,
+                embedProjectId: normalizeEmbedProjectId(
+                  threadMeta?.project_id ?? projectId,
+                ),
+              })),
               oai,
             ).catch((e) => console.error("[chat] embedding pipeline", e));
           }
@@ -1136,7 +1269,7 @@ export async function POST(req: Request) {
             phase: "live",
             tavilyApiKeyPresent: tavilyEnabled,
             toolsAttachedToPayload: Boolean(tools),
-            maxToolRounds: MAX_TOOL_ROUNDS,
+            maxToolRounds,
             webSearchMaxPerRound,
             completionRoundCount,
             toolFollowupLoops: toolRounds,
@@ -1145,6 +1278,13 @@ export async function POST(req: Request) {
             webSearchQueries: [...webSearchQueriesForDebug],
             unsupportedToolNames: [...unsupportedToolNamesForDebug],
             usage: usagePayload,
+            rag: {
+              isFirstUserTurn,
+              hitCount: ragMeta.hitCount,
+              topSimilarity: ragMeta.topSimilarity,
+              injected: ragMeta.injected,
+              matchThreshold: ragMeta.threshold,
+            },
           },
         }
       : {}),

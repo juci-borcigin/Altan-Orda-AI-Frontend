@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "eslint",
-    "seed:prompts": "npx tsx scripts/seed-ao-prompt-sections.ts"
+    "seed:prompts": "npx tsx scripts/seed-ao-prompt-sections.ts",
+    "backfill:embeddings": "npx tsx scripts/backfill-embeddings.ts",
+    "backfill:embeddings:dry": "npx tsx scripts/backfill-embeddings.ts --dry-run",
+    "probe:rag": "npx tsx scripts/probe-rag.ts",
+    "seed:phase5": "npx tsx scripts/seed-phase5.ts",
+    "samples:phase5-sp": "npx tsx scripts/generate-phase5-sp-samples.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",
@@ -23,6 +28,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",

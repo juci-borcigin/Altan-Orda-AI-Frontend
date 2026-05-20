@@ -3,10 +3,10 @@ import type { ProjectId } from "@/lib/ao-types";
 import { isProjectId } from "@/lib/ao-types";
 
 /**
- * Supabase `ao_project_llm`。未設定・空はフォールバック（env の LLM_MODEL）。
+ * Supabase `ao_projects.model_id`。未設定・空はフォールバック（env の LLM_MODEL）。
  */
 async function loadProjectLlmModelOne(supa: SupabaseClient, projectId: ProjectId): Promise<string | null> {
-  const { data, error } = await supa.from("ao_project_llm").select("model_id").eq("project_id", projectId).maybeSingle();
+  const { data, error } = await supa.from("ao_projects").select("model_id").eq("project_id", projectId).maybeSingle();
   if (error) {
     console.error("[ao-project-llm] load:", error.message);
     return null;
@@ -18,12 +18,11 @@ async function loadProjectLlmModelOne(supa: SupabaseClient, projectId: ProjectId
 export async function loadProjectLlmModel(supa: SupabaseClient, projectId: ProjectId): Promise<string | null> {
   const primary = await loadProjectLlmModelOne(supa, projectId);
   if (primary) return primary;
-  if (projectId === "talk") return loadProjectLlmModelOne(supa, "chat");
   return null;
 }
 
 export async function loadProjectLlmOverrides(supa: SupabaseClient): Promise<Partial<Record<ProjectId, string>>> {
-  const { data, error } = await supa.from("ao_project_llm").select("project_id, model_id");
+  const { data, error } = await supa.from("ao_projects").select("project_id, model_id");
   if (error) {
     console.error("[ao-project-llm] load all:", error.message);
     return {};

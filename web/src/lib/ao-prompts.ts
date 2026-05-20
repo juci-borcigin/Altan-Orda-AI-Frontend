@@ -2,7 +2,7 @@
  * Altan Orda — OpenAI API 用 System Prompt（JSONL 版）
  *
  * 既定本文は `AO_PROMPT_DEFAULTS`。Supabase `ao_prompt_sections` に同名 `section_key` があれば上書き。
- * 組み立て順: global* → rule* → lore_persona*（全僚友）→ project* → header*（初回のみ）→ mode* → 名指し行 → injectionBlock
+ * 組み立て順: global* → rule* → lore_persona*（論の許可僚友のみ）→ project* → header*（初回のみ）→ mode* → 名指し行 → injectionBlock
  */
 
 import type { ProjectId } from "./ao-types";
@@ -96,7 +96,6 @@ export const ALLY_LORE_SECTION_KEY: Record<string, AoPromptSectionKey> = {
 export const PROJECT_PROMPT_SECTION_KEY: Record<ProjectId, AoPromptSectionKey> = {
   debate: "project_debate",
   chat: "project_chat",
-  talk: "project_chat",
   plan: "project_plan",
   work: "project_work",
   mental: "project_mental",
@@ -440,17 +439,19 @@ function rulesBundle(overrides?: Partial<Record<AoPromptSectionKey, string>>): s
   ].join("\n\n");
 }
 
-function lorePersonaeBundle(overrides?: Partial<Record<AoPromptSectionKey, string>>): string {
-  return [
-    pick("lore_persona_funan", overrides),
-    pick("lore_persona_monke", overrides),
-    pick("lore_persona_kete", overrides),
-    pick("lore_persona_baiju", overrides),
-    pick("lore_persona_quduka", overrides),
-    pick("lore_persona_tatatunga", overrides),
-    pick("lore_persona_cintemur", overrides),
-    pick("lore_persona_korguz", overrides),
-  ].join("\n\n");
+/** 論の許可 speaker に対応する lore のみ（令旨スリム化） */
+function lorePersonaeBundle(
+  projectId: ProjectId,
+  overrides?: Partial<Record<AoPromptSectionKey, string>>,
+): string {
+  const allow = getSpeakerAllowSet(projectId);
+  const parts: string[] = [];
+  for (const name of ALLY_NAME_DETECTION_ORDER) {
+    if (!allow.has(name)) continue;
+    const key = ALLY_LORE_SECTION_KEY[name];
+    if (key) parts.push(pick(key, overrides));
+  }
+  return parts.join("\n\n");
 }
 
 function projectBlock(projectId: ProjectId, overrides?: Partial<Record<AoPromptSectionKey, string>>): string {
@@ -458,7 +459,6 @@ function projectBlock(projectId: ProjectId, overrides?: Partial<Record<AoPromptS
     case "debate":
       return pick("project_debate", overrides);
     case "chat":
-    case "talk":
       return pick("project_chat", overrides);
     case "plan":
       return pick("project_plan", overrides);
@@ -516,7 +516,6 @@ export function getPrimarySpeakerForProject(projectId: ProjectId): string {
     case "mental":
       return "バイジュ";
     case "chat":
-    case "talk":
       return "クドゥカ・ベキ";
     case "notebook":
       return "タタ・トゥンガ";
@@ -550,7 +549,7 @@ export function getSpeakerAllowSet(projectId: ProjectId): Set<string> {
   if (projectId === "mental") {
     return new Set(["バイジュ"]);
   }
-  if (projectId === "chat" || projectId === "talk") {
+  if (projectId === "chat") {
     return new Set(["クドゥカ・ベキ"]);
   }
   if (projectId === "notebook") {
@@ -575,7 +574,7 @@ export function buildAoSystemPrompt(
   const parts: string[] = [
     globalBundle(overrides),
     rulesBundle(overrides),
-    lorePersonaeBundle(overrides),
+    lorePersonaeBundle(ctx.projectId, overrides),
     projectBlock(ctx.projectId, overrides),
   ];
 

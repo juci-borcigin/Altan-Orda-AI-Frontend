@@ -59,11 +59,15 @@ import {
 import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
 import { mergeMsgsHydrateFromServer, mergeThreadSummariesIntoState } from "@/lib/ao-thread-list-merge";
 import {
+  AO_KOUKAN_THREAD_DISPLAY_TITLE,
+} from "@/lib/ao-topics";
+import {
   aoClampStoredThreadTitle,
   aoClampTitleDraftInput,
   aoThreadTitleChipLabel,
   aoThreadTitleForList,
   aoTitleSnippetFromFirstUserPost,
+  isKoukanThread,
 } from "@/lib/ao-thread-title";
 import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-text";
 import {
@@ -72,6 +76,7 @@ import {
   normalizeRawPromptsFromApi,
 } from "@/lib/ao-chat-usage-normalize";
 import { estimateUsdFromTokensClient } from "@/lib/ao-usage-estimate-client";
+import { digestRawSent, openRawHtmlInNewTab } from "@/lib/ao-raw-overlay";
 import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
 import {
   AoOrnamentalFrame,
@@ -109,9 +114,6 @@ const AO_GOLD_UI = "#DBB961";
 /** 地図背景に対して外向き（メイン大枠）／チャット履歴吹き出しと共通 */
 const AO_DROP_SHADOW_MAIN_FRAME =
   "3px 8px 22px rgba(0,0,0,0.34), 0 3px 10px rgba(0,0,0,0.21)";
-/** 吹き出し：左上からの光想定・影は右下へ（offset-x/y とも正） */
-const AO_DROP_SHADOW_BUBBLE =
-  "4px 7px 16px rgba(0,0,0,0.26), 3px 5px 10px rgba(0,0,0,0.17)";
 /** 9-slice吹き出し：PNG輪郭に沿って右下へ影 */
 const AO_P5_BUBBLE_SHADOW_FILTER =
   "drop-shadow(6px 8px 2px rgba(0,0,0,0.22)) drop-shadow(3px 4px 2px rgba(0,0,0,0.16))";
@@ -129,7 +131,8 @@ const AO_SUBPAGE_HDR_NEW_BTN_CLASS =
   "inline-flex items-center gap-1 rounded-sm border-0 bg-transparent px-0.5 py-0 text-[10px] font-semibold leading-none text-[#8D5400] transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90";
 
 /** 応答待ちインジケータ（フェーズ循環） */
-const AO_THINKING_DOT_CYCLE = [".", "..", "...", ""];
+/** 常に 1 文字以上（空フェーズなし）で吹き出し高さを維持 */
+const AO_THINKING_DOT_CYCLE = ["．", "．．", "．．．", "．．．．", "．"];
 
 function aoResolveUsdForOverlay(u: MsgTurnUsage): number | null {
   return u.estimatedUsd ?? estimateUsdFromTokensClient(u.promptTokens, u.completionTokens);
@@ -139,9 +142,8 @@ function aoResolveUsdForOverlay(u: MsgTurnUsage): number | null {
 const RAW_POPOVER_MAX_H_OUTER = "min(37vh,250px)";
 const RAW_POPOVER_MAX_H_SCROLL = "min(34vh,230px)";
 const RAW_POPOVER_W = 320;
-/** Raw 内フォント：基準 7px / 6px に戻し、それぞれ +2px */
-const RAW_POPOVER_FS_MAIN_PX = 7 + 2;
-const RAW_POPOVER_FS_MONO_PX = 6 + 2;
+/** Raw チップ要約・リンク共通（読めるサイズ） */
+const RAW_POPOVER_FS_CHIP_PX = 8;
 
 function aoSyntheticMsgTurnUsage(): MsgTurnUsage {
   return {
@@ -659,6 +661,7 @@ function threadSourceProviderUlusLabel(sourceProvider: string | undefined): stri
   if (v === "gemini") return "チャガタイ";
   if (v === "chatgpt") return "オゴデイ";
   if (v === "claude") return "ジュチ";
+  if (v === "nblm") return "NotebookLM";
   return "";
 }
 
@@ -1135,7 +1138,8 @@ export default function Home() {
       const pids = projectIdsForTopic(topic);
       if (!pids?.length) return;
       try {
-        const q = new URLSearchParams({ projects: pids.join(","), limit: "5", offset: "0" });
+        /** /api/threads/list は limit 最大 50。年代記に載るメタはここ経由のみのため、既定は上限に寄せる */
+        const q = new URLSearchParams({ projects: pids.join(","), limit: "50", offset: "0" });
         if (bust) q.set("bust", "1");
         const r = await fetch(`/api/threads/list?${q}`, { signal });
         if (!r.ok) return;
@@ -1245,8 +1249,8 @@ export default function Home() {
     return state.threads
       .filter((t) => {
         if (!allow.has(t.projectId)) return false;
-        /** 巷間論（talk）は Supabase 一覧が無いため、送信前の ephemeral 空スレも議事表に出す */
-        if (t.projectId === "talk") return true;
+        /** 巷間論（chat）は Supabase 一覧が無いため、送信前の ephemeral 空スレも議事表に出す */
+        if (t.projectId === "chat") return true;
         return !t.ephemeral;
       })
       .sort(compareThreadsForGiList);
@@ -1574,11 +1578,13 @@ export default function Home() {
     const userMsg: Msg = { id: aoUid("m"), side: "user", speaker: "ジュチ", text, createdAt: Date.now() };
     const th = state.threads[idx];
     const snippet = aoTitleSnippetFromFirstUserPost(text);
-    const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
+    const resolvedTitle = isKoukanThread(th)
+      ? AO_KOUKAN_THREAD_DISPLAY_TITLE
+      : aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
     const { ephemeral: _dropEphemeral, ...thPersist } = th;
     const nextThread: Thread = {
       ...thPersist,
-      title: th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
+      title: isKoukanThread(th) ? AO_KOUKAN_THREAD_DISPLAY_TITLE : th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
       messages: [...th.messages, userMsg],
       updatedAt: Date.now(),
     };
@@ -2354,7 +2360,7 @@ export default function Home() {
                             paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
                           }}
                         >
-                          {titleEditing ? (
+                          {titleEditing && currentThread && !isKoukanThread(currentThread) ? (
                             <input
                               ref={titleInputRef}
                               value={titleDraft}
@@ -2380,6 +2386,13 @@ export default function Home() {
                               style={{ fontSize: compactGijiTitleFs }}
                               className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
                             />
+                          ) : currentThread && isKoukanThread(currentThread) ? (
+                            <span
+                              style={{ fontSize: compactGijiTitleFs }}
+                              className="flex min-h-0 w-full min-w-0 items-center justify-center px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
+                            >
+                              『{aoThreadTitleChipLabel(currentThread)}』
+                            </span>
                           ) : (
                             <button
                               type="button"
@@ -2569,7 +2582,7 @@ export default function Home() {
                             paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
                           }}
                         >
-                          {titleEditing ? (
+                          {titleEditing && currentThread && !isKoukanThread(currentThread) ? (
                             <input
                               ref={titleInputRef}
                               value={titleDraft}
@@ -2595,6 +2608,13 @@ export default function Home() {
                               style={{ fontSize: compactGijiTitleFs }}
                               className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
                             />
+                          ) : currentThread && isKoukanThread(currentThread) ? (
+                            <span
+                              style={{ fontSize: compactGijiTitleFs }}
+                              className="flex min-h-0 w-full min-w-0 items-center justify-center px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
+                            >
+                              『{aoThreadTitleChipLabel(currentThread)}』
+                            </span>
                           ) : (
                             <button
                               type="button"
@@ -3384,7 +3404,10 @@ export default function Home() {
                                 filter: AO_P5_BUBBLE_SHADOW_FILTER,
                               }}
                             >
-                              <span className="font-serif tabular-nums" style={{ color: AO_CHAT_AI_BUBBLE_FG }}>
+                              <span
+                                className="ao-thinking-dots-text font-serif tabular-nums"
+                                style={{ color: AO_CHAT_AI_BUBBLE_FG, minHeight: "1.25em", minWidth: "2ch" }}
+                              >
                                 {thinkingDotsText}
                               </span>
                             </AoP5NineSliceBubble>
@@ -3471,12 +3494,13 @@ export default function Home() {
                       ? { height: "100%", maxHeight: "100%", minHeight: 0 }
                       : { maxHeight: RAW_POPOVER_MAX_H_OUTER }),
                     filter: AO_P5_BUBBLE_SHADOW_FILTER,
-                    fontSize: RAW_POPOVER_FS_MAIN_PX,
                   }}
                 >
                   <div
                     className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden"
                     style={{
+                      fontSize: RAW_POPOVER_FS_CHIP_PX,
+                      lineHeight: 1.35,
                       maxHeight:
                         rawPromptOverlay.panelWidthPx != null && rawPromptOverlay.panelHeightPx != null
                           ? "100%"
@@ -3521,26 +3545,94 @@ export default function Home() {
                           {rawPromptOverlay.completionMeta.webSearchSkippedByLimit}（ラウンド上限{" "}
                           {rawPromptOverlay.completionMeta.webSearchMaxPerRound}）
                         </div>
+                        {(() => {
+                          const ragApi = rawPromptOverlay.completionMeta.rag;
+                          const digest = rawPromptOverlay.rawPrompts
+                            ? digestRawSent(rawPromptOverlay.rawPrompts.sent)
+                            : null;
+                          const ragOn =
+                            ragApi?.injected ?? digest?.ragInjected ?? false;
+                          const ragHits = ragApi?.hitCount ?? (ragOn ? "?" : 0);
+                          const ragSim =
+                            ragApi?.topSimilarity != null
+                              ? ragApi.topSimilarity.toFixed(3)
+                              : "—";
+                          return (
+                            <div className="border-t border-[#c9b896]/40 pt-0.5">
+                              RAG: {ragOn ? "注入あり" : "なし"}
+                              {ragOn ? (
+                                <>
+                                  {" "}
+                                  / 件数 {ragHits} / top {ragSim}
+                                  {ragApi?.matchThreshold != null
+                                    ? ` / 閾値 ${ragApi.matchThreshold}`
+                                    : null}
+                                </>
+                              ) : ragApi?.isFirstUserTurn === false ? (
+                                "（初回ターン以外は検索しない）"
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : null}
-                    <div
-                      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words font-mono text-[#1a1208] [scrollbar-gutter:stable]"
-                      style={{ fontSize: RAW_POPOVER_FS_MONO_PX }}
-                    >
-                      {rawPromptOverlay.rawPrompts ? (
-                        <>
-                          【送信全文】
-                          {"\n\n"}
-                          {rawPromptOverlay.rawPrompts.sent}
-                          {"\n\n"}
-                          【モデル応答全文】
-                          {"\n\n"}
-                          {rawPromptOverlay.rawPrompts.received}
-                        </>
-                      ) : (
-                        "（この応答では Raw の記録がありません）"
-                      )}
-                    </div>
+                    {rawPromptOverlay.rawPrompts ? (
+                      (() => {
+                        const digest = digestRawSent(rawPromptOverlay.rawPrompts.sent);
+                        return (
+                          <div
+                            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden border-t border-[#c9b896]/60 pt-1 leading-snug"
+                          >
+                            {digest ? (
+                              <div className="mb-1 tabular-nums">
+                                <div className="font-semibold">送信構成</div>
+                                <div>
+                                  messages {digest.messageCount}（user {digest.userCount} / asst{" "}
+                                  {digest.assistantCount} / tool {digest.toolCount}）
+                                </div>
+                                <div>令旨 system 約 {digest.systemChars.toLocaleString()} 文字</div>
+                                {digest.ragInjected ? (
+                                  <div>RAG チャンク 約 {digest.ragChunkChars.toLocaleString()} 文字</div>
+                                ) : null}
+                                {digest.hasToolCallsInPayload ? (
+                                  <div>
+                                    ペイロード内 web_search 呼び出し {digest.webSearchInPayload} 件
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <div className="flex flex-col gap-1">
+                              <button
+                                type="button"
+                                className="w-full rounded border border-[#c9b896]/80 bg-[#fff8eb]/90 px-1 py-0.5 text-left text-[#5a3a10] underline-offset-2 hover:underline"
+                                onClick={() =>
+                                  openRawHtmlInNewTab(
+                                    "AO Raw — 送信全文",
+                                    rawPromptOverlay.rawPrompts!.sent,
+                                  )
+                                }
+                              >
+                                【送信全文】を別タブで開く（.html）
+                              </button>
+                              <button
+                                type="button"
+                                className="w-full rounded border border-[#c9b896]/80 bg-[#fff8eb]/90 px-1 py-0.5 text-left text-[#5a3a10] underline-offset-2 hover:underline"
+                                onClick={() =>
+                                  openRawHtmlInNewTab(
+                                    "AO Raw — モデル応答全文",
+                                    rawPromptOverlay.rawPrompts!.received,
+                                  )
+                                }
+                              >
+                                【モデル応答全文】を別タブで開く（.html）
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="shrink-0 text-[#5a3a10]">（この応答では Raw の記録がありません）</div>
+                    )}
                   </div>
                 </AoP5NineSliceBubble>
               </div>

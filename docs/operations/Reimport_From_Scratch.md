@@ -71,7 +71,9 @@ node scripts/import-logs.mjs --provider gemini-activity --file "/path/to/マイ�
 
 ### 3.2 本番取り込み（INSERT）
 
-環境変数は `web/.env` を参照（スクリプトが `dotenv` で読み込む）。
+環境変数は `web/.env` または `web/.env.local` を参照（スクリプトが `dotenv` で読み込む）。
+
+**再実行:** `source_native_id` と `source_provider` が両方あるスレッドは、取り込み前に **同キーの既存 `threads` を DELETE**（`messages` は CASCADE）してから再挿入する（二重化しない。手動で変えた列は消える）。
 
 ```bash
 # ChatGPT（例: 軍議ゲルへ）
@@ -82,6 +84,9 @@ node scripts/import-logs.mjs --provider claude --file "/path/to/claude-conversat
 
 # Gemini activity（例: トゥルイ・ウルス）
 node scripts/import-logs.mjs --provider gemini-activity --file "/path/to/マイアクティビティ.json" --project-id トゥルイ・ウルス
+
+# NotebookLM（既定: project_id=study, source_facet=study, source_provider=nblm。--project-id で上書き可）
+node scripts/import-logs.mjs --provider nblm --file "/path/to/NotebookLM Conversation.json"
 ```
 
 **ログをファイルに残す:** 進捗は **標準出力（stdout）** に出る。次のどちらでもファイルに追記できる。
@@ -94,7 +99,7 @@ node scripts/import-logs.mjs ... 2>&1 | tee /tmp/import.log
 
 以前は進捗が `console.error` だけだったため、**`2>&1` なしの `| tee`** だとファイルがほぼ空になることがあった。
 
-- **`--facet`**: Claude 一括時の既定 `source_facet`（`do` | `feel` | `think` | `chat`）。会話ごとの自動振り分けは未実装。
+- **`--facet`**: 取り込み時の既定 `source_facet`（`do` | `feel` | `think` | `chat` は Claude / Gemini / ChatGPT 系、`study` は NotebookLM 等）。会話ごとの自動振り分けは未実装。
 - **`--max-threads N`**: 先頭 N スレッドだけ試すスモーク用。全件再実行時は付けない。
 
 **取り込み順:** 依存関係は無いので任意。公式メモに近い順なら ChatGPT → Claude → Gemini でもよい。

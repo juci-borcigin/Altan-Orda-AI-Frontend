@@ -77,7 +77,7 @@ type PostBody = {
   projectModels?: Record<string, string>;
 };
 
-/** POST: ao_prompt_sections / ao_project_llm を更新（要 Supabase サービスロール） */
+/** POST: ao_prompt_sections / ao_projects.model_id を更新（要 Supabase サービスロール） */
 export async function POST(req: Request) {
   const supa = getSupabaseAdmin();
   if (!supa) {
@@ -128,22 +128,10 @@ export async function POST(req: Request) {
   for (const [pid, rawMid] of Object.entries(projectModels)) {
     if (!isProjectId(pid)) continue;
     const mid = typeof rawMid === "string" ? rawMid.trim() : "";
-    if (!mid) {
-      const { error } = await supa.from("ao_project_llm").delete().eq("project_id", pid);
-      if (error) {
-        console.error("[settings/prompts POST] delete project llm", pid, error.message);
-        return NextResponse.json(
-          { error: `モデル設定の削除に失敗: ${pid}`, detail: error.message },
-          { status: 500 },
-        );
-      }
-      continue;
-    }
-
-    const { error } = await supa.from("ao_project_llm").upsert(
-      { project_id: pid, model_id: mid, updated_at: now },
-      { onConflict: "project_id" },
-    );
+    const { error } = await supa
+      .from("ao_projects")
+      .update({ model_id: mid, updated_at: now })
+      .eq("project_id", pid);
     if (error) {
       console.error("[settings/prompts POST] upsert project llm", pid, error.message);
       return NextResponse.json(

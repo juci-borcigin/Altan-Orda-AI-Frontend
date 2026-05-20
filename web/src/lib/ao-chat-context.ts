@@ -45,3 +45,20 @@ export function buildJapanNowSystemPrefix(): string {
     "※ユーザーが別の日付を明示した場合は、その指示を優先してよい。",
   ].join("\n");
 }
+
+/** project.process 内の {{NOW}} 用（1行・JST 壁時計） */
+export function buildJapanNowInline(): string {
+  const d = new Date();
+  const jpHuman = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    weekday: "short",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(d);
+  return `${jpHuman}（JST）`;
+}
