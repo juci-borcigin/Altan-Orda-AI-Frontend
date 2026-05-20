@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   PHASE5_GLOSSARY_SEED,
   PHASE5_MODE_TRIGGERS,
-  PHASE5_PERSONA_ALIAS,
+  PHASE5_PERSONA_ALIAS_BY_KEY,
   PHASE5_PERSONA_AVATAR,
 } from "../src/lib/phase5/phase5-data";
 import { aoProjectUpsertPayload, personaRowsFromVariables, projectRowsFromVariables } from "../src/lib/phase5/ao-projects";
@@ -60,18 +60,6 @@ async function main() {
   }
   console.log("ao_glossary", glossaryRows.length);
 
-  for (const row of PHASE5_PERSONA_ALIAS) {
-    const { error } = await supa.from("ao_persona_alias").upsert(
-      { ...row, updated_at: new Date().toISOString() },
-      { onConflict: "alias" },
-    );
-    if (error) {
-      console.error("ao_persona_alias", row.alias, error.message);
-      process.exit(1);
-    }
-  }
-  console.log("ao_persona_alias", PHASE5_PERSONA_ALIAS.length);
-
   const avatarByPersonaKey = Object.fromEntries(
     PHASE5_PERSONA_AVATAR.map((a) => [a.persona_key, a.avatar_path]),
   );
@@ -117,9 +105,12 @@ async function main() {
     console.log("ao_projects", projectRowsFromVariables(vars).length);
 
     for (const row of personaRowsFromVariables(vars)) {
+      const alias =
+        row.alias?.trim() || PHASE5_PERSONA_ALIAS_BY_KEY[row.persona_key]?.trim() || "";
       const { error } = await supa.from("ao_personas").upsert(
         {
           ...row,
+          alias,
           avatar_path: avatarByPersonaKey[row.persona_key] ?? "",
           updated_at: new Date().toISOString(),
         },

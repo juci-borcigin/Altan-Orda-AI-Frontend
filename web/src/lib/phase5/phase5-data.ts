@@ -43,14 +43,11 @@ export const PHASE5_SPEAKER_ALLOW: Record<Phase5SampleProjectId, string[]> = {
   foreign: ["persona_cintemur"],
 };
 
-export const PHASE5_PERSONA_ALIAS: Array<{
-  alias: string;
-  persona_key: string;
-  canonical_name: string;
-}> = [
-  { alias: "師傅", persona_key: "persona_tatatunga", canonical_name: "タタ・トゥンガ" },
-  { alias: "ベキ", persona_key: "persona_quduka", canonical_name: "クドゥカ" },
-];
+/** seed 用: persona_key → ao_personas.alias（名指し・許可 speaker 用） */
+export const PHASE5_PERSONA_ALIAS_BY_KEY: Record<string, string> = {
+  persona_tatatunga: "師傅",
+  persona_quduka: "ベキ",
+};
 
 export const PHASE5_PERSONA_AVATAR: Array<{
   persona_key: string;

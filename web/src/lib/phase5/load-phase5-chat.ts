@@ -138,7 +138,7 @@ export async function loadPhase5ChatBundle(
 
   const { data: personas, error: perErr } = await supa
     .from("ao_personas")
-    .select("persona_key, name, title, thinking, role, tone");
+    .select("persona_key, name, alias, title, thinking, role, tone");
   if (perErr) throw new Phase5DbConfigError(`ao_personas 読込失敗: ${perErr.message}`);
 
   const { data: glossaryRows, error: gErr } = await supa
@@ -147,11 +147,6 @@ export async function loadPhase5ChatBundle(
     .order("sort_order", { ascending: false });
   if (gErr) throw new Phase5DbConfigError(`ao_glossary 読込失敗: ${gErr.message}`);
 
-  const { data: aliases, error: aErr } = await supa
-    .from("ao_persona_alias")
-    .select("alias, persona_key");
-  if (aErr) throw new Phase5DbConfigError(`ao_persona_alias 読込失敗: ${aErr.message}`);
-
   const pmap = new Map((personas ?? []).map((p) => [p.persona_key, p]));
   const main = pmap.get(project.main_persona_key);
   const mainSpeakerName = main?.name?.trim() || "フナン";
@@ -159,9 +154,7 @@ export async function loadPhase5ChatBundle(
   const allowedSpeakerNames = new Set<string>();
   for (const p of personas ?? []) {
     if (p.name?.trim()) allowedSpeakerNames.add(p.name.trim());
-  }
-  for (const a of aliases ?? []) {
-    if (a.alias?.trim()) allowedSpeakerNames.add(a.alias.trim());
+    if (p.alias?.trim()) allowedSpeakerNames.add(p.alias.trim());
   }
 
   const runtime: Phase5ProjectRuntime = {
