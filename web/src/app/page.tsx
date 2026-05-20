@@ -45,6 +45,12 @@ import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
 import { AoReijitsuOverlay, type AoReijitsuOverlayHandle } from "@/components/AoReijitsuOverlay";
 import { AoSettingsOverlay, AoSettingsSubpageTabs, type AoSettingsOverlayHandle, type AoSettingsSubpage } from "@/components/AoSettingsOverlay";
 import { AoUsageOverlay } from "@/components/AoUsageOverlay";
+import {
+  buildAoPersonaCatalog,
+  primaryPersonaForProject,
+  resolveSpeakerDisplay,
+  type AoPersonaCatalog,
+} from "@/lib/ao-persona-display";
 import { runTypewriter } from "@/lib/ao-typewriter";
 import {
   type AppState,
@@ -215,7 +221,7 @@ const NOKOR: readonly NokorDef[] = [
   { name: "モンケウール", captionPrefix: "第二の", captionRubyBase: "千戸長", captionRubyRt: "ミンガン", line2: "兵馬論", src: "/personas/AO_Char_Mongkeur.png" },
   { name: "ケテ", captionPrefix: "第三の", captionRubyBase: "千戸長", captionRubyRt: "ミンガン", line2: "兵馬論", src: "/personas/AO_Char_Qete.png" },
   { name: "バイジュ", captionPrefix: "第四の", captionRubyBase: "千戸長", captionRubyRt: "ミンガン", line2: "心気論", src: "/personas/AO_Char_Baiju.png" },
-  { name: "クドゥカ・ベキ", captionPrefix: "オイラト", captionRubyBase: "族長", captionRubyRt: "ノヤン", line2: "巷間論", src: "/personas/AO_Char_QudukaBeki.png" },
+  { name: "クドゥカ", captionPrefix: "オイラト", captionRubyBase: "族長", captionRubyRt: "ノヤン", line2: "巷間論", src: "/personas/AO_Char_QudukaBeki.png" },
   { name: "タタ・トゥンガ", captionPrefix: "", captionRubyBase: "師傅", captionRubyRt: "アタベク", line2: "学究論", src: "/personas/AO_Char_TataTunga.png" },
   { name: "チン・テムール", captionPrefix: "", captionRubyBase: "政商", captionRubyRt: "オルトク", line2: "遠交論", src: "/personas/AO_Char_ChinTemur.png" },
   { name: "コルグズ", captionPrefix: "", captionRubyBase: "書記", captionRubyRt: "ビチクチ", line2: "—", src: "/personas/AO_Char_Qorguz.png" },
@@ -567,37 +573,80 @@ const AVATAR_SRC: Record<string, string> = {
   不明: "/personas/AO_Char_Hunan.png",
 };
 
-/** チャット欄アバター下の表示名（書庫 claude/chatgpt/gemini と四千戸長） */
-function aiAvatarCaptionLabel(thread: Thread | null, m: Msg): string {
-  if (m.side === "user") return "ジュチ";
+const CHAT_UI_UNKNOWN_AVATAR = "/personas/AO_Char_Hunan.png";
+
+function aiSpeakerUi(
+  thread: Thread | null,
+  m: Msg,
+  catalog: AoPersonaCatalog | null,
+): { label: string; avatarSrc: string } {
+  if (m.side === "user") {
+    return { label: "ジュチ", avatarSrc: AVATAR_SRC["ジュチ"] ?? CHAT_UI_UNKNOWN_AVATAR };
+  }
   const pid = thread?.projectId;
-  if (pid === "claude" || pid === "chatgpt") return "耶律楚材";
-  if (pid === "gemini") return "ソルコクタニ";
-  return m.speaker;
+  if (pid === "claude" || pid === "chatgpt") {
+    return { label: "耶律楚材", avatarSrc: AVATAR_SRC["耶律楚材"] ?? CHAT_UI_UNKNOWN_AVATAR };
+  }
+  if (pid === "gemini") {
+    return { label: "ソルコクタニ", avatarSrc: AVATAR_SRC["ソルコクタニ"] ?? CHAT_UI_UNKNOWN_AVATAR };
+  }
+  return resolveSpeakerDisplay({
+    speaker: m.speaker,
+    catalog,
+    fallbackAvatarByLabel: AVATAR_SRC,
+    unknownAvatarSrc: CHAT_UI_UNKNOWN_AVATAR,
+  });
 }
 
 /**
- * 考え中プレースホルダー用：論の主担当を表示する。
- * （直近 AI の speaker は JSONL 失敗時に「不明」になりうるため参照しない）
- * 殿下の直近ユーザー発言に僚友名があれば名指しを最優先。
+ * 考え中プレースホルダー：名指し → 論の主担当（ao_personas）→ フォールバック。
+ * 回答行と同じ解決で顔グラと名札を揃える。
  */
-function aoThinkingAiCaptionLabel(thread: Thread | null): string {
+function aoThinkingSpeakerUi(
+  thread: Thread | null,
+  catalog: AoPersonaCatalog | null,
+): { label: string; avatarSrc: string } {
   const pid = thread?.projectId as ProjectId | undefined;
-  if (pid === "claude" || pid === "chatgpt") return "耶律楚材";
-  if (pid === "gemini") return "ソルコクタニ";
+  if (pid === "claude" || pid === "chatgpt") {
+    return { label: "耶律楚材", avatarSrc: AVATAR_SRC["耶律楚材"] ?? CHAT_UI_UNKNOWN_AVATAR };
+  }
+  if (pid === "gemini") {
+    return { label: "ソルコクタニ", avatarSrc: AVATAR_SRC["ソルコクタニ"] ?? CHAT_UI_UNKNOWN_AVATAR };
+  }
 
   const msgs = visibleMessages(thread?.messages ?? []);
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
     if (m.side === "user") {
       const designated = detectNamedSpeaker(m.text ?? "");
-      if (designated) return designated;
+      if (designated) {
+        return resolveSpeakerDisplay({
+          speaker: designated,
+          catalog,
+          fallbackAvatarByLabel: AVATAR_SRC,
+          unknownAvatarSrc: CHAT_UI_UNKNOWN_AVATAR,
+        });
+      }
       break;
     }
   }
 
-  if (!pid) return getPrimarySpeakerForProject("debate");
-  return getPrimarySpeakerForProject(pid);
+  const primary = pid ? primaryPersonaForProject(catalog, pid) : null;
+  if (primary?.name.trim()) {
+    return resolveSpeakerDisplay({
+      speaker: primary.name,
+      catalog,
+      fallbackAvatarByLabel: AVATAR_SRC,
+      unknownAvatarSrc: CHAT_UI_UNKNOWN_AVATAR,
+    });
+  }
+
+  return resolveSpeakerDisplay({
+    speaker: getPrimarySpeakerForProject(pid ?? "debate"),
+    catalog,
+    fallbackAvatarByLabel: AVATAR_SRC,
+    unknownAvatarSrc: CHAT_UI_UNKNOWN_AVATAR,
+  });
 }
 
 let storageWarned = false;
@@ -1128,10 +1177,36 @@ export default function Home() {
   const reijitsuOverlayRef = useRef<AoReijitsuOverlayHandle>(null);
   const [settingsSavePending, setSettingsSavePending] = useState(false);
   const [reijitsuSavePending, setReijitsuSavePending] = useState(false);
+  const [personaCatalog, setPersonaCatalog] = useState<AoPersonaCatalog | null>(null);
   /** 議事オーバーレイ内テーブルのページ（0 始まり） */
   const [agendaPageIndex, setAgendaPageIndex] = useState(0);
   /** 令旨／年代記オーバーレイ内一覧のページ（0 始まり） */
   const [overlayListPageIndex, setOverlayListPageIndex] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings/ao-personas");
+        const data = (await res.json()) as {
+          personas?: Array<{
+            persona_key: string;
+            name: string;
+            alias: string;
+            default_project_id: string;
+            avatar_path: string;
+          }>;
+        };
+        if (!res.ok || cancelled) return;
+        setPersonaCatalog(buildAoPersonaCatalog(data.personas ?? []));
+      } catch {
+        if (!cancelled) setPersonaCatalog(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchThreadListWithTopic = useCallback(
     async (bust: boolean, topic: TopicUiId | null, signal?: AbortSignal) => {
@@ -3243,10 +3318,7 @@ export default function Home() {
                   currentThread?.messages ?? [],
                   Boolean(isTyping || typingId),
                 ).map((m) => {
-                  const label = aiAvatarCaptionLabel(currentThread, m);
-                  const avatarKey =
-                    m.side === "user" ? "ジュチ" : label in AVATAR_SRC ? label : "不明";
-                  const avatarSrc = AVATAR_SRC[avatarKey];
+                  const { label, avatarSrc } = aiSpeakerUi(currentThread, m, personaCatalog);
 
                   const chatBubblePadStyle: CSSProperties = {
                     boxSizing: "border-box",
@@ -3382,8 +3454,7 @@ export default function Home() {
                     aria-busy="true"
                   >
                     {(() => {
-                      const thinkingCap = aoThinkingAiCaptionLabel(currentThread);
-                      const thinkingKey = thinkingCap in AVATAR_SRC ? thinkingCap : "不明";
+                      const thinkingUi = aoThinkingSpeakerUi(currentThread, personaCatalog);
                       return (
                         <>
                           <div
@@ -3391,14 +3462,14 @@ export default function Home() {
                             style={{ width: CHAT_AVATAR_COL_W_PX }}
                           >
                             <AoP5FaceFrameMid
-                              src={AVATAR_SRC[thinkingKey]}
-                              alt={thinkingCap}
+                              src={thinkingUi.avatarSrc}
+                              alt={thinkingUi.label}
                               width={NOKOR_PORTRAIT_W_PX}
                               height={Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4)}
                             />
                             <AoP5NameplateSmFrame
                               width={NOKOR_PORTRAIT_W_PX}
-                              text={thinkingCap}
+                              text={thinkingUi.label}
                               maxChars={7}
                               variant="tight"
                               fontSizePx={7}

@@ -61,7 +61,7 @@ export function activeNokorNamesForTopic(topicId: TopicUiId | null): Set<string>
         "コルグズ",
       ]);
     case "koukan":
-      return new Set(["クドゥカ・ベキ"]);
+      return new Set(["クドゥカ", "ベキ"]);
     case "shisei":
       return new Set(["フナン"]);
     case "heiba":

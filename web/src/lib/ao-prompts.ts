@@ -516,7 +516,7 @@ export function getPrimarySpeakerForProject(projectId: ProjectId): string {
     case "mental":
       return "バイジュ";
     case "chat":
-      return "クドゥカ・ベキ";
+      return "クドゥカ";
     case "notebook":
       return "タタ・トゥンガ";
     case "foreign":
@@ -550,7 +550,7 @@ export function getSpeakerAllowSet(projectId: ProjectId): Set<string> {
     return new Set(["バイジュ"]);
   }
   if (projectId === "chat") {
-    return new Set(["クドゥカ・ベキ"]);
+    return new Set(["クドゥカ", "ベキ", "クドゥカ・ベキ"]);
   }
   if (projectId === "notebook") {
     return new Set(["タタ・トゥンガ"]);
