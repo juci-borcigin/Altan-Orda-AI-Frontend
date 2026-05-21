@@ -1,4 +1,5 @@
 import { buildJapanNowInline } from "@/lib/ao-chat-context";
+import { expandPersonaRefs, personaExpandMap, type PersonaExpandRow } from "./expand-persona-refs";
 import { extractPhase5TemplateBody } from "./phase5-template";
 
 export type DbProjectRow = {
@@ -9,14 +10,7 @@ export type DbProjectRow = {
   tone: string;
 };
 
-export type DbPersonaRow = {
-  persona_key: string;
-  name: string;
-  title: string;
-  thinking: string;
-  role: string;
-  tone: string;
-};
+export type DbPersonaRow = PersonaExpandRow;
 
 export type DbAssembleInput = {
   template: string;
@@ -27,25 +21,12 @@ export type DbAssembleInput = {
     general: string;
     rules: string;
     format: string;
+    search: string;
   };
   header: { profile: string };
   projects: DbProjectRow[];
   personas: DbPersonaRow[];
 };
-
-function personaField(personas: Map<string, DbPersonaRow>, key: string, field: keyof DbPersonaRow): string {
-  const p = personas.get(key);
-  if (!p) return "";
-  return (p[field] ?? "") as string;
-}
-
-function expandPersonaRefs(text: string, personas: Map<string, DbPersonaRow>): string {
-  return text.replace(/\{\{(persona_[a-z]+)\.([a-z]+)\}\}/g, (_, pk, field) => {
-    const f = field as keyof DbPersonaRow;
-    if (!["name", "title", "thinking", "role", "tone"].includes(String(f))) return "";
-    return personaField(personas, pk, f);
-  });
-}
 
 function tidy(text: string): string {
   return text.replace(/\n{4,}/g, "\n\n\n").trim();
@@ -63,14 +44,17 @@ export function assembleFromDbRows(args: {
   modeBlock: string;
   includeProfile: boolean;
   preThread: string;
+  /** Web 検索無効時は空 */
+  searchBlock: string;
 }): string {
   const now = buildJapanNowInline();
-  const pmap = new Map(args.personas.map((p) => [p.persona_key, p]));
+  const pmap = personaExpandMap(args.personas);
   const project = args.projects.find((p) => p.project_id === args.projectId);
   if (!project) throw new Error(`Unknown project_id: ${args.projectId}`);
 
-  const mainName = personaField(pmap, project.main_persona_key, "name");
-  const mainTitle = personaField(pmap, project.main_persona_key, "title");
+  const mainP = pmap.get(project.main_persona_key);
+  const mainName = mainP?.name ?? "";
+  const mainTitle = mainP?.title ?? "";
   const process = expandPersonaRefs(project.process.replace(/\{\{NOW\}\}/g, now), pmap);
   const tone = expandPersonaRefs(project.tone.replace(/\{\{NOW\}\}/g, now), pmap);
 
@@ -86,6 +70,8 @@ export function assembleFromDbRows(args: {
     "{{global.general}}": args.globals.general,
     "{{global.rules}}": args.globals.rules,
     "{{global.format}}": args.globals.format,
+    "{{global.search}}": args.globals.search,
+    "{{SEARCH}}": args.searchBlock ?? "",
     "{{MODE}}": args.modeBlock ?? "",
     "{{NOW}}": now,
     "{{RAG}}": args.ragBlock,

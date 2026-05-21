@@ -75,6 +75,18 @@
   }
 }
 
+/* 令旨オーバーレイ等：number のスピナーを消して平打ち幅を確保 */
+.ao-reijitsu-num-input::-webkit-outer-spin-button,
+.ao-reijitsu-num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ao-reijitsu-num-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* ノッチ・ホームインジケータ横方向の余白（header で任意適用） */
 .ao-header-safe-x {
   padding-left: max(12px, env(safe-area-inset-left, 0px));
@@ -1372,9 +1384,9 @@ body {
 }
 .ao-p5-kurultai-ruby rt { transform: translateY(-3px); }
 
-/* 「大会盟」と同じ色・影をアイコンへ（SVG向け） */
+/* 議事帯ツールバー（年代記・使用量・設定・令旨）：令旨と同系の琥珀色 */
 .ao-p5-kurultai-ink-icon {
-  color: #3D1C08;
+  color: #8d5400;
   filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.22)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.16));
 }
 

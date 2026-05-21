@@ -24,8 +24,10 @@ export type AoProjectRuntimeRow = {
   rag_match_count: number;
   rag_match_threshold: number;
   rag_max_chars: number;
-  /** 会話履歴（messages 配列。要約は未実装） */
+  /** 会話履歴（messages 配列） */
   history_max_messages: number;
+  /** 推定履歴トークンがこの値超で古いターンを要約（0=無効） */
+  history_compress_token_threshold: number;
   /** 心気論のみ true など */
   profile_inject: boolean;
   /** Web 検索（TAVILY_API_KEY が無いときはコード側で無効） */
@@ -47,6 +49,7 @@ export const AO_PROJECT_RUNTIME_GLOBAL_DEFAULTS: Omit<AoProjectRuntimeRow, "proj
   rag_match_threshold: 0.5,
   rag_max_chars: 4000,
   history_max_messages: 20,
+  history_compress_token_threshold: 22_000,
   profile_inject: false,
   web_search_enabled: true,
   web_search_max_rounds: 2,

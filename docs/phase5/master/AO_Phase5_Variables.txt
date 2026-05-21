@@ -39,6 +39,7 @@ global.
 - 体調・ペース配慮は論・話者に応じて可（時刻根拠は JST 行）
 
 「出力形式」global.format= [SP:on] ao_prompts.global.format
+「Web検索方針」global.search= [SP:on] ao_prompts.global.search — §5 {{SEARCH}}（検索ON時のみ）
 （見出し ## 6. 出力形式 はテンプレが付与）
 返答は Markdown 本文のみ。
 話者が変わるときは、単独行に ＜ペルソナ名＞ を置き、その直後から本文とする。
@@ -71,6 +72,7 @@ header.thinking= [SP:off]
 「RAG 類似度」ao_projects.rag_match_threshold [SP:off] 既定 0.5
 「RAG 最大文字数」ao_projects.rag_max_chars [SP:off] 既定 4000
 「履歴 最大件数」ao_projects.history_max_messages [SP:off]
+「履歴 要約閾値」ao_projects.history_compress_token_threshold [SP:off] 推定トークン超で古いターン要約（0=無効）既定 22000
 「プロファイル注入」ao_projects.profile_inject [SP:off]
 「トークン 最大数」ao_projects.max_completion_tokens [SP:off] null=env
 「モデル名」ao_project_llm.model_id [SP:off] UI 上 ao_projects と結合表示

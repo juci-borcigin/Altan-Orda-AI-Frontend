@@ -10,6 +10,7 @@ export type AoProjectSettingsDto = {
   tone: string;
   main_persona_key: string;
   main_persona_name: string;
+  main_persona_title: string;
   model_id: string;
   rag_enabled: boolean;
   rag_when: "first_user" | "every_user";
@@ -17,6 +18,7 @@ export type AoProjectSettingsDto = {
   rag_match_threshold: number;
   rag_max_chars: number;
   history_max_messages: number;
+  history_compress_token_threshold: number;
   profile_inject: boolean;
   web_search_enabled: boolean;
   web_search_min_rounds: number;
@@ -29,7 +31,7 @@ export type AoProjectSettingsDto = {
 };
 
 export const AO_PROJECT_SETTINGS_SELECT =
-  "project_id, label_ja, summary, notes, process, tone, main_persona_key, model_id, rag_enabled, rag_when, rag_match_count, rag_match_threshold, rag_max_chars, history_max_messages, profile_inject, web_search_enabled, web_search_min_rounds, web_search_max_rounds, web_search_max_per_round, web_search_tavily_max_results, web_search_result_max_chars, web_search_snippet_max_chars, max_completion_tokens";
+  "project_id, label_ja, summary, notes, process, tone, main_persona_key, model_id, rag_enabled, rag_when, rag_match_count, rag_match_threshold, rag_max_chars, history_max_messages, history_compress_token_threshold, profile_inject, web_search_enabled, web_search_min_rounds, web_search_max_rounds, web_search_max_per_round, web_search_tavily_max_results, web_search_result_max_chars, web_search_snippet_max_chars, max_completion_tokens";
 
 export function isPhase5ProjectIdForSettings(id: string): boolean {
   return (PHASE5_PROJECT_IDS as readonly string[]).includes(id);
@@ -45,6 +47,7 @@ export type AoProjectSettingsPatch = Partial<
     | "rag_match_threshold"
     | "rag_max_chars"
     | "history_max_messages"
+    | "history_compress_token_threshold"
     | "profile_inject"
     | "web_search_enabled"
     | "web_search_min_rounds"
@@ -71,6 +74,7 @@ export function normalizeAoProjectSettingsPatch(raw: unknown): AoProjectSettings
     "rag_match_count",
     "rag_max_chars",
     "history_max_messages",
+    "history_compress_token_threshold",
     "web_search_min_rounds",
     "web_search_max_rounds",
     "web_search_max_per_round",

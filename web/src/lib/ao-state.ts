@@ -75,6 +75,11 @@ export type Thread = {
   ephemeral?: boolean;
   /** サーバーから messages を遅延取得済みか（空スレも true になり得る） */
   serverMessagesLoaded?: boolean;
+  /** 履歴要約キャッシュ（Supabase 外・localStorage と同期） */
+  historyCompression?: {
+    fromMessageId: string;
+    summary: string;
+  };
 };
 
 export type AppState = {

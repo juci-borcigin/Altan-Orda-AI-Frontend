@@ -5,6 +5,7 @@ import {
   isPhase5ProjectIdForSettings,
   normalizeAoProjectSettingsPatch,
 } from "@/lib/ao-project-settings";
+import { resolveEnvDefaultMaxCompletionTokens } from "@/lib/ao-llm-env-defaults";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 function envDefaultModel(): string {
@@ -18,6 +19,7 @@ function envDefaultModel(): string {
 function rowToDto(
   row: Record<string, unknown>,
   mainPersonaName: string,
+  mainPersonaTitle: string,
 ): AoProjectSettingsDto {
   const ragWhen = row.rag_when === "first_user" ? "first_user" : "every_user";
   const maxRaw = row.max_completion_tokens;
@@ -37,6 +39,7 @@ function rowToDto(
     tone: String(row.tone ?? ""),
     main_persona_key: String(row.main_persona_key ?? ""),
     main_persona_name: mainPersonaName,
+    main_persona_title: mainPersonaTitle,
     model_id: String(row.model_id ?? "").trim(),
     rag_enabled: Boolean(row.rag_enabled ?? true),
     rag_when: ragWhen,
@@ -44,6 +47,7 @@ function rowToDto(
     rag_match_threshold: Number(row.rag_match_threshold ?? 0.5),
     rag_max_chars: Number(row.rag_max_chars ?? 4000),
     history_max_messages: Number(row.history_max_messages ?? 20),
+    history_compress_token_threshold: Number(row.history_compress_token_threshold ?? 22_000),
     profile_inject: Boolean(row.profile_inject ?? false),
     web_search_enabled: Boolean(row.web_search_enabled ?? true),
     web_search_min_rounds: Number(row.web_search_min_rounds ?? 0),
@@ -86,15 +90,30 @@ export async function GET(req: Request) {
   }
 
   let mainPersonaName = "";
+  let mainPersonaTitle = "";
   const pk = typeof row.main_persona_key === "string" ? row.main_persona_key.trim() : "";
   if (pk) {
-    const { data: per } = await supa.from("ao_personas").select("name").eq("persona_key", pk).maybeSingle();
+    const { data: per } = await supa
+      .from("ao_personas")
+      .select("name, title")
+      .eq("persona_key", pk)
+      .maybeSingle();
     mainPersonaName = per?.name?.trim() ?? "";
+    mainPersonaTitle = per?.title?.trim() ?? "";
+  }
+
+  const { data: personaRows, error: personaErr } = await supa
+    .from("ao_personas")
+    .select("persona_key, name, title, thinking, role, tone");
+  if (personaErr) {
+    console.error("[settings/ao-projects GET] ao_personas:", personaErr.message);
   }
 
   return NextResponse.json({
-    project: rowToDto(row as Record<string, unknown>, mainPersonaName),
+    project: rowToDto(row as Record<string, unknown>, mainPersonaName, mainPersonaTitle),
+    personas: personaRows ?? [],
     envDefaultModel: envDefaultModel(),
+    envDefaultMaxCompletionTokens: resolveEnvDefaultMaxCompletionTokens(projectId),
     supabaseConfigured: true,
   });
 }
@@ -136,6 +155,9 @@ export async function POST(req: Request) {
   if (patch.rag_match_threshold !== undefined) update.rag_match_threshold = patch.rag_match_threshold;
   if (patch.rag_max_chars !== undefined) update.rag_max_chars = patch.rag_max_chars;
   if (patch.history_max_messages !== undefined) update.history_max_messages = patch.history_max_messages;
+  if (patch.history_compress_token_threshold !== undefined) {
+    update.history_compress_token_threshold = patch.history_compress_token_threshold;
+  }
   if (patch.profile_inject !== undefined) update.profile_inject = patch.profile_inject;
   if (patch.web_search_enabled !== undefined) update.web_search_enabled = patch.web_search_enabled;
   if (patch.web_search_min_rounds !== undefined) update.web_search_min_rounds = patch.web_search_min_rounds;

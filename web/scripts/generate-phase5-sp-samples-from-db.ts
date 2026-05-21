@@ -47,6 +47,7 @@ async function main() {
       "global.general",
       "global.rules",
       "global.format",
+      "global.search",
       "header.profile",
     ]);
   if (secErr) throw new Error(`ao_prompts: ${secErr.message}`);
@@ -83,6 +84,7 @@ async function main() {
       general: byKey.get("global.general") ?? "",
       rules: byKey.get("global.rules") ?? "",
       format: byKey.get("global.format") ?? "",
+      search: byKey.get("global.search") ?? "",
     },
     header: { profile: byKey.get("header.profile") ?? "" },
     projects: projects ?? [],
@@ -102,6 +104,7 @@ async function main() {
       userText: sampleUser,
       ragBlock: sampleRag,
       modeBlock: "",
+      searchBlock: "",
       includeProfile: false,
       preThread: "",
     });

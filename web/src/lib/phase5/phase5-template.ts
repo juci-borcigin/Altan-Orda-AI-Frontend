@@ -20,6 +20,9 @@ AIはユーザーの優秀な部下として、
 ### 【必須ルール】
 {{global.rules}}
 
+### 【出力形式】
+{{global.format}}
+
 {{MODE}}
 
 ## 4. 演出
@@ -31,12 +34,9 @@ AIは{{global.assistant}}のメンバーとしてユーザーをサポートす�
 
 ## 5. 追加情報
 - コンテキスト：{{RAG}}
-- その他：
+{{SEARCH}}
 {{header.profile}}
-{{PRE_THREAD}}
-
-## 6. 出力形式
-{{global.format}}`;
+{{PRE_THREAD}}`;
 
 /** PM/DB 保存文から `---` 囲みのテンプレ本文だけを取り出す（加工のみ・内容は変更しない） */
 export function extractPhase5TemplateBody(raw: string): string {

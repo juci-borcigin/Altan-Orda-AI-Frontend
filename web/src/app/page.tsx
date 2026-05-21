@@ -8,7 +8,9 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ChangeEvent,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
@@ -80,6 +82,7 @@ import {
   normalizeCompletionMetaFromApi,
   normalizeRawPromptsFromApi,
 } from "@/lib/ao-chat-usage-normalize";
+import { readChatSseDone } from "@/lib/ao-chat-sse";
 import { estimateUsdFromTokensClient } from "@/lib/ao-usage-estimate-client";
 import { digestRawSent, openRawHtmlInNewTab } from "@/lib/ao-raw-overlay";
 import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
@@ -95,20 +98,17 @@ import { detectNamedSpeaker, getPrimarySpeakerForProject } from "@/lib/ao-prompt
 import type { ProjectId } from "@/lib/ao-types";
 
 const STORAGE_KEY = "ao_state_v1";
-/** メイン枠左上：使用量・設定アイコン寸法（歯車は以前の 150% 相当） */
-const MAIN_HEADER_ICON_PX = 18;
+/** 議事帯ツールバー（年代記・使用量・設定・令旨）：従来 10/14px の約 120% */
+const AO_MAIN_TOOLBAR_ICON_SCALE = 1.2;
 /** メイン左上アイコン：枠なし・クリック時はわずかに縮小 */
 const AO_MAIN_ICON_BTN_CLASS =
   "rounded-none border-0 bg-transparent p-1 text-[#DBB961] outline-none transition-[transform,opacity,filter] hover:brightness-110 active:scale-[0.88] active:opacity-90";
-/** 議事帯右上：年代記／使用量／設定（装飾枠なし） */
+/** 議事帯右上：年代記／使用量／設定（装飾枠なし・色は令旨と同系） */
 const AO_MAIN_HEADER_ICON_BTN_CLASS =
-  "inline-flex items-center justify-center rounded-md border-0 bg-transparent p-1 text-[#3D1C08] outline-none transition-[transform,opacity] hover:bg-[#3D1C08]/[0.07] active:scale-[0.9] active:opacity-90";
+  "inline-flex items-center justify-center rounded-md border-0 bg-transparent p-1 outline-none transition-[transform,opacity] hover:bg-[#8D5400]/[0.08] active:scale-[0.9] active:opacity-90";
 /** 邦主列：送信（帯びたボタン） */
 const AO_MAIN_SEND_BTN_CLASS =
   "inline-flex shrink-0 items-center justify-center rounded-lg border border-[#8D5400]/50 bg-gradient-to-b from-[#fbf6e8] to-[#e9dcc6] px-2 py-1 shadow-[0_1px_2px_rgba(0,0,0,0.12)] outline-none transition-[transform,opacity,box-shadow] hover:border-[#8D5400]/80 hover:shadow-[0_2px_6px_rgba(0,0,0,0.14)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#8D5400]/50 disabled:hover:shadow-[0_1px_2px_rgba(0,0,0,0.12)] disabled:active:scale-100";
-/** メイン部のアイコン色（令旨/年代記/送信） */
-const AO_MAIN_ICON_FG = "#8D5400";
-
 /** メインエリア統一地色・ボタン地（Phase 4 TO-BE ①⑤⑥） */
 const AO_MAIN_BG = "#133D5C";
 /** チャット部・AI 吹き出し（枠線なし・Markdown は ao-chat-ai-bubble-md） */
@@ -437,6 +437,8 @@ const AO_Z_RAW_PANEL = 2_147_483_644;
  */
 const AO_Z_COMPACT_HEADER = 40;
 const AO_Z_COMPACT_KIN_DRAWER_HOST = 30;
+/** ドロワー開時：ヘッダ(40)より手前に全画面タップで閉じられるオーバーレイ */
+const AO_Z_COMPACT_KIN_DRAWER_OPEN = 45;
 const AO_Z_COMPACT_MAP_STACK = 25;
 const AO_Z_COMPACT_MAIN = 20;
 const AO_Z_COMPACT_CHAT = 10;
@@ -542,6 +544,16 @@ const JUCHI_COLUMN_CONTENT_H_PX =
  * 吹き出し・令旨列の高さ：上端は現状どおり、下端＝送信下端 ⇔ H_juchi − 顔グラ上げ分
  */
 const MAIN_SPEECH_BUBBLE_H_PX = JUCHI_COLUMN_CONTENT_H_PX - JUCHI_PORTRAIT_RAISE_ABOVE_BUBBLE_PX;
+
+/** コンパクト投稿欄の見た目字サイズ（px）。scale 算出の参照 */
+const COMPACT_COMPOSE_VISUAL_FS = 10;
+/** iOS フォーカス自動ズーム回避用の実 font-size */
+const COMPACT_COMPOSE_INPUT_FS = 16;
+/**
+ * 見た目縮小倍率。`1` で scale 無効（16px 表示のまま＝今の挙動に戻す）。
+ * 試験: COMPACT_COMPOSE_VISUAL_FS / COMPACT_COMPOSE_INPUT_FS
+ */
+const COMPACT_COMPOSE_INPUT_VISUAL_SCALE = COMPACT_COMPOSE_VISUAL_FS / COMPACT_COMPOSE_INPUT_FS;
 
 /** 僚友セル選択時インセット（枠線は aoNokorCellClasses 側で常時固定・ここは影のみ） */
 const AO_PUSH_INSET_NOKOR_ACTIVE =
@@ -1095,6 +1107,64 @@ function saveState(state: AppState) {
   }
 }
 
+function AoMainComposeTextarea({
+  textareaRef,
+  value,
+  readOnly,
+  composeLocked,
+  onChange,
+  onKeyDown,
+  placeholder,
+  fontSizePx,
+  visualScale,
+}: {
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  readOnly: boolean;
+  composeLocked: boolean;
+  onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  fontSizePx: number;
+  /** 1 で縮小なし。コンパクト時のみ 1 未満を渡す */
+  visualScale: number;
+}) {
+  const textarea = (
+    <textarea
+      ref={textareaRef}
+      suppressHydrationWarning
+      value={value}
+      readOnly={readOnly}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      className={`box-border min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent font-serif text-[#1a1208] outline-none ring-0 focus:ring-0 ${composeLocked ? "cursor-not-allowed opacity-60" : ""}`}
+      style={{ padding: "0px", fontSize: fontSizePx }}
+    />
+  );
+
+  if (visualScale >= 1) {
+    return textarea;
+  }
+
+  const invPct = 100 / visualScale;
+  return (
+    <div className="h-full min-h-0 w-full overflow-hidden">
+      <div
+        className="flex h-full min-h-0 w-full flex-col"
+        style={{
+          transform: `scale(${visualScale})`,
+          transformOrigin: "top left",
+          width: `${invPct}%`,
+          height: `${invPct}%`,
+        }}
+      >
+        {textarea}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const viewportCompact = useSyncExternalStore(
     subscribeAoViewportCompact,
@@ -1122,6 +1192,8 @@ export default function Home() {
   const [draft, setDraft] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingDotsPhase, setThinkingDotsPhase] = useState(0);
+  /** 考え中: 1=現行ドット1行 / 2=1行目固定＋2行目ドット（最終 completion 想定） */
+  const [thinkingUiPhase, setThinkingUiPhase] = useState<1 | 2>(1);
   const [isTyping, setIsTyping] = useState(false);
   const [typingId, setTypingId] = useState<string | null>(null);
   const [rawPromptOverlay, setRawPromptOverlay] = useState<null | {
@@ -1666,57 +1738,89 @@ export default function Home() {
     const arr = [...state.threads];
     arr[idx] = nextThread;
     setState({ ...state, threads: arr });
+    setThinkingUiPhase(1);
     setIsThinking(true);
     try {
-      const history: Array<{ role: "user" | "assistant"; content: string }> = [];
+      const history: Array<{
+        role: "user" | "assistant";
+        content: string;
+        id?: string;
+        speaker?: string;
+      }> = [];
       for (const m of visibleMessages(nextThread.messages)) {
         if (m.side === "user") {
-          history.push({ role: "user", content: m.text });
+          history.push({ role: "user", content: m.text, id: m.id });
           continue;
         }
         // B: 表示用のメタ文言は次回リクエスト履歴に混ぜない
         if (isSyntheticAssistantNoiseForHistory(m.text)) continue;
-        history.push({ role: "assistant", content: m.text });
+        history.push({
+          role: "assistant",
+          content: m.text,
+          id: m.id,
+          speaker: m.speaker,
+        });
       }
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
         body: JSON.stringify({
           projectId: nextThread.projectId,
           messages: history,
           clientThreadId: nextThread.id,
           threadTitle: resolvedTitle,
           supabaseThreadId: nextThread.supabaseThreadId ?? null,
+          historyCompression: nextThread.historyCompression ?? null,
         }),
       });
-      const data = (await res.json()) as {
-        chunks?: Array<{ speaker: string; text: string }>;
-        supabaseThreadId?: string;
-        usage?: MsgTurnUsage;
-        completionMeta?: unknown;
-        rawPrompts?: MsgRawPromptBundle;
-        error?: string;
-        detail?: string;
-      };
-      if (!res.ok || !data.chunks) {
+      const data = await readChatSseDone(res, {
+        onPhase: (phase) => {
+          if (phase === "final_completion" && currentThreadIdRef.current === nextThread.id) {
+            setThinkingUiPhase(2);
+          }
+        },
+      });
+      const chunks = data.chunks as Array<{ speaker: string; text: string }> | undefined;
+      if (!chunks?.length) {
         const parts = [data.detail, data.error].filter((x): x is string => typeof x === "string" && x.trim().length > 0);
         throw new Error(parts.join(" — ").trim() || "chat error");
       }
-      if (data.supabaseThreadId) {
+      const supabaseThreadId =
+        typeof data.supabaseThreadId === "string" ? data.supabaseThreadId : undefined;
+      const historyCompressionRaw = data.historyCompression as
+        | { fromMessageId?: string; summary?: string }
+        | undefined;
+      const historyCompression =
+        typeof historyCompressionRaw?.fromMessageId === "string" &&
+        typeof historyCompressionRaw?.summary === "string"
+          ? {
+              fromMessageId: historyCompressionRaw.fromMessageId,
+              summary: historyCompressionRaw.summary,
+            }
+          : undefined;
+      if (supabaseThreadId || historyCompression) {
         setState((prev) => {
           const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
           if (ti < 0) return prev;
           const aa = [...prev.threads];
-          aa[ti] = { ...aa[ti], supabaseThreadId: data.supabaseThreadId };
+          aa[ti] = {
+            ...aa[ti],
+            ...(supabaseThreadId ? { supabaseThreadId } : {}),
+            ...(historyCompression ? { historyCompression } : {}),
+          };
           return { ...prev, threads: aa };
         });
       }
       setIsThinking(false);
+      setThinkingUiPhase(1);
       setIsTyping(true);
       const batchAiIds: string[] = [];
       const turnRaw = normalizeRawPromptsFromApi(data.rawPrompts);
       const turnCompletionMeta = normalizeCompletionMetaFromApi(data.completionMeta);
-      for (const c of data.chunks) {
+      for (const c of chunks) {
         const msgId = aoUid("m");
         batchAiIds.push(msgId);
         const shell: Msg = {
@@ -1788,6 +1892,7 @@ export default function Home() {
     } finally {
       setTypingId(null);
       setIsThinking(false);
+      setThinkingUiPhase(1);
       setIsTyping(false);
       scheduleFocusMainPrompt();
     }
@@ -1889,8 +1994,10 @@ export default function Home() {
     : { width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" };
 
   const mainTopFixedH = viewportCompact ? MAIN_TOP_FIXED_H_COMPACT_PX : MAIN_TOP_FIXED_H_PX;
-  /** 議事チップ内（使用量・設定・令旨・年代記） */
-  const compactGijiChipIconPx = viewportCompact ? 10 : 14;
+  /** 議事チップ内（年代記・使用量・設定・令旨） */
+  const compactGijiChipIconPx = Math.round(
+    (viewportCompact ? 10 : 14) * AO_MAIN_TOOLBAR_ICON_SCALE,
+  );
   const compactReishiBtnMinH = viewportCompact
     ? Math.max(28, Math.round(REISHI_CHRONICLE_BTN_MIN_H_PX * 0.82))
     : REISHI_CHRONICLE_BTN_MIN_H_PX;
@@ -1899,7 +2006,8 @@ export default function Home() {
     : MAIN_SPEECH_BUBBLE_H_PX;
   const compactRonTabTopicFs = viewportCompact ? 10 : Math.round(12 * AO_PC_ZOOM_COMP_SCALE);
   const compactGijiTitleFs = viewportCompact ? Math.max(9, AO_GIJI_TITLE_FONT_PX - 3) : AO_GIJI_TITLE_FONT_PX;
-  const compactMainTextareaFs = viewportCompact ? 10 : 13;
+  const compactMainTextareaFs = viewportCompact ? COMPACT_COMPOSE_INPUT_FS : 13;
+  const compactMainTextareaVisualScale = viewportCompact ? COMPACT_COMPOSE_INPUT_VISUAL_SCALE : 1;
   const compactOrnamentalPadMid = viewportCompact ? "4px" : "6px";
   const compactOrnamentalPadTight = viewportCompact ? "2px" : "3px";
   /** 左・論タブ枠：装飾の内側パディングを詰め、flex 継承で縦伸びしないよう別値 */
@@ -1998,14 +2106,14 @@ export default function Home() {
   const thinkingDotsText = AO_THINKING_DOT_CYCLE[thinkingDotsPhase];
 
   function openRawPromptPopover(
-    e: ReactMouseEvent<HTMLButtonElement>,
+    anchorBtn: HTMLElement,
     side: "ai" | "user",
     usage: MsgTurnUsage,
     rawPrompts?: MsgRawPromptBundle,
     anchorMsgId?: string,
     completionMeta?: MsgChatCompletionMeta,
   ) {
-    const avatarRect = e.currentTarget.getBoundingClientRect();
+    const avatarRect = anchorBtn.getBoundingClientRect();
     let anchorRect = avatarRect;
     let verticalAnchorRect: DOMRect | undefined;
     const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
@@ -2031,7 +2139,7 @@ export default function Home() {
     }
 
     if (viewportCompact) {
-      const row = e.currentTarget.closest("[data-ao-chat-row]");
+      const row = anchorBtn.closest("[data-ao-chat-row]");
       const bubbleEl = row?.querySelector("[data-ao-chat-bubble]");
       if (bubbleEl instanceof HTMLElement) {
         const br = bubbleEl.getBoundingClientRect();
@@ -2055,6 +2163,8 @@ export default function Home() {
 
   const hydrateRawFromServerIfNeeded = useCallback(
     async (e: ReactMouseEvent<HTMLButtonElement>, side: "ai" | "user", m: Msg) => {
+      /** await 後は SyntheticEvent の currentTarget が null になるため、同期で要素を保持 */
+      const anchorBtn = e.currentTarget;
       let rawPrompts = m.rawPrompts;
       let usage = m.usage ?? aoSyntheticMsgTurnUsage();
       let completionMeta = m.completionMeta;
@@ -2083,7 +2193,7 @@ export default function Home() {
           /* Raw 未取得でもオーバーレイは開く */
         }
       }
-      openRawPromptPopover(e, side, usage, rawPrompts, m.id, completionMeta);
+      openRawPromptPopover(anchorBtn, side, usage, rawPrompts, m.id, completionMeta);
     },
     [state.threads, state.currentThreadId],
   );
@@ -2216,7 +2326,10 @@ export default function Home() {
         <div
           ref={setCompactKinPortalHost}
           className="pointer-events-none absolute inset-x-0 bottom-0"
-          style={{ top: kinDrawerAnchorBottomPx, zIndex: AO_Z_COMPACT_KIN_DRAWER_HOST }}
+          style={{
+            top: leftKinDrawerOpen ? 0 : kinDrawerAnchorBottomPx,
+            zIndex: leftKinDrawerOpen ? AO_Z_COMPACT_KIN_DRAWER_OPEN : AO_Z_COMPACT_KIN_DRAWER_HOST,
+          }}
         />
       ) : null}
 
@@ -2561,11 +2674,11 @@ export default function Home() {
                             minHeight: viewportCompact ? compactSpeechBubbleH : undefined,
                           }}
                         >
-                          <textarea
-                            ref={promptTextareaRef}
-                            suppressHydrationWarning
+                          <AoMainComposeTextarea
+                            textareaRef={promptTextareaRef}
                             value={draft}
                             readOnly={composeLocked}
+                            composeLocked={composeLocked}
                             onChange={(e) => setDraft(e.target.value)}
                             onKeyDown={(e) => {
                               if (composeLocked) return;
@@ -2575,9 +2688,11 @@ export default function Home() {
                                 void sendUserMessage();
                               }
                             }}
-                            placeholder={composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined}
-                            className={`box-border min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent font-serif text-[#1a1208] outline-none ring-0 focus:ring-0 ${composeLocked ? "cursor-not-allowed opacity-60" : ""}`}
-                            style={{ padding: "0px", fontSize: compactMainTextareaFs }}
+                            placeholder={
+                              composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined
+                            }
+                            fontSizePx={compactMainTextareaFs}
+                            visualScale={compactMainTextareaVisualScale}
                           />
                         </AoP5NineSliceBubble>
                       </div>
@@ -2614,7 +2729,7 @@ export default function Home() {
                           aria-label="送信"
                           className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
-                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
+                          <span className="ao-p5-kurultai-ink-icon">
                             <IcoExecute size={compactExecuteIcoSize} />
                           </span>
                         </button>
@@ -2628,7 +2743,7 @@ export default function Home() {
                             setChronicleOpen(false);
                           }}
                         >
-                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
+                          <span className="ao-p5-kurultai-ink-icon">
                             <IcoScroll size={compactGijiChipIconPx} />
                           </span>
                         </button>
@@ -2784,11 +2899,11 @@ export default function Home() {
                             minHeight: MAIN_SPEECH_BUBBLE_H_PX,
                           }}
                         >
-                          <textarea
-                            ref={promptTextareaRef}
-                            suppressHydrationWarning
+                          <AoMainComposeTextarea
+                            textareaRef={promptTextareaRef}
                             value={draft}
                             readOnly={composeLocked}
+                            composeLocked={composeLocked}
                             onChange={(e) => setDraft(e.target.value)}
                             onKeyDown={(e) => {
                               if (composeLocked) return;
@@ -2798,9 +2913,11 @@ export default function Home() {
                                 void sendUserMessage();
                               }
                             }}
-                            placeholder={composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined}
-                            className={`box-border min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent font-serif text-[#1a1208] outline-none ring-0 focus:ring-0 ${composeLocked ? "cursor-not-allowed opacity-60" : ""}`}
-                            style={{ padding: "0px", fontSize: compactMainTextareaFs }}
+                            placeholder={
+                              composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined
+                            }
+                            fontSizePx={compactMainTextareaFs}
+                            visualScale={compactMainTextareaVisualScale}
                           />
                         </AoP5NineSliceBubble>
                       </div>
@@ -2837,7 +2954,7 @@ export default function Home() {
                           aria-label="送信"
                           className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
-                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
+                          <span className="ao-p5-kurultai-ink-icon">
                             <IcoExecute size={compactExecuteIcoSize} />
                           </span>
                         </button>
@@ -2851,7 +2968,7 @@ export default function Home() {
                             setChronicleOpen(false);
                           }}
                         >
-                          <span className="ao-p5-kurultai-ink-icon" style={{ color: AO_MAIN_ICON_FG }}>
+                          <span className="ao-p5-kurultai-ink-icon">
                             <IcoScroll size={compactGijiChipIconPx} />
                           </span>
                         </button>
@@ -3492,10 +3609,17 @@ export default function Home() {
                               }}
                             >
                               <span
-                                className="ao-thinking-dots-text font-serif tabular-nums"
+                                className="ao-thinking-dots-text font-serif tabular-nums whitespace-pre-wrap"
                                 style={{ color: AO_CHAT_AI_BUBBLE_FG, minHeight: "1.25em", minWidth: "2ch" }}
                               >
-                                {thinkingDotsText}
+                                {thinkingUiPhase === 1 ? (
+                                  thinkingDotsText
+                                ) : (
+                                  <>
+                                    ．．．．{"\n"}
+                                    {thinkingDotsText}
+                                  </>
+                                )}
                               </span>
                             </AoP5NineSliceBubble>
                           </div>

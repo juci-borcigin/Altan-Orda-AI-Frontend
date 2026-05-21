@@ -15,6 +15,8 @@ export type Phase5ProjectRuntime = {
   rag_match_threshold: number;
   rag_max_chars: number;
   history_max_messages: number;
+  /** 0 で履歴トークン要約を無効 */
+  history_compress_token_threshold: number;
   profile_inject: boolean;
   web_search_enabled: boolean;
   web_search_min_rounds: number;
@@ -35,6 +37,7 @@ export type Phase5ChatBundle = {
     general: string;
     rules: string;
     format: string;
+    search: string;
   };
   header: { profile: string };
   modes: { casual: string; designate: string };
@@ -97,7 +100,7 @@ export async function loadPhase5ChatBundle(
   const { data: project, error: pErr } = await supa
     .from("ao_projects")
     .select(
-      "project_id, label_ja, main_persona_key, process, tone, rag_enabled, rag_when, rag_match_count, rag_match_threshold, rag_max_chars, history_max_messages, profile_inject, web_search_enabled, web_search_min_rounds, web_search_max_rounds, web_search_max_per_round, web_search_tavily_max_results, web_search_result_max_chars, web_search_snippet_max_chars, max_completion_tokens",
+      "project_id, label_ja, main_persona_key, process, tone, rag_enabled, rag_when, rag_match_count, rag_match_threshold, rag_max_chars, history_max_messages, history_compress_token_threshold, profile_inject, web_search_enabled, web_search_min_rounds, web_search_max_rounds, web_search_max_per_round, web_search_tavily_max_results, web_search_result_max_chars, web_search_snippet_max_chars, max_completion_tokens",
     )
     .eq("project_id", dbPid)
     .maybeSingle();
@@ -119,7 +122,7 @@ export async function loadPhase5ChatBundle(
     );
   }
 
-  const sectionKeys = [...REQUIRED_GLOBAL_KEYS, ...OPTIONAL_SECTION_KEYS];
+  const sectionKeys = [...REQUIRED_GLOBAL_KEYS, ...OPTIONAL_SECTION_KEYS, "global.search"];
   const { data: sections, error: sErr } = await supa
     .from("ao_prompts")
     .select("section_key, body")
@@ -138,6 +141,7 @@ export async function loadPhase5ChatBundle(
     general: requireSectionBody(byKey, "global.general", "方針"),
     rules: requireSectionBody(byKey, "global.rules", "必須ルール"),
     format: requireSectionBody(byKey, "global.format", "出力形式"),
+    search: byKey.get("global.search")?.trim() ?? "",
   };
 
   const { data: personas, error: perErr } = await supa
@@ -169,6 +173,7 @@ export async function loadPhase5ChatBundle(
     rag_match_threshold: project.rag_match_threshold ?? 0.5,
     rag_max_chars: project.rag_max_chars ?? 4000,
     history_max_messages: project.history_max_messages ?? 20,
+    history_compress_token_threshold: project.history_compress_token_threshold ?? 22_000,
     profile_inject: project.profile_inject ?? false,
     web_search_enabled: project.web_search_enabled ?? true,
     web_search_min_rounds: project.web_search_min_rounds ?? 0,
@@ -214,8 +219,12 @@ export function buildPhase5SystemPrompt(opts: {
   modeBlock: string;
   includeProfile: boolean;
   preThread: string;
+  /** Tavily 等が有効なときのみ global.search を差し込む */
+  webSearchEnabled: boolean;
 }): string {
   const { bundle } = opts;
+  const searchBody = opts.webSearchEnabled ? bundle.globals.search.trim() : "";
+  const searchBlock = searchBody.length > 0 ? `- 検索：\n${searchBody}\n` : "";
   return assembleFromDbRows({
     template: bundle.template,
     globals: bundle.globals,
@@ -228,6 +237,7 @@ export function buildPhase5SystemPrompt(opts: {
     modeBlock: opts.modeBlock,
     includeProfile: opts.includeProfile,
     preThread: opts.preThread,
+    searchBlock,
   });
 }
 

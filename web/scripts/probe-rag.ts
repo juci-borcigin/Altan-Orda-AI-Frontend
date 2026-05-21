@@ -4,6 +4,7 @@
  *
  *   npx tsx scripts/probe-rag.ts "作戦AOでは何をやったか？要約してくれ。"
  *   npx tsx scripts/probe-rag.ts --full "RAGテスト4\n\n作戦AOでは何をやったか？要約してくれ。"
+ *   npx tsx scripts/probe-rag.ts --exclude-thread <uuid> "クエリ"
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,10 +41,18 @@ async function main() {
   const args = process.argv.slice(2);
   const full = args.includes("--full");
   const projectIdx = args.indexOf("--project");
+  const excludeIdx = args.indexOf("--exclude-thread");
   const filterProject =
     projectIdx >= 0 ? args[projectIdx + 1]?.trim() || null : null;
+  const excludeThreadId =
+    excludeIdx >= 0 ? args[excludeIdx + 1]?.trim() || null : null;
   const queryParts = args.filter(
-    (a, i) => a !== "--full" && a !== "--project" && (projectIdx < 0 || i !== projectIdx + 1),
+    (a, i) =>
+      a !== "--full" &&
+      a !== "--project" &&
+      a !== "--exclude-thread" &&
+      (projectIdx < 0 || i !== projectIdx + 1) &&
+      (excludeIdx < 0 || i !== excludeIdx + 1),
   );
   const query =
     queryParts.join(" ").trim() || "作戦AOでは何をやったか？要約してくれ。";
@@ -71,13 +80,16 @@ async function main() {
       match_threshold: threshold,
       filter_project_id: filterProject,
       filter_kind: RAG_DEFAULT_KIND,
+      exclude_thread_id: excludeThreadId,
     });
     if (error) {
       console.error(`threshold=${threshold} error:`, error.message);
       continue;
     }
     const rows = (data ?? []) as Array<{ chunk_text?: string; similarity?: number }>;
-    console.log(`\n=== match_threshold=${threshold} hits=${rows.length} ===`);
+    console.log(
+      `\n=== match_threshold=${threshold} hits=${rows.length} exclude_thread=${excludeThreadId ?? "none"} ===`,
+    );
     for (const r of rows) {
       const sim = typeof r.similarity === "number" ? r.similarity.toFixed(4) : "?";
       const preview = (r.chunk_text ?? "").replace(/\s+/g, " ").slice(0, 120);

@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { detectNamedSpeaker } from "@/lib/ao-prompts";
 import type { ProjectId } from "@/lib/ao-types";
+import { collapseAssistantHistoryForLlm } from "@/lib/ao-assistant-turn";
+import {
+  compressHistoryForChat,
+  type HistoryMessage,
+  type ThreadHistoryCompression,
+} from "@/lib/ao-history-compress";
+import { summarizeHistoryWithLlm } from "@/lib/ao-summary-llm";
 import { RAG_DEFAULT_KIND, searchRagChunks } from "@/lib/rag-context";
 import { Phase5DbConfigError } from "./phase5-db-errors";
 import {
@@ -18,6 +25,7 @@ export type ChatSystemBuildResult = {
   system: string;
   bundle: Phase5ChatBundle;
   trimmedEncoded: Array<{ role: "user" | "assistant"; content: string }>;
+  historyCompression: ThreadHistoryCompression | null;
   ragMeta: {
     block: string;
     hitCount: number;
@@ -30,11 +38,13 @@ export type ChatSystemBuildResult = {
 export async function tryBuildPhase5ChatSystem(opts: {
   supa: SupabaseClient | null;
   projectId: ProjectId;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: HistoryMessage[];
   lastUser: string;
   isFirstUserTurn: boolean;
   casualMode: boolean;
   openAiKey: string | undefined;
+  supabaseThreadId?: string | null;
+  historyCompression?: ThreadHistoryCompression | null;
 }): Promise<ChatSystemBuildResult | null> {
   if (!opts.supa) return null;
   if (!isPhase5EligibleProject(opts.projectId)) return null;
@@ -53,6 +63,10 @@ export async function tryBuildPhase5ChatSystem(opts: {
   const includeProfile =
     opts.isFirstUserTurn &&
     (bundle.runtime.profile_inject || opts.projectId === "mental");
+
+  const userTurnCount = opts.messages.filter((m) => m.role === "user").length;
+  const webSearchEnabled =
+    bundle.runtime.web_search_enabled && userTurnCount > bundle.runtime.web_search_min_rounds;
 
   let ragBlock = "";
   let ragMeta = {
@@ -79,6 +93,7 @@ export async function tryBuildPhase5ChatSystem(opts: {
         filter_project_id: bundle.project.project_id,
         filter_kind: RAG_DEFAULT_KIND,
         project_label_ja: bundle.project.label_ja ?? null,
+        exclude_thread_id: opts.supabaseThreadId?.trim() || null,
       },
     );
     ragMeta = {
@@ -91,9 +106,26 @@ export async function tryBuildPhase5ChatSystem(opts: {
     if (rag.block.trim()) ragBlock = rag.block.trim();
   }
 
+  const historyForCompress: HistoryMessage[] = collapseAssistantHistoryForLlm(opts.messages).map(
+    (m) => ({
+      role: m.role,
+      content: m.content,
+      id: m.id,
+      speaker: m.speaker,
+    }),
+  );
+
+  const compressed = await compressHistoryForChat({
+    messages: historyForCompress,
+    thresholdTokens: bundle.runtime.history_compress_token_threshold,
+    cache: opts.historyCompression,
+    summarize: async ({ existingSummary, newTurnsText }) =>
+      summarizeHistoryWithLlm(existingSummary, newTurnsText),
+  });
+
   const trimmedEncoded = trimHistoryForRuntime(
     opts.projectId,
-    opts.messages.map((m) => ({
+    compressed.messages.map((m) => ({
       role: m.role,
       content:
         m.role === "user"
@@ -111,6 +143,7 @@ export async function tryBuildPhase5ChatSystem(opts: {
     modeBlock: modeParts.join("\n\n"),
     includeProfile,
     preThread: "",
+    webSearchEnabled,
   });
 
   return {
@@ -118,6 +151,7 @@ export async function tryBuildPhase5ChatSystem(opts: {
     system,
     bundle,
     trimmedEncoded,
+    historyCompression: compressed.cache,
     ragMeta,
   };
 }

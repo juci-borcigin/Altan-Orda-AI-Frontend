@@ -24,6 +24,7 @@ export type AoProjectRow = {
   rag_match_threshold: number;
   rag_max_chars: number;
   history_max_messages: number;
+  history_compress_token_threshold: number;
   profile_inject: boolean;
   web_search_enabled: boolean;
   web_search_min_rounds: number;
@@ -70,6 +71,7 @@ export function projectRowsFromVariables(vars: Phase5Variables): AoProjectRow[] 
       rag_match_threshold: rt.rag_match_threshold,
       rag_max_chars: rt.rag_max_chars,
       history_max_messages: rt.history_max_messages,
+      history_compress_token_threshold: rt.history_compress_token_threshold,
       profile_inject: rt.profile_inject,
       web_search_enabled: rt.web_search_enabled,
       web_search_min_rounds: 0,
@@ -127,6 +129,7 @@ export function defaultAoProjectRow(projectId: string): AoProjectRow | null {
     rag_match_threshold: rt.rag_match_threshold,
     rag_max_chars: rt.rag_max_chars,
     history_max_messages: rt.history_max_messages,
+    history_compress_token_threshold: rt.history_compress_token_threshold,
     profile_inject: rt.profile_inject,
     web_search_enabled: rt.web_search_enabled,
     web_search_min_rounds: 0,

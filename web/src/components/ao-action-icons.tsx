@@ -54,6 +54,36 @@ function IconStroke24({
   );
 }
 
+function IconStroke256({
+  size,
+  className,
+  strokeWidth = 16,
+  children,
+}: {
+  size: number;
+  className?: string;
+  strokeWidth?: number;
+  children: ReactNode;
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox={VB}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      {children}
+    </svg>
+  );
+}
+
 /** 折れ線グラフ（使用量・API 推移のイメージ） */
 export function IcoCoinBag({ size = 18, className }: { size?: number; className?: string }) {
   return (
@@ -75,14 +105,14 @@ export function IcoGear({ size = 18, className }: { size?: number; className?: s
   );
 }
 
-/** 巻物（令旨・左右の軸＋紙面で scroll UI と差別化） */
+/** 巻物＋文面（令旨・Lucide scroll-text 相当） */
 export function IcoScroll({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconStroke24 size={size} className={className} strokeWidth={1.75}>
-      <ellipse cx="6.2" cy="12" rx="2.6" ry="6.2" />
-      <path d="M8.4 6.8h7.2a1 1 0 0 1 1 1v8.4a1 1 0 0 1-1 1H8.4a1 1 0 0 1-1-1V7.8a1 1 0 0 1 1-1Z" />
-      <ellipse cx="17.8" cy="12" rx="2.6" ry="6.2" />
-      <path d="M10.2 10h3.6M10.2 12h4.2M10.2 14h3.2" />
+    <IconStroke24 size={size} className={className} strokeWidth={2}>
+      <path d="M15 12h-5" />
+      <path d="M15 8h-5" />
+      <path d="M19 17V5a2 2 0 0 0-2-2H4" />
+      <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" />
     </IconStroke24>
   );
 }
@@ -127,17 +157,18 @@ export function IcoAgendaPageLast({ size = 18, className }: { size?: number; cla
   );
 }
 
-/** 背表紙の並び（年代記・過去ログ） */
+/** 年代記（本＋傾いた巻・256 viewBox） */
 export function IcoBook({ size = 18, className }: { size?: number; className?: string }) {
   return (
-    <IconStroke24 size={size} className={className} strokeWidth={1.75}>
-      <path d="M3.5 19.5h17" />
-      <rect x="4.2" y="9.2" width="2.4" height="10.3" rx="0.4" />
-      <rect x="7.4" y="6" width="2.4" height="13.5" rx="0.4" />
-      <rect x="10.6" y="10" width="2.4" height="9.5" rx="0.4" />
-      <rect x="13.8" y="7.2" width="2.4" height="12.3" rx="0.4" />
-      <rect x="17" y="10.8" width="2.4" height="8.7" rx="0.4" />
-    </IconStroke24>
+    <IconStroke256 size={size} className={className}>
+      <rect x="48" y="40" width="64" height="176" rx="8" />
+      <path d="M217.67,205.77l-46.81,10a8,8,0,0,1-9.5-6.21L128.18,51.8a8.07,8.07,0,0,1,6.15-9.57l46.81-10a8,8,0,0,1,9.5,6.21L223.82,196.2A8.07,8.07,0,0,1,217.67,205.77Z" />
+      <line x1="48" y1="72" x2="112" y2="72" />
+      <line x1="48" y1="184" x2="112" y2="184" />
+      <line x1="133.16" y1="75.48" x2="195.61" y2="62.06" />
+      <line x1="139.79" y1="107.04" x2="202.25" y2="93.62" />
+      <line x1="156.39" y1="185.94" x2="218.84" y2="172.52" />
+    </IconStroke256>
   );
 }
 

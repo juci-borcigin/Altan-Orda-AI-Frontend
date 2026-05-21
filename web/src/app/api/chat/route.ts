@@ -10,6 +10,7 @@ import {
   getSpeakerAllowSet,
   isAllySpeakerName,
 } from "@/lib/ao-prompts";
+import { chunksToTaggedRaw } from "@/lib/ao-assistant-turn";
 import { tryBuildPhase5ChatSystem } from "@/lib/phase5/build-chat-system";
 import { Phase5DbConfigError } from "@/lib/phase5/phase5-db-errors";
 import { decodeAssistantTextForUi, isPhase5EligibleProject } from "@/lib/phase5/load-phase5-chat";
@@ -32,11 +33,14 @@ import {
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
+import { chatSseStream } from "@/lib/ao-chat-sse";
 import type { MsgChatCompletionMeta } from "@/lib/ao-state";
 
 type InMsg = {
   role: "user" | "assistant";
   content: string;
+  id?: string;
+  speaker?: string;
 };
 
 type ReqBody = {
@@ -47,12 +51,15 @@ type ReqBody = {
   threadTitle?: string;
   /** Supabase ao_threads.id（uuid） */
   supabaseThreadId?: string | null;
+  /** 履歴要約キャッシュ（localStorage / Thread 保持） */
+  historyCompression?: { fromMessageId: string; summary: string } | null;
 };
 
 type OutChunk = { speaker: string; text: string };
 
 const MAX_TOOL_ROUNDS = 2;
-const MAX_FORMAT_RETRY = 2;
+/** 形式再試行は無効（巨大コンテキストの再送を避ける。表示はパース／フォールバックで救済） */
+const MAX_FORMAT_RETRY = 0;
 
 /** JSONL 崩れ時の再指示（1回目） */
 const FORMAT_RETRY_SYSTEM_PRIMARY =
@@ -681,6 +688,8 @@ export async function POST(req: Request) {
         isFirstUserTurn: isFirstUserTurnPre,
         casualMode: casualModePre,
         openAiKey: process.env.OPENAI_API_KEY?.trim(),
+        supabaseThreadId: body.supabaseThreadId,
+        historyCompression: body.historyCompression ?? null,
       });
     } catch (e) {
       console.error("[chat] tryBuildPhase5ChatSystem", e);
@@ -747,7 +756,7 @@ export async function POST(req: Request) {
   const nowPrefix = buildJapanNowSystemPrefix();
 
   let system = phase5Ctx
-    ? phase5Ctx.system + tavilySuffix
+    ? phase5Ctx.system
     : nowPrefix +
       "\n\n" +
       buildAoSystemPrompt(
@@ -790,36 +799,39 @@ export async function POST(req: Request) {
       ...trimmed.map((m) => ({ role: m.role, content: m.content })),
     ];
     const rawPromptSentDry = serializeOutboundChatMessages(dryOutbound);
-    return NextResponse.json({
-      chunks,
-      rawContent: text,
-      usage: usageDry,
-      completionMeta: completionMetaStub,
-      rawPrompts: { sent: rawPromptSentDry, received: text },
-      llm: {
-        mode: "dry-run",
-        provider,
-        baseUrl,
-        model: effectiveModel,
-        max_tokens: maxTokens,
-        headers: safeHeaders,
-        toolsEnabled: tavilyEnabled,
-      },
-      ...(isChatDebugMode()
-        ? {
-            chatDebug: {
-              phase: "dry-run",
-              note: "外部 LLM / Tavily は実行されていません",
-              tavilyApiKeyPresent: tavilyEnabled,
-              toolsWouldAttachToLiveRequest: tavilyEnabled,
-              completionRoundCount: 0,
-              toolFollowupLoops: 0,
-              webSearchInvocations: 0,
-              webSearchQueries: [] as string[],
-              usage: usageDry,
-            },
-          }
-        : {}),
+    return chatSseStream(async (emit) => {
+      emit("phase", { phase: "final_completion" });
+      emit("done", {
+        chunks,
+        rawContent: text,
+        usage: usageDry,
+        completionMeta: completionMetaStub,
+        rawPrompts: { sent: rawPromptSentDry, received: text },
+        llm: {
+          mode: "dry-run",
+          provider,
+          baseUrl,
+          model: effectiveModel,
+          max_tokens: maxTokens,
+          headers: safeHeaders,
+          toolsEnabled: tavilyEnabled,
+        },
+        ...(isChatDebugMode()
+          ? {
+              chatDebug: {
+                phase: "dry-run",
+                note: "外部 LLM / Tavily は実行されていません",
+                tavilyApiKeyPresent: tavilyEnabled,
+                toolsWouldAttachToLiveRequest: tavilyEnabled,
+                completionRoundCount: 0,
+                toolFollowupLoops: 0,
+                webSearchInvocations: 0,
+                webSearchQueries: [] as string[],
+                usage: usageDry,
+              },
+            }
+          : {}),
+      });
     });
   }
 
@@ -841,33 +853,36 @@ export async function POST(req: Request) {
       ...trimmed.map((m) => ({ role: m.role, content: m.content })),
     ];
     const rawPromptSentMock = serializeOutboundChatMessages(mockOutbound);
-    return NextResponse.json({
-      chunks,
-      rawContent: text,
-      usage: usageMock,
-      completionMeta: completionMetaStub,
-      rawPrompts: { sent: rawPromptSentMock, received: text },
-      llm: {
-        mode: "mock",
-        model: effectiveModel,
-        max_tokens: maxTokens,
-        toolsEnabled: tavilyEnabled,
-      },
-      ...(isChatDebugMode()
-        ? {
-            chatDebug: {
-              phase: "mock",
-              note: "外部 LLM / Tavily は実行されていません",
-              tavilyApiKeyPresent: tavilyEnabled,
-              toolsWouldAttachToLiveRequest: tavilyEnabled,
-              completionRoundCount: 0,
-              toolFollowupLoops: 0,
-              webSearchInvocations: 0,
-              webSearchQueries: [] as string[],
-              usage: usageMock,
-            },
-          }
-        : {}),
+    return chatSseStream(async (emit) => {
+      emit("phase", { phase: "final_completion" });
+      emit("done", {
+        chunks,
+        rawContent: text,
+        usage: usageMock,
+        completionMeta: completionMetaStub,
+        rawPrompts: { sent: rawPromptSentMock, received: text },
+        llm: {
+          mode: "mock",
+          model: effectiveModel,
+          max_tokens: maxTokens,
+          toolsEnabled: tavilyEnabled,
+        },
+        ...(isChatDebugMode()
+          ? {
+              chatDebug: {
+                phase: "mock",
+                note: "外部 LLM / Tavily は実行されていません",
+                tavilyApiKeyPresent: tavilyEnabled,
+                toolsWouldAttachToLiveRequest: tavilyEnabled,
+                completionRoundCount: 0,
+                toolFollowupLoops: 0,
+                webSearchInvocations: 0,
+                webSearchQueries: [] as string[],
+                usage: usageMock,
+              },
+            }
+          : {}),
+      });
     });
   }
 
@@ -941,10 +956,17 @@ export async function POST(req: Request) {
     resolveCompletionCeiling(),
     tavilyEnabled ? Math.max(maxTokens, MIN_COMPLETION_TOKENS_WITH_WEB_TOOLS) : maxTokens,
   );
-  try {
-    while (true) {
+  let finalCompletionPhaseSent = false;
+
+  return chatSseStream(async (emit) => {
+    try {
+      while (true) {
       completionRoundCount += 1;
       const forceNoTools = toolRounds >= maxToolRounds;
+      if ((forceNoTools || !tools) && !finalCompletionPhaseSent) {
+        finalCompletionPhaseSent = true;
+        emit("phase", { phase: "final_completion" });
+      }
       const payload: Record<string, unknown> = {
         model: effectiveModel,
         temperature: 0.7,
@@ -1034,6 +1056,12 @@ export async function POST(req: Request) {
         tool_calls: calls,
       });
 
+      type ToolPlan =
+        | { kind: "web_run"; toolCallId: string; query: string }
+        | { kind: "web_skip"; toolCallId: string }
+        | { kind: "unsupported"; toolCallId: string; name: string };
+
+      const toolPlans: ToolPlan[] = [];
       let webSearchThisRound = 0;
       for (const tc of calls) {
         const name = tc.function?.name ?? "";
@@ -1048,65 +1076,90 @@ export async function POST(req: Request) {
           }
           webSearchThisRound += 1;
           if (webSearchThisRound > webSearchMaxPerRound) {
-            webSearchSkippedByLimit += 1;
-            messages.push({
-              role: "tool",
-              tool_call_id: id,
-              content: JSON.stringify({
-                error: "web_search_per_round_limit",
-                limit: webSearchMaxPerRound,
-                detail:
-                  "この assistant ラウンドでの web_search 呼び出しが環境変数 AO_WEB_SEARCH_MAX_PER_ROUND の上限を超えました。クエリを統合するか検索回数を減らしてください。",
-              }),
-            });
-            if (isChatDebugMode()) {
-              console.log(
-                "[chat-debug] web_search skipped (per-round limit)",
-                webSearchSkippedByLimit,
-                "query_preview=",
-                query.slice(0, 120),
-              );
-            }
-            continue;
+            toolPlans.push({ kind: "web_skip", toolCallId: id });
+          } else {
+            toolPlans.push({ kind: "web_run", toolCallId: id, query });
           }
+        } else {
+          toolPlans.push({ kind: "unsupported", toolCallId: id, name });
+        }
+      }
+
+      const tavilyTimeout = AbortSignal.timeout(requestTimeoutMs());
+      const tavilyOpts = {
+        maxResults: phase5Ctx?.bundle.runtime.web_search_tavily_max_results,
+        snippetMaxChars: phase5Ctx?.bundle.runtime.web_search_snippet_max_chars,
+        resultMaxChars: phase5Ctx?.bundle.runtime.web_search_result_max_chars,
+      };
+
+      const webRunPlans = toolPlans.filter((p): p is Extract<ToolPlan, { kind: "web_run" }> => p.kind === "web_run");
+      const webContentByCallId = new Map<string, string>();
+      await Promise.all(
+        webRunPlans.map(async (plan) => {
           webSearchInvocationCount += 1;
           if (isChatDebugMode()) {
-            webSearchQueriesForDebug.push(query.trim().slice(0, 320));
-            console.log("[chat-debug] web_search invocation", webSearchInvocationCount, "query=", query.slice(0, 120));
+            webSearchQueriesForDebug.push(plan.query.trim().slice(0, 320));
+            console.log(
+              "[chat-debug] web_search invocation",
+              webSearchInvocationCount,
+              "query=",
+              plan.query.slice(0, 120),
+            );
           }
-          let toolText: string;
           try {
-            toolText = await tavilySearch(query, AbortSignal.timeout(requestTimeoutMs()), {
-              maxResults: phase5Ctx?.bundle.runtime.web_search_tavily_max_results,
-              snippetMaxChars: phase5Ctx?.bundle.runtime.web_search_snippet_max_chars,
-              resultMaxChars: phase5Ctx?.bundle.runtime.web_search_result_max_chars,
-            });
+            const toolText = await tavilySearch(plan.query, tavilyTimeout, tavilyOpts);
+            webContentByCallId.set(plan.toolCallId, toolText);
           } catch (e: unknown) {
-            toolText = JSON.stringify({
-              error: "search_failed",
-              detail: e instanceof Error ? e.message : String(e),
-            });
+            webContentByCallId.set(
+              plan.toolCallId,
+              JSON.stringify({
+                error: "search_failed",
+                detail: e instanceof Error ? e.message : String(e),
+              }),
+            );
           }
-          messages.push({ role: "tool", tool_call_id: id, content: toolText });
+        }),
+      );
+
+      for (const plan of toolPlans) {
+        if (plan.kind === "web_run") {
+          messages.push({
+            role: "tool",
+            tool_call_id: plan.toolCallId,
+            content: webContentByCallId.get(plan.toolCallId) ?? JSON.stringify({ error: "search_failed" }),
+          });
+        } else if (plan.kind === "web_skip") {
+          webSearchSkippedByLimit += 1;
+          messages.push({
+            role: "tool",
+            tool_call_id: plan.toolCallId,
+            content: JSON.stringify({
+              error: "web_search_per_round_limit",
+              limit: webSearchMaxPerRound,
+              detail:
+                "この assistant ラウンドでの web_search 呼び出しが環境変数 AO_WEB_SEARCH_MAX_PER_ROUND の上限を超えました。クエリを統合するか検索回数を減らしてください。",
+            }),
+          });
+          if (isChatDebugMode()) {
+            console.log("[chat-debug] web_search skipped (per-round limit)", webSearchSkippedByLimit);
+          }
         } else {
-          if (isChatDebugMode() && name && unsupportedToolNamesForDebug.length < 12) {
-            unsupportedToolNamesForDebug.push(name);
+          if (isChatDebugMode() && plan.name && unsupportedToolNamesForDebug.length < 12) {
+            unsupportedToolNamesForDebug.push(plan.name);
           }
           messages.push({
             role: "tool",
-            tool_call_id: id,
-            content: JSON.stringify({ error: `unsupported tool: ${name}` }),
+            tool_call_id: plan.toolCallId,
+            content: JSON.stringify({ error: `unsupported tool: ${plan.name}` }),
           });
         }
       }
     }
-  } catch (e: unknown) {
-    const detail = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(
-      {
+    } catch (e: unknown) {
+      const detail = e instanceof Error ? e.message : String(e);
+      emit("error", {
         error: "LLM or search error",
         detail: detail.slice(0, 2000),
-        // デバッグ用（秘密は含めない）
         llm: {
           baseUrl,
           model: effectiveModel,
@@ -1126,10 +1179,9 @@ export async function POST(req: Request) {
               },
             }
           : {}),
-      },
-      { status: 502 },
-    );
-  }
+      });
+      return;
+    }
 
   const usagePayload = await buildTurnUsagePayload(effectiveModel, usageAgg.prompt, usageAgg.completion);
 
@@ -1219,21 +1271,24 @@ export async function POST(req: Request) {
             completion: lastCompletionJson,
           };
           const usdRow = usagePayload.estimatedUsd;
-          const rows = chunks.map((c, i) => ({
-            thread_id: persistedThreadUuid,
-            role: "assistant",
-            text: c.text,
-            persona: c.speaker,
-            provider: "openrouter",
-            model_id: effectiveModel,
-            raw_response: i === 0 ? rawPayload : null,
-            prompt_tokens: i === 0 ? usageAgg.prompt : null,
-            completion_tokens: i === 0 ? usageAgg.completion : null,
-            token_count: i === 0 ? usageAgg.prompt + usageAgg.completion : null,
-            usd_estimate: i === 0 ? usdRow : null,
-            raw_prompt_sent: i === 0 ? rawPromptSentLive : null,
-            raw_prompt_received: i === 0 ? rawPromptReceivedLive : null,
-          }));
+          const persistAssistantText = finalContent.trim() || chunksToTaggedRaw(chunks);
+          const rows = [
+            {
+              thread_id: persistedThreadUuid,
+              role: "assistant" as const,
+              text: persistAssistantText,
+              persona: defaultSpeaker,
+              provider: "openrouter",
+              model_id: effectiveModel,
+              raw_response: rawPayload,
+              prompt_tokens: usageAgg.prompt,
+              completion_tokens: usageAgg.completion,
+              token_count: usageAgg.prompt + usageAgg.completion,
+              usd_estimate: usdRow,
+              raw_prompt_sent: rawPromptSentLive,
+              raw_prompt_received: rawPromptReceivedLive,
+            },
+          ];
           const { data: insertedRows, error: ae } = await supa
             .from("ao_messages")
             .insert(rows)
@@ -1272,37 +1327,39 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({
-    chunks,
-    rawContent: finalContent,
-    usage: usagePayload,
-    completionMeta,
-    rawPrompts: { sent: rawPromptSentLive, received: rawPromptReceivedLive },
-    ...(persistMessages && persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
-    ...(isChatDebugMode()
-      ? {
-          chatDebug: {
-            phase: "live",
-            tavilyApiKeyPresent: tavilyEnabled,
-            toolsAttachedToPayload: Boolean(tools),
-            maxToolRounds,
-            webSearchMaxPerRound,
-            completionRoundCount,
-            toolFollowupLoops: toolRounds,
-            webSearchInvocations: webSearchInvocationCount,
-            webSearchSkippedByLimit,
-            webSearchQueries: [...webSearchQueriesForDebug],
-            unsupportedToolNames: [...unsupportedToolNamesForDebug],
-            usage: usagePayload,
-            rag: {
-              isFirstUserTurn,
-              hitCount: ragMeta.hitCount,
-              topSimilarity: ragMeta.topSimilarity,
-              injected: ragMeta.injected,
-              matchThreshold: ragMeta.threshold,
+    emit("done", {
+      chunks,
+      rawContent: finalContent,
+      usage: usagePayload,
+      completionMeta,
+      rawPrompts: { sent: rawPromptSentLive, received: rawPromptReceivedLive },
+      ...(phase5Ctx?.historyCompression ? { historyCompression: phase5Ctx.historyCompression } : {}),
+      ...(persistMessages && persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
+      ...(isChatDebugMode()
+        ? {
+            chatDebug: {
+              phase: "live",
+              tavilyApiKeyPresent: tavilyEnabled,
+              toolsAttachedToPayload: Boolean(tools),
+              maxToolRounds,
+              webSearchMaxPerRound,
+              completionRoundCount,
+              toolFollowupLoops: toolRounds,
+              webSearchInvocations: webSearchInvocationCount,
+              webSearchSkippedByLimit,
+              webSearchQueries: [...webSearchQueriesForDebug],
+              unsupportedToolNames: [...unsupportedToolNamesForDebug],
+              usage: usagePayload,
+              rag: {
+                isFirstUserTurn,
+                hitCount: ragMeta.hitCount,
+                topSimilarity: ragMeta.topSimilarity,
+                injected: ragMeta.injected,
+                matchThreshold: ragMeta.threshold,
+              },
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
+    });
   });
 }

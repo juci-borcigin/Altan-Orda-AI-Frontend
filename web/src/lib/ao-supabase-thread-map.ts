@@ -1,4 +1,9 @@
 import { usagePromptCompletionFromStoredRawResponse } from "@/lib/ao-completion-usage";
+import {
+  expandTaggedAssistantText,
+  looksTaggedAssistantText,
+  rawContentFromMessageRow,
+} from "@/lib/ao-assistant-turn";
 import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-text";
 import { estimateCompletionUsd } from "@/lib/ao-usage-estimate";
 import type { Msg, MsgRawPromptBundle, MsgTurnUsage } from "@/lib/ao-state";
@@ -133,28 +138,102 @@ export function hydrateMsgTurnUsageAndRaw(msgs: Msg[]): void {
   }
 }
 
+function mapUserRow(row: DbMessageRow): Msg {
+  return {
+    id: String(row.id),
+    side: "user",
+    speaker: "ジュチ",
+    text: row.text,
+    createdAt: msFromDb(row.created_at),
+  };
+}
+
+function mapAssistantChunk(
+  row: DbMessageRow,
+  chunkIndex: number,
+  chunkCount: number,
+  speaker: string,
+  text: string,
+  sourceProvider: string | null,
+): Msg {
+  const displayText = displayTextForClaudeImportedAssistant(sourceProvider, "assistant", text);
+  const msg: Msg = {
+    id: chunkCount > 1 ? `${row.id}#${chunkIndex}` : String(row.id),
+    side: "ai",
+    speaker,
+    text: displayText,
+    createdAt: msFromDb(row.created_at),
+  };
+  if (chunkIndex === 0) {
+    const usage = usageFromAssistantRow(row);
+    const rawPrompts = rawPromptBundleFromRow(row);
+    if (usage) msg.usage = usage;
+    if (rawPrompts) msg.rawPrompts = rawPrompts;
+  }
+  return msg;
+}
+
+function isAoNativeThread(sourceProvider: string | null): boolean {
+  const sp = sourceProvider?.trim() ?? "";
+  return !sp || sp === "ao";
+}
+
 export function buildMessagesFromDbRows(rawMsgs: DbMessageRow[], sourceProvider: string | null): Msg[] {
   const sp = typeof sourceProvider === "string" ? sourceProvider : null;
-  const msgs: Msg[] = rawMsgs.map((row) => {
-    const isUser = row.role === "user";
-    const text = isUser
-      ? row.text
-      : displayTextForClaudeImportedAssistant(sp, row.role, row.text);
-    const msg: Msg = {
-      id: String(row.id),
-      side: isUser ? "user" : "ai",
-      speaker: isUser ? "ジュチ" : row.persona || "不明",
-      text,
-      createdAt: msFromDb(row.created_at),
-    };
-    if (!isUser) {
-      const usage = usageFromAssistantRow(row);
-      const rawPrompts = rawPromptBundleFromRow(row);
+  const aoNative = isAoNativeThread(sp);
+  const msgs: Msg[] = [];
+  let i = 0;
+
+  while (i < rawMsgs.length) {
+    const row = rawMsgs[i]!;
+    if (row.role === "user") {
+      msgs.push(mapUserRow(row));
+      i += 1;
+      continue;
+    }
+
+    if (row.role !== "assistant") {
+      i += 1;
+      continue;
+    }
+
+    const run: DbMessageRow[] = [];
+    while (i < rawMsgs.length && rawMsgs[i]!.role === "assistant") {
+      run.push(rawMsgs[i]!);
+      i += 1;
+    }
+
+    if (aoNative && run.length === 1) {
+      const only = run[0]!;
+      const raw = rawContentFromMessageRow(only.raw_response) ?? only.text;
+      const defaultSpeaker = only.persona?.trim() || "不明";
+      if (looksTaggedAssistantText(raw)) {
+        const chunks = expandTaggedAssistantText(raw, defaultSpeaker);
+        chunks.forEach((c, idx) => {
+          msgs.push(mapAssistantChunk(only, idx, chunks.length, c.speaker, c.text, sp));
+        });
+        continue;
+      }
+    }
+
+    for (const r of run) {
+      const speaker = r.persona?.trim() || "不明";
+      const text = displayTextForClaudeImportedAssistant(sp, r.role, r.text);
+      const msg: Msg = {
+        id: String(r.id),
+        side: "ai",
+        speaker,
+        text,
+        createdAt: msFromDb(r.created_at),
+      };
+      const usage = usageFromAssistantRow(r);
+      const rawPrompts = rawPromptBundleFromRow(r);
       if (usage) msg.usage = usage;
       if (rawPrompts) msg.rawPrompts = rawPrompts;
+      msgs.push(msg);
     }
-    return msg;
-  });
+  }
+
   hydrateMsgTurnUsageAndRaw(msgs);
   return msgs;
 }

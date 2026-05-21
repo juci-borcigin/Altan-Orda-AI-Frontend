@@ -37,6 +37,8 @@ export type RagSearchOptions = {
   filter_project_id?: string | null;
   filter_kind?: string | null;
   project_label_ja?: string | null;
+  /** 当該 Supabase 議事 uuid の message チャンクを RAG から除外 */
+  exclude_thread_id?: string | null;
 };
 
 /** ao_embeddings 検索（Phase5: rag_when / 件数 / 閾値 / Kind・論フィルタ） */
@@ -69,12 +71,14 @@ export async function searchRagChunks(
   const emb = await openAiEmbed(query, openaiKey);
   const match_count = opts?.match_count ?? 5;
   const match_threshold = opts?.match_threshold ?? RAG_MATCH_THRESHOLD;
+  const excludeThreadId = opts?.exclude_thread_id?.trim() || null;
   const { data, error } = await supa.rpc("match_embeddings", {
     query_embedding: emb,
     match_count,
     match_threshold,
     filter_project_id: filterProjectId,
     filter_kind: filterKind,
+    exclude_thread_id: excludeThreadId,
   });
   if (error) {
     console.error("[rag] match_embeddings:", error.message);
