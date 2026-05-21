@@ -39,7 +39,7 @@ export type RagSearchOptions = {
   project_label_ja?: string | null;
 };
 
-/** embeddings 検索（Phase5: rag_when / 件数 / 閾値 / Kind・論フィルタ） */
+/** ao_embeddings 検索（Phase5: rag_when / 件数 / 閾値 / Kind・論フィルタ） */
 export async function searchRagChunks(
   supa: SupabaseClient,
   lastUserText: string,

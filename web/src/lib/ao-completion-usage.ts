@@ -121,7 +121,7 @@ export function addCompletionUsageToAgg(
   agg.completion += got.completionTokens;
 }
 
-/** Supabase `messages.raw_response`（{ completion?: unknown } 想定）から復元 */
+/** Supabase `ao_messages.raw_response`（{ completion?: unknown } 想定）から復元 */
 export function usagePromptCompletionFromStoredRawResponse(
   rawResponse: unknown,
 ): { promptTokens: number; completionTokens: number } | null {

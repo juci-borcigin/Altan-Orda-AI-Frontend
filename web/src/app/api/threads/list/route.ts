@@ -61,7 +61,7 @@ export async function GET(req: Request) {
   }
 
   const { data, error } = await supa
-    .from("threads")
+    .from("ao_threads")
     .select("id, client_thread_id, title, project_id, created_at, updated_at, source_provider")
     .in("project_id", projectIds)
     .order("updated_at", { ascending: false })

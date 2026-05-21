@@ -82,11 +82,11 @@ async function main() {
   const variablesPath = resolve(PM_PHASE5, "AO_Phase5_Variables.txt");
   if (existsSync(templatePath)) {
     const body = extractPhase5TemplateBody(readFileSync(templatePath, "utf8"));
-    const { error } = await supa.from("ao_prompt_sections").upsert(
+    const { error } = await supa.from("ao_prompts").upsert(
       { section_key: "system_template", body, updated_at: new Date().toISOString() },
       { onConflict: "section_key" },
     );
-    if (error) console.warn("system_template (ao_prompt_sections may need key in app):", error.message);
+    if (error) console.warn("system_template (ao_prompts may need key in app):", error.message);
     else console.log("system_template upserted");
   }
 
@@ -134,21 +134,21 @@ async function main() {
     ];
     for (const { key, body } of flatKeys) {
       if (!body.trim()) continue;
-      const { error } = await supa.from("ao_prompt_sections").upsert(
+      const { error } = await supa.from("ao_prompts").upsert(
         { section_key: key, body, updated_at: new Date().toISOString() },
         { onConflict: "section_key" },
       );
-      if (error) console.warn("ao_prompt_sections", key, error.message);
-      else console.log("ao_prompt_sections", key);
+      if (error) console.warn("ao_prompts", key, error.message);
+      else console.log("ao_prompts", key);
     }
     for (const [mk, body] of Object.entries(vars.modes)) {
       if (!body.trim()) continue;
-      const { error } = await supa.from("ao_prompt_sections").upsert(
+      const { error } = await supa.from("ao_prompts").upsert(
         { section_key: mk, body, updated_at: new Date().toISOString() },
         { onConflict: "section_key" },
       );
       if (error) console.warn("mode section", mk, error.message);
-      else console.log("ao_prompt_sections", mk);
+      else console.log("ao_prompts", mk);
     }
   }
 

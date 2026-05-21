@@ -18,8 +18,8 @@
  *   --dry-run-limit N  dry-run 時に先頭 N スレッドだけ詳細を出す（既定 40）
  *   --max-threads N  先頭 N スレッドだけ取り込む（本番のスモーク用）
  *
- *   上書き: source_native_id と source_provider が両方あるパックは、同キーの既存 threads を
- *   DELETE（messages は CASCADE）してから再挿入する（再実行で二重化しない。手動変更は消える）。
+ *   上書き: source_native_id と source_provider が両方あるパックは、同キーの既存 ao_threads を
+ *   DELETE（ao_messages は CASCADE）してから再挿入する（再実行で二重化しない。手動変更は消える）。
  *
  * ChatGPT エクスポート:
  *   conversations.json は「会話オブジェクト 1 本」または「会話オブジェクトの配列」のどちらにも対応。
@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "../web/.env") });
 dotenv.config({ path: path.join(__dirname, "../web/.env.local") });
 
-/** UI ラベル → ao-types ProjectId（Supabase threads.project_id と一致） */
+/** UI ラベル → ao-types ProjectId（Supabase ao_threads.project_id と一致） */
 const GEL_TO_PROJECT = {
   執務ゲル: "plan",
   軍議ゲル: "work",
@@ -92,7 +92,7 @@ function parseArgs(argv) {
   return o;
 }
 
-/** 取り込み専用の任意 project_id（Supabase threads.project_id は text。UI の ProjectId 外も可） */
+/** 取り込み専用の任意 project_id（Supabase ao_threads.project_id は text。UI の ProjectId 外も可） */
 function isCustomImportProjectId(t) {
   if (t.length < 1 || t.length > 64) return false;
   return /^[a-zA-Z0-9_-]+$/.test(t);
@@ -260,7 +260,7 @@ function nblmExtractText(m) {
 
 /**
  * NotebookLM の「NotebookLM Conversation.json」
- * - chatGroupId ごとに 1 threads
+ * - chatGroupId ごとに 1 ao_threads
  * - id が *_summary の assistant を先頭に、その他は created_at / updated_at 相当で時系列
  */
 function adaptNotebookLmAll(raw, sourceFacet, fixedTitle = NBLM_DEFAULT_THREAD_TITLE) {
@@ -620,7 +620,7 @@ async function supabaseDeleteThreadsByNative(baseUrl, key, sourceProvider, sourc
   const nid = String(sourceNativeId).trim();
   if (!sp || !nid) return;
   const enc = encodeURIComponent;
-  const url = `${baseUrl}/rest/v1/threads?source_provider=eq.${enc(sp)}&source_native_id=eq.${enc(nid)}`;
+  const url = `${baseUrl}/rest/v1/ao_threads?source_provider=eq.${enc(sp)}&source_native_id=eq.${enc(nid)}`;
   const r = await fetch(url, {
     method: "DELETE",
     headers: {
@@ -631,13 +631,13 @@ async function supabaseDeleteThreadsByNative(baseUrl, key, sourceProvider, sourc
   });
   if (!r.ok) {
     const t = await r.text();
-    throw new Error(`threads delete ${r.status}: ${t.slice(0, 400)}`);
+    throw new Error(`ao_threads delete ${r.status}: ${t.slice(0, 400)}`);
   }
 }
 
 /**
- * threads + messages を投入。source_native_id と source_provider が両方あるときは
- * 同キーの既存 threads を先に DELETE（messages は CASCADE）してから挿入する。
+ * ao_threads + ao_messages を投入。source_native_id と source_provider が両方あるときは
+ * 同キーの既存 ao_threads を先に DELETE（ao_messages は CASCADE）してから挿入する。
  */
 async function supabaseImportPack(
   baseUrl,
@@ -677,18 +677,18 @@ async function supabaseImportPack(
   };
   if (threadUpdatedAtIso) threadBody.updated_at = threadUpdatedAtIso;
 
-  const tr = await fetch(`${baseUrl}/rest/v1/threads`, {
+  const tr = await fetch(`${baseUrl}/rest/v1/ao_threads`, {
     method: "POST",
     headers: hdr,
     body: JSON.stringify(threadBody),
   });
   const trText = await tr.text();
-  if (!tr.ok) throw new Error(`threads insert ${tr.status}: ${trText.slice(0, 400)}`);
+  if (!tr.ok) throw new Error(`ao_threads insert ${tr.status}: ${trText.slice(0, 400)}`);
   const [threadRow] = JSON.parse(trText);
   const threadId = threadRow.id;
 
   for (const row of turns) {
-    const r = await fetch(`${baseUrl}/rest/v1/messages`, {
+    const r = await fetch(`${baseUrl}/rest/v1/ao_messages`, {
       method: "POST",
       headers: hdr,
       body: JSON.stringify({
@@ -702,7 +702,7 @@ async function supabaseImportPack(
       }),
     });
     const rt = await r.text();
-    if (!r.ok) throw new Error(`messages insert ${r.status}: ${rt.slice(0, 400)}`);
+    if (!r.ok) throw new Error(`ao_messages insert ${r.status}: ${rt.slice(0, 400)}`);
   }
 }
 

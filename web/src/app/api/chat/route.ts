@@ -45,7 +45,7 @@ type ReqBody = {
   /** クライアント議事 ID（th_*）。永続化時に必須 */
   clientThreadId?: string;
   threadTitle?: string;
-  /** Supabase threads.id（uuid） */
+  /** Supabase ao_threads.id（uuid） */
   supabaseThreadId?: string | null;
 };
 
@@ -539,7 +539,7 @@ function allowsSupabaseThreadPersist(projectId: ProjectId): boolean {
 }
 
 /**
- * AO ネイティブ（source_provider=ao）のみ threads/messages を更新。
+ * AO ネイティブ（source_provider=ao）のみ ao_threads / ao_messages を更新。
  * 書庫取り込み（claude / chatgpt / gemini 等）は閲覧のみで永続化しない。
  */
 async function prepareChatPersistence(
@@ -557,7 +557,7 @@ async function prepareChatPersistence(
   if (body.supabaseThreadId?.trim()) {
     const sid = body.supabaseThreadId.trim();
     const { data: byPk, error: e1 } = await supa
-      .from("threads")
+      .from("ao_threads")
       .select("id, source_provider")
       .eq("id", sid)
       .maybeSingle();
@@ -568,7 +568,7 @@ async function prepareChatPersistence(
         return { threadUuid: null, persistMessages: false };
       }
       await supa
-        .from("threads")
+        .from("ao_threads")
         .update({
           title: titleForRow,
           client_thread_id: cid,
@@ -580,7 +580,7 @@ async function prepareChatPersistence(
   }
 
   const { data: byClient, error: e2 } = await supa
-    .from("threads")
+    .from("ao_threads")
     .select("id, source_provider")
     .eq("client_thread_id", cid)
     .maybeSingle();
@@ -591,7 +591,7 @@ async function prepareChatPersistence(
       return { threadUuid: null, persistMessages: false };
     }
     await supa
-      .from("threads")
+      .from("ao_threads")
       .update({
         title: titleForRow,
         updated_at: new Date().toISOString(),
@@ -601,7 +601,7 @@ async function prepareChatPersistence(
   }
 
   const { data: ins, error: e3 } = await supa
-    .from("threads")
+    .from("ao_threads")
     .insert({
       title: titleForRow,
       project_id: body.projectId,
@@ -1205,7 +1205,7 @@ export async function POST(req: Request) {
       persistMessages = plan.persistMessages;
       persistedThreadUuid = plan.threadUuid;
       if (persistMessages && persistedThreadUuid) {
-        const { error: ue } = await supa.from("messages").insert({
+        const { error: ue } = await supa.from("ao_messages").insert({
           thread_id: persistedThreadUuid,
           role: "user",
           text: lastUser,
@@ -1235,19 +1235,19 @@ export async function POST(req: Request) {
             raw_prompt_received: i === 0 ? rawPromptReceivedLive : null,
           }));
           const { data: insertedRows, error: ae } = await supa
-            .from("messages")
+            .from("ao_messages")
             .insert(rows)
             .select("id, text");
           if (ae) console.error("[chat] persist assistant messages:", ae.message);
           await supa
-            .from("threads")
+            .from("ao_threads")
             .update({ updated_at: new Date().toISOString() })
             .eq("id", persistedThreadUuid);
 
           const oai = process.env.OPENAI_API_KEY?.trim();
           if (oai && insertedRows?.length) {
             const { data: threadMeta } = await supa
-              .from("threads")
+              .from("ao_threads")
               .select("source_provider,title,project_id")
               .eq("id", persistedThreadUuid)
               .maybeSingle();

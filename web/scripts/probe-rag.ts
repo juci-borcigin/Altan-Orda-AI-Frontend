@@ -86,7 +86,7 @@ async function main() {
   }
 
   const { count } = await supa
-    .from("embeddings")
+    .from("ao_embeddings")
     .select("id", { count: "exact", head: true })
     .ilike("chunk_text", "%作戦AO%");
   console.log(`\n[warehouse] embeddings with 作戦AO: ${count ?? "?"}`);

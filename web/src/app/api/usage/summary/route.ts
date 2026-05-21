@@ -51,7 +51,7 @@ export async function GET() {
           error: error.message,
           fallbackError: fbMsg,
           hint:
-            "まず supabase/migrations/011_ao_usage_summary_aggregate.sql を適用し、ダッシュボードでスキーマ再読込（または NOTIFY pgrst, 'reload schema'）を試してください。フォールバックも失敗した場合は PostgREST の集計構文・messages の RLS／権限を確認してください。",
+            "まず supabase/migrations/011_ao_usage_summary_aggregate.sql と 021_rename_core_ao_tables.sql を適用し、ダッシュボードでスキーマ再読込（または NOTIFY pgrst, 'reload schema'）を試してください。フォールバックも失敗した場合は PostgREST の集計構文・ao_messages の RLS／権限を確認してください。",
         },
         { status: 500 },
       );

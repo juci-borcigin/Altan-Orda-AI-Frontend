@@ -3,7 +3,7 @@ import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-t
 import { estimateCompletionUsd } from "@/lib/ao-usage-estimate";
 import type { Msg, MsgRawPromptBundle, MsgTurnUsage } from "@/lib/ao-state";
 
-/** `threads` / `messages` SELECT 行（api/state と api/threads で共通） */
+/** `ao_threads` / `ao_messages` SELECT 行（api/state と api/threads で共通） */
 export type DbThreadRow = {
   id: string;
   client_thread_id: string | null;

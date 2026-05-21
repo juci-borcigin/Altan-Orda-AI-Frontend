@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Step 5: Supabase の threads / messages を JSON にまとめ、GDrive フォルダへアップロード（上書き）。
+ * Step 5: Supabase の ao_threads / ao_messages を JSON にまとめ、GDrive フォルダへアップロード（上書き）。
  * 依存: Node 18+（fetch のみ）。GitHub Actions の `node scripts/backup-to-gdrive.mjs` で実行。
  *
  * 必須環境変数:
@@ -130,10 +130,10 @@ async function main() {
     throw new Error("GDRIVE_BACKUP_FOLDER_ID is required");
   }
 
-  console.error("Fetching threads…");
-  const threads = await fetchAllRows(baseUrl, key, "threads");
-  console.error("Fetching messages…");
-  const messages = await fetchAllRows(baseUrl, key, "messages");
+  console.error("Fetching ao_threads…");
+  const threads = await fetchAllRows(baseUrl, key, "ao_threads");
+  console.error("Fetching ao_messages…");
+  const messages = await fetchAllRows(baseUrl, key, "ao_messages");
 
   const stamp = new Date().toISOString().slice(0, 10);
   const fileName = `altan-orda-backup-${stamp}.json`;

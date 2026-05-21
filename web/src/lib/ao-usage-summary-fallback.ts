@@ -15,7 +15,7 @@ type MessagesRow = {
 type UsageSummaryDatabase = {
   public: {
     Tables: {
-      messages: { Row: MessagesRow; Insert: never; Update: never; Relationships: [] };
+      ao_messages: { Row: MessagesRow; Insert: never; Update: never; Relationships: [] };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -95,7 +95,7 @@ export async function aoUsageSummaryFallbackAggregates(supa: SupabaseClient): Pr
   const db = supa as unknown as TypedAdmin;
 
   const { count: assistantTurnRows = 0, error: cErr } = await db
-    .from("messages")
+    .from("ao_messages")
     .select("id", { count: "exact", head: true })
     .eq("role", "assistant")
     .not("prompt_tokens", "is", null);
@@ -104,7 +104,7 @@ export async function aoUsageSummaryFallbackAggregates(supa: SupabaseClient): Pr
   const sumSel = "prompt_tokens.sum(),completion_tokens.sum(),usd_estimate.sum()";
 
   const { data: allRows, error: eAll } = await db
-    .from("messages")
+    .from("ao_messages")
     .select(sumSel)
     .eq("role", "assistant")
     .not("prompt_tokens", "is", null);
@@ -113,7 +113,7 @@ export async function aoUsageSummaryFallbackAggregates(supa: SupabaseClient): Pr
 
   const day0 = utcDayStartIso();
   const { data: dayRows, error: eDay } = await db
-    .from("messages")
+    .from("ao_messages")
     .select(sumSel)
     .eq("role", "assistant")
     .not("prompt_tokens", "is", null)
@@ -123,7 +123,7 @@ export async function aoUsageSummaryFallbackAggregates(supa: SupabaseClient): Pr
 
   const mon0 = utcMonthStartIso();
   const { data: monRows, error: eMon } = await db
-    .from("messages")
+    .from("ao_messages")
     .select(sumSel)
     .eq("role", "assistant")
     .not("prompt_tokens", "is", null)
@@ -133,7 +133,7 @@ export async function aoUsageSummaryFallbackAggregates(supa: SupabaseClient): Pr
 
   const t30 = thirtyDaysAgoIso();
   const { data: modelRows, error: eMod } = await db
-    .from("messages")
+    .from("ao_messages")
     .select(`model_id,${sumSel}`)
     .eq("role", "assistant")
     .not("prompt_tokens", "is", null)

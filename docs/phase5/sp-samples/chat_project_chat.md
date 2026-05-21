@@ -2,7 +2,7 @@
 
 - project_id: `chat`
 - 文字数: 860
-- source: Supabase（ao_projects / ao_personas / ao_prompt_sections）
+- source: Supabase（ao_projects / ao_personas / ao_prompts）
 
 ---
 

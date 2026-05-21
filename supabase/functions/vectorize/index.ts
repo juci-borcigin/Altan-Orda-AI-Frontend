@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
   }
 
   const supa = createClient(supaUrl, supaKey, { auth: { persistSession: false } });
-  await supa.from("embeddings").delete().eq("source_id", msgId).eq("source_type", "message");
+  await supa.from("ao_embeddings").delete().eq("source_id", msgId).eq("source_type", "message");
 
   for (const chunk of chunkText(text)) {
     const embRes = await fetch("https://api.openai.com/v1/embeddings", {
@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     const j = JSON.parse(raw) as { data?: Array<{ embedding?: number[] }> };
     const vec = j.data?.[0]?.embedding;
     if (!vec?.length) continue;
-    await supa.from("embeddings").insert({
+    await supa.from("ao_embeddings").insert({
       source_id: msgId,
       source_type: "message",
       chunk_text: chunk,

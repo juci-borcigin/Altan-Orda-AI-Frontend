@@ -74,12 +74,12 @@ export async function storeEmbeddingsForMessageTexts(
     const chunks = chunkText(row.text);
     if (!chunks.length) continue;
 
-    await supa.from("embeddings").delete().eq("source_id", row.id).eq("source_type", "message");
+    await supa.from("ao_embeddings").delete().eq("source_id", row.id).eq("source_type", "message");
 
     for (const chunk of chunks) {
       try {
         const embedding = await openAiEmbed(chunk, key);
-        const { error } = await supa.from("embeddings").insert({
+        const { error } = await supa.from("ao_embeddings").insert({
           source_id: row.id,
           source_type: "message",
           chunk_text: chunk,

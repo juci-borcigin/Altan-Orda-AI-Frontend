@@ -67,9 +67,9 @@ export type Thread = {
   createdAt: number;
   updatedAt: number;
   messages: Msg[];
-  /** Supabase `threads.id`（uuid）。未同期の議事では未設定 */
+  /** Supabase `ao_threads.id`（uuid）。未同期の議事では未設定 */
   supabaseThreadId?: string;
-  /** Supabase `threads.source_provider`（取り込み元）。AO ネイティブ議事では未設定 */
+  /** Supabase `ao_threads.source_provider`（取り込み元）。AO ネイティブ議事では未設定 */
   sourceProvider?: string;
   /** 「新規」直後・初回送信前のみ true。論を変えた／別議事を選んだときに破棄される */
   ephemeral?: boolean;

@@ -24,7 +24,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   }
 
   const { data: tr, error: e1 } = await supa
-    .from("threads")
+    .from("ao_threads")
     .select("id, source_provider")
     .eq("id", tid)
     .maybeSingle();
@@ -37,14 +37,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
 
   const { data: msgRows, error: e2 } = includeRaw
     ? await supa
-        .from("messages")
+        .from("ao_messages")
         .select(
           "id, thread_id, role, text, persona, created_at, model_id, prompt_tokens, completion_tokens, token_count, usd_estimate, raw_prompt_sent, raw_prompt_received, raw_response",
         )
         .eq("thread_id", tid)
         .order("created_at", { ascending: true })
     : await supa
-        .from("messages")
+        .from("ao_messages")
         .select(
           "id, thread_id, role, text, persona, created_at, model_id, prompt_tokens, completion_tokens, token_count, usd_estimate",
         )

@@ -24,13 +24,13 @@ function chunkIds<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-/** 既定の max-rows（1000）を超える threads もすべて取得 */
+/** 既定の max-rows（1000）を超える ao_threads もすべて取得 */
 async function fetchAllThreadRows(supa: NonNullable<ReturnType<typeof getSupabaseAdmin>>) {
   const out: DbThreadRow[] = [];
   let from = 0;
   while (true) {
     const { data, error } = await supa
-      .from("threads")
+      .from("ao_threads")
       .select("id, client_thread_id, title, project_id, created_at, updated_at, source_provider")
       .order("updated_at", { ascending: false })
       .range(from, from + THREAD_PAGE_SIZE - 1);
@@ -50,7 +50,7 @@ async function fetchMessagesBatched(
   const out: DbMessageRow[] = [];
   for (const idChunk of chunkIds(threadIds, MESSAGE_IN_CHUNK)) {
     const { data, error } = await supa
-      .from("messages")
+      .from("ao_messages")
       .select(
         "id, thread_id, role, text, persona, created_at, model_id, prompt_tokens, completion_tokens, token_count, usd_estimate, raw_prompt_sent, raw_prompt_received, raw_response",
       )
@@ -61,7 +61,7 @@ async function fetchMessagesBatched(
   return out;
 }
 
-/** 全 threads・全 messages を一括で返す（移行・デバッグ用。通常 UI は /api/threads/list を使用） */
+/** 全 ao_threads・全 ao_messages を一括で返す（移行・デバッグ用。通常 UI は /api/threads/list を使用） */
 export async function GET() {
   const supa = getSupabaseAdmin();
   if (!supa) {

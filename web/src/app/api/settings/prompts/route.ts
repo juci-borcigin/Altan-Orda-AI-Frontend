@@ -77,7 +77,7 @@ type PostBody = {
   projectModels?: Record<string, string>;
 };
 
-/** POST: ao_prompt_sections / ao_projects.model_id を更新（要 Supabase サービスロール） */
+/** POST: ao_prompts / ao_projects.model_id を更新（要 Supabase サービスロール） */
 export async function POST(req: Request) {
   const supa = getSupabaseAdmin();
   if (!supa) {
@@ -107,7 +107,7 @@ export async function POST(req: Request) {
     const defTrim = AO_PROMPT_DEFAULTS[key].trim();
 
     if (!trimmed || trimmed === defTrim) {
-      const { error } = await supa.from("ao_prompt_sections").delete().eq("section_key", key);
+      const { error } = await supa.from("ao_prompts").delete().eq("section_key", key);
       if (error) {
         console.error("[settings/prompts POST] delete section", key, error.message);
         return NextResponse.json({ error: `削除に失敗: ${key}`, detail: error.message }, { status: 500 });
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
       continue;
     }
 
-    const { error } = await supa.from("ao_prompt_sections").upsert(
+    const { error } = await supa.from("ao_prompts").upsert(
       { section_key: key, body: trimmed, updated_at: now },
       { onConflict: "section_key" },
     );

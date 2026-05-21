@@ -81,7 +81,7 @@ function requireSectionBody(
   label: string,
 ): string {
   if (!byKey.has(sectionKey)) {
-    throw new Phase5DbConfigError(`ao_prompt_sections.${sectionKey} がありません（${label}）`);
+    throw new Phase5DbConfigError(`ao_prompts.${sectionKey} がありません（${label}）`);
   }
   return byKey.get(sectionKey) ?? "";
 }
@@ -105,7 +105,7 @@ export async function loadPhase5ChatBundle(
   if (!project) return null;
 
   const { data: tmplRow, error: tmplErr } = await supa
-    .from("ao_prompt_sections")
+    .from("ao_prompts")
     .select("body")
     .eq("section_key", "system_template")
     .maybeSingle();
@@ -121,10 +121,10 @@ export async function loadPhase5ChatBundle(
 
   const sectionKeys = [...REQUIRED_GLOBAL_KEYS, ...OPTIONAL_SECTION_KEYS];
   const { data: sections, error: sErr } = await supa
-    .from("ao_prompt_sections")
+    .from("ao_prompts")
     .select("section_key, body")
     .in("section_key", sectionKeys);
-  if (sErr) throw new Phase5DbConfigError(`ao_prompt_sections 読込失敗: ${sErr.message}`);
+  if (sErr) throw new Phase5DbConfigError(`ao_prompts 読込失敗: ${sErr.message}`);
 
   const byKey = new Map<string, string>();
   for (const row of sections ?? []) {

@@ -703,7 +703,7 @@ function formatDateDay(ms: number) {
   return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
 }
 
-/** 年代記／令旨リスト：`threads.source_provider` のウルス表示名 */
+/** 年代記／令旨リスト：`ao_threads.source_provider` のウルス表示名 */
 function threadSourceProviderUlusLabel(sourceProvider: string | undefined): string {
   const v = sourceProvider?.trim().toLowerCase() ?? "";
   if (v === "gemini") return "チャガタイ";

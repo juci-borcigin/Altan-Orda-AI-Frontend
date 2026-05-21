@@ -235,7 +235,7 @@ Ver 1.xのパーサで分割済みのペルソナブロックをそれぞれ1行
 
 ```typescript
 // 例：フナン・ケテが同一応答に含まれる場合
-await supabase.from('messages').insert([
+await supabase.from('ao_messages').insert([
   {
     thread_id,
     role: 'assistant',
@@ -309,7 +309,7 @@ jobs:
     steps:
       - name: Ping Supabase
         run: |
-          curl -s "${{ secrets.SUPABASE_URL }}/rest/v1/threads?select=id&limit=1" \
+          curl -s "${{ secrets.SUPABASE_URL }}/rest/v1/ao_threads?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
           echo "Supabase ping OK"

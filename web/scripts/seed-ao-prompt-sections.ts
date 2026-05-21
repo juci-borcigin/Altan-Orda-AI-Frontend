@@ -1,5 +1,5 @@
 /**
- * Supabase `ao_prompt_sections` にコード既定（AO_PROMPT_DEFAULTS）を upsert。
+ * Supabase `ao_prompts` にコード既定（AO_PROMPT_DEFAULTS）を upsert。
  * 実行: cd web && npm run seed:prompts
  * 必要: .env に SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
@@ -46,7 +46,7 @@ async function main() {
 
   for (const section_key of AO_PROMPT_SECTION_KEYS) {
     const body = AO_PROMPT_DEFAULTS[section_key];
-    const { error } = await supa.from("ao_prompt_sections").upsert(
+    const { error } = await supa.from("ao_prompts").upsert(
       {
         section_key,
         body,

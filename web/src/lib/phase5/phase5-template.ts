@@ -1,6 +1,6 @@
 /**
  * Phase 5 system prompt テンプレ。
- * ランタイムの正本は Supabase `ao_prompt_sections.system_template` のみ。
+ * ランタイムの正本は Supabase `ao_prompts.system_template` のみ。
  * 以下の定数は seed / マイグレーション用（チャット組み立てでは使わない）。
  */
 export const PHASE5_SYSTEM_TEMPLATE_SEED_BODY = `## 1. 指令概要
@@ -58,7 +58,7 @@ export function extractPhase5TemplateBody(raw: string): string {
 export function systemTemplateBodyFromDb(dbTemplate: string | null | undefined): string {
   const body = extractPhase5TemplateBody((dbTemplate ?? "").trim());
   if (!body) {
-    throw new Error("ao_prompt_sections.system_template が空です");
+    throw new Error("ao_prompts.system_template が空です");
   }
   return body;
 }

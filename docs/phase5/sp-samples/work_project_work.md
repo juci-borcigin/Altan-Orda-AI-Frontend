@@ -2,7 +2,7 @@
 
 - project_id: `work`
 - 文字数: 1028
-- source: Supabase（ao_projects / ao_personas / ao_prompt_sections）
+- source: Supabase（ao_projects / ao_personas / ao_prompts）
 
 ---
 

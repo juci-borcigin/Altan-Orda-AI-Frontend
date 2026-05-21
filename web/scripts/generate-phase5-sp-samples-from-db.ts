@@ -1,5 +1,5 @@
 /**
- * Phase 5: DB（ao_projects / ao_personas / ao_prompt_sections）から組み立て済みSPサンプルを生成。
+ * Phase 5: DB（ao_projects / ao_personas / ao_prompts）から組み立て済みSPサンプルを生成。
  *
  * 実行:
  *   cd web && npx tsx scripts/generate-phase5-sp-samples-from-db.ts
@@ -38,7 +38,7 @@ async function main() {
   });
 
   const { data: sections, error: secErr } = await supa
-    .from("ao_prompt_sections")
+    .from("ao_prompts")
     .select("section_key, body")
     .in("section_key", [
       "global.stage",
@@ -49,7 +49,7 @@ async function main() {
       "global.format",
       "header.profile",
     ]);
-  if (secErr) throw new Error(`ao_prompt_sections: ${secErr.message}`);
+  if (secErr) throw new Error(`ao_prompts: ${secErr.message}`);
 
   const byKey = new Map<string, string>();
   for (const row of sections ?? []) byKey.set(row.section_key, row.body ?? "");
@@ -67,7 +67,7 @@ async function main() {
   if (perErr) throw new Error(`ao_personas: ${perErr.message}`);
 
   const { data: tmplRow, error: tmplErr } = await supa
-    .from("ao_prompt_sections")
+    .from("ao_prompts")
     .select("body")
     .eq("section_key", "system_template")
     .maybeSingle();
@@ -117,7 +117,7 @@ async function main() {
 
 - project_id: \`${proj.project_id}\`
 - 文字数: ${sp.length}
-- source: Supabase（ao_projects / ao_personas / ao_prompt_sections）
+- source: Supabase（ao_projects / ao_personas / ao_prompts）
 
 ---
 

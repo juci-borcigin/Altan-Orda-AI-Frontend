@@ -1,8 +1,8 @@
 /**
- * embeddings を全件削除し、messages 本文を再ベクトル化する。
- * - threads.source_provider が gemini（大小無視）のスレッドは除外
- * - threads.title に「テスト」を含むスレッドは除外
- * - user / assistant どちらの role も対象（messages.text のみ）
+ * ao_embeddings を全件削除し、ao_messages 本文を再ベクトル化する。
+ * - ao_threads.source_provider が gemini（大小無視）のスレッドは除外
+ * - ao_threads.title に「テスト」を含むスレッドは除外
+ * - user / assistant どちらの role も対象（ao_messages.text のみ）
  *
  * web ディレクトリで実行:
  *   npx tsx scripts/backfill-embeddings.ts --dry-run
@@ -41,7 +41,7 @@ async function loadAllThreads(supa: SupabaseClient) {
   let from = 0;
   for (;;) {
     const { data, error } = await supa
-      .from("threads")
+      .from("ao_threads")
       .select("id,source_provider,title,project_id")
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
@@ -96,7 +96,7 @@ async function main() {
   let from = 0;
   for (;;) {
     const { data: msgs, error } = await supa
-      .from("messages")
+      .from("ao_messages")
       .select("id,text,thread_id")
       .order("created_at", { ascending: true })
       .range(from, from + PAGE - 1);
@@ -134,15 +134,15 @@ async function main() {
   }
 
   console.log("[backfill-embeddings] deleting all embeddings…");
-  const { error: delErr } = await supa.from("embeddings").delete().not("source_type", "is", null);
-  if (delErr) throw new Error(`embeddings delete: ${delErr.message}`);
+  const { error: delErr } = await supa.from("ao_embeddings").delete().not("source_type", "is", null);
+  if (delErr) throw new Error(`ao_embeddings delete: ${delErr.message}`);
 
   const batch: EmbeddingMessageRow[] = [];
   let embedded = 0;
   from = 0;
   for (;;) {
     const { data: msgs, error } = await supa
-      .from("messages")
+      .from("ao_messages")
       .select("id,text,thread_id")
       .order("created_at", { ascending: true })
       .range(from, from + PAGE - 1);

@@ -1,4 +1,4 @@
-/** Supabase `threads.project_id` および AO ネイティブ議事の論 ID（DB と一致） */
+/** Supabase `ao_threads.project_id` および AO ネイティブ議事の論 ID（DB と一致） */
 export type ProjectId =
   | "debate"
   | "chat"

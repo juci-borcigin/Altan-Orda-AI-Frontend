@@ -1,7 +1,7 @@
 /**
  * Altan Orda — OpenAI API 用 System Prompt（JSONL 版）
  *
- * 既定本文は `AO_PROMPT_DEFAULTS`。Supabase `ao_prompt_sections` に同名 `section_key` があれば上書き。
+ * 既定本文は `AO_PROMPT_DEFAULTS`。Supabase `ao_prompts` に同名 `section_key` があれば上書き。
  * 組み立て順: global* → rule* → lore_persona*（論の許可僚友のみ）→ project* → header*（初回のみ）→ mode* → 名指し行 → injectionBlock
  */
 
@@ -92,7 +92,7 @@ export const ALLY_LORE_SECTION_KEY: Record<string, AoPromptSectionKey> = {
   コルグズ: "lore_persona_korguz",
 };
 
-/** Supabase `threads.project_id` → `project_*` プロンプト断片 */
+/** Supabase `ao_threads.project_id` → `project_*` プロンプト断片 */
 export const PROJECT_PROMPT_SECTION_KEY: Record<ProjectId, AoPromptSectionKey> = {
   debate: "project_debate",
   chat: "project_chat",
@@ -205,7 +205,7 @@ AIの役割：殿下の幕僚団。
 - 必要に応じ Markdown を使う：見出しは ## / ###、箇条書きは -、重要語は **太字**。
 
 ## 【ツール：web_search（Tavily）運用】
-※サーバーで Tavily が有効なときのみ実効するが、**過検索は入力トークンを膨らませ不安定になる**ため必ず従うこと。（細かな調整は Supabase の ao_prompt_sections で section_key が rule_detail の行を編集する。**記述位置の目安：本ブロックと同じ rule_detail** に載せると、呼称・時刻ルールと並んで運用しやすい。）
+※サーバーで Tavily が有効なときのみ実効するが、**過検索は入力トークンを膨らませ不安定になる**ため必ず従うこと。（細かな調整は Supabase の ao_prompts で section_key が rule_detail の行を編集する。**記述位置の目安：本ブロックと同じ rule_detail** に載せると、呼称・時刻ルールと並んで運用しやすい。）
 
 - **同一ターン内で web_search を並列に乱発しない**。確認したい論点が複数あれば、**まずクエリを 1 つに統合**し、不足だけを追加検索する。
 - **検索なしで済む断言・既にユーザーが明示した前提**には web_search を使わない。

@@ -19,7 +19,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          curl -sfS "${SUPABASE_URL}/rest/v1/threads?select=id&limit=1" \
+          curl -sfS "${SUPABASE_URL}/rest/v1/ao_threads?select=id&limit=1" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"
           echo "Supabase ping OK"
