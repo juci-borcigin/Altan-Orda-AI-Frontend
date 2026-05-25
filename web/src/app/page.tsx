@@ -12,6 +12,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
@@ -22,10 +23,13 @@ import {
   activeNokorNamesForTopic,
   aoPostingProjectIdForTopic,
   aoThreadsForPostMenu,
+  threadsForTopicGiList,
+  threadMatchesTopicProjectIds,
   compareThreadsForGiList,
   createAoThreadForTopic,
   isAoNativeThread,
   projectIdsForTopic,
+  topicUiIdForProjectId,
 } from "@/lib/ao-topics";
 import {
   IcoAgendaPageFirst,
@@ -42,11 +46,18 @@ import {
   IcoLogout,
   IcoRoundedPlus,
   IcoScroll,
+  IcoTrash,
 } from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
+import { AoDeleteConfirmPopup } from "@/components/AoDeleteConfirmPopup";
 import { AoReijitsuOverlay, type AoReijitsuOverlayHandle } from "@/components/AoReijitsuOverlay";
 import { AoSettingsOverlay, AoSettingsSubpageTabs, type AoSettingsOverlayHandle, type AoSettingsSubpage } from "@/components/AoSettingsOverlay";
 import { AoUsageOverlay } from "@/components/AoUsageOverlay";
+import {
+  AO_POPUP_DELETE_LOG_FALLBACK,
+  aoPopupMarkdownForBubble,
+  substituteAoPopupTemplateMarkdown,
+} from "@/lib/ao-popup";
 import {
   buildAoPersonaCatalog,
   primaryPersonaForProject,
@@ -90,8 +101,11 @@ import {
   AoOrnamentalFrame,
   AoP5NineSliceBubble,
   AoP5FaceFrameMid,
+  AO_MAIN_CHAT_FACE_PORTRAIT_SCALE,
+  aoP5FaceFrameMidOuterSizePx,
   AoP5NameplateSmFrame,
   AO_PC_NOKOR_TIGHT_PAD_X_PX,
+  aoP5NameplateSmOuterWidthPx,
   aoP5NameplateSmTightPlateOuterWidthPx,
 } from "@/components/ao-phase5";
 import { detectNamedSpeaker, getPrimarySpeakerForProject } from "@/lib/ao-prompts";
@@ -106,9 +120,9 @@ const AO_MAIN_ICON_BTN_CLASS =
 /** 議事帯右上：年代記／使用量／設定（装飾枠なし・色は令旨と同系） */
 const AO_MAIN_HEADER_ICON_BTN_CLASS =
   "inline-flex items-center justify-center rounded-md border-0 bg-transparent p-1 outline-none transition-[transform,opacity] hover:bg-[#8D5400]/[0.08] active:scale-[0.9] active:opacity-90";
-/** 邦主列：送信（帯びたボタン） */
+/** 邦主列：送信（帯びたボタン・令旨アイコン同寸・パディング控えめ） */
 const AO_MAIN_SEND_BTN_CLASS =
-  "inline-flex shrink-0 items-center justify-center rounded-lg border border-[#8D5400]/50 bg-gradient-to-b from-[#fbf6e8] to-[#e9dcc6] px-2 py-1 shadow-[0_1px_2px_rgba(0,0,0,0.12)] outline-none transition-[transform,opacity,box-shadow] hover:border-[#8D5400]/80 hover:shadow-[0_2px_6px_rgba(0,0,0,0.14)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#8D5400]/50 disabled:hover:shadow-[0_1px_2px_rgba(0,0,0,0.12)] disabled:active:scale-100";
+  "inline-flex shrink-0 items-center justify-center rounded-lg border border-[#8D5400]/50 bg-gradient-to-b from-[#fbf6e8] to-[#e9dcc6] px-1 py-0.5 shadow-[0_1px_2px_rgba(0,0,0,0.12)] outline-none transition-[transform,opacity,box-shadow] hover:border-[#8D5400]/80 hover:shadow-[0_2px_6px_rgba(0,0,0,0.14)] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[#8D5400]/50 disabled:hover:shadow-[0_1px_2px_rgba(0,0,0,0.12)] disabled:active:scale-100";
 /** メインエリア統一地色・ボタン地（Phase 4 TO-BE ①⑤⑥） */
 const AO_MAIN_BG = "#133D5C";
 /** チャット部・AI 吹き出し（枠線なし・Markdown は ao-chat-ai-bubble-md） */
@@ -172,8 +186,7 @@ const AO_P5_PARCHMENT = "#f6f4ee";
  * ⑤ ④ × 8 ＝ 僚友帯の横スクロール論理幅（CHAT_BUBBLE_* の算出にも MAIN_COLUMN_W_PX が関わる）
  */
 const NOKOR_PORTRAIT_W_PX = AO_PORTRAIT_LAYOUT_W_PX;
-/** AoP5FaceFrameMid：角 6×2 で顔より外周 +12px */
-const FACE_SM_FRAME_OUTER_EXTRA_PX = 12;
+const NOKOR_PORTRAIT_BOX_H_PX = Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4);
 /** 令旨／年代記：従来 min-h-[52px] の 66％ */
 const REISHI_CHRONICLE_BTN_MIN_H_PX = Math.round(52 * 0.66);
 /** ≫ 送信：令旨と同系見た目だが縦は約33％（52px×0.33） */
@@ -195,14 +208,119 @@ const NOKOR_COL_PAD_X_PX = 4;
 const NOKOR_COL_INNER_W_PX = Math.max(NOKOR_PORTRAIT_W_PX, NOKOR_TEXT_BAND_W_PX);
 const NOKOR_COL_W_PX = NOKOR_COL_INNER_W_PX + NOKOR_COL_PAD_X_PX * 2;
 
-/** チャット（履歴・入力）の顔グラ列：7文字 tight 名札外寸と顔枠外寸の広い方 */
-const CHAT_FACE_STACK_W_PX = NOKOR_PORTRAIT_W_PX + FACE_SM_FRAME_OUTER_EXTRA_PX;
-const CHAT_NAMEPLATE_OUTER_7CHAR_PX = aoP5NameplateSmTightPlateOuterWidthPx({
-  bandWidthPx: NOKOR_PORTRAIT_W_PX,
-  nameplateFontSizePx: 7,
-  layoutCharCount: 7,
-});
-const CHAT_AVATAR_COL_W_PX = Math.max(CHAT_FACE_STACK_W_PX, CHAT_NAMEPLATE_OUTER_7CHAR_PX);
+/** チャット（履歴・入力）の顔グラ列：70% 枠外寸と 7文字 tight 名札外寸の広い方 */
+const { outerW: CHAT_FACE_STACK_W_PX } = aoP5FaceFrameMidOuterSizePx(
+  NOKOR_PORTRAIT_W_PX,
+  NOKOR_PORTRAIT_BOX_H_PX,
+  AO_MAIN_CHAT_FACE_PORTRAIT_SCALE,
+);
+/** メイン／チャット：名札の最小幅＝顔枠（Face_SM）外寸 */
+const CHAT_NAMEPLATE_MIN_W_PX = CHAT_FACE_STACK_W_PX;
+
+const MAIN_CHAT_NAMEPLATE_OPTS = {
+  maxChars: 7 as const,
+  fontSizePx: 7,
+  variant: "tight" as const,
+};
+
+function aoMainChatNameplateOuterWidthPx(text: string): number {
+  return aoP5NameplateSmOuterWidthPx({
+    text,
+    minWidthPx: CHAT_NAMEPLATE_MIN_W_PX,
+    ...MAIN_CHAT_NAMEPLATE_OPTS,
+  });
+}
+
+/** 左サイド【顔グラ・名前】列の共通幅（7文字 tight 名札：タタ・トゥンガ／チン・テムール相当） */
+function aoKinAvatarNameColWPx(opts: {
+  nameplateFontSizePx: number;
+  tightPadXPx?: number;
+}): number {
+  return Math.max(
+    CHAT_FACE_STACK_W_PX,
+    aoP5NameplateSmTightPlateOuterWidthPx({
+      bandWidthPx: CHAT_NAMEPLATE_MIN_W_PX,
+      nameplateFontSizePx: opts.nameplateFontSizePx,
+      layoutCharCount: 7,
+      tightPadXPx: opts.tightPadXPx,
+    }),
+  );
+}
+
+/**
+ * 左サイド：【顔グラ・名前】共通幅枠（上から中央）｜右に説明（上揃え）
+ * ```
+ * [ 顔グラ ] ｜ 為政論 / 邦　主+ルビ
+ * [ 名前   ] ｜ 第一の千戸長+ルビ
+ * ```
+ */
+function AoKinAvatarStack({
+  face,
+  name,
+  nameplateFontSizePx,
+  tightPadXPx,
+  captionRightTop,
+  captionRightBottom,
+  centerRonLine,
+  maxWidthPx,
+}: {
+  face: ReactNode;
+  name: string;
+  nameplateFontSizePx: number;
+  tightPadXPx?: number;
+  captionRightTop?: ReactNode;
+  captionRightBottom?: ReactNode;
+  /** 僚友の論名行（為政論等）を枠内中央揃え */
+  centerRonLine?: boolean;
+  maxWidthPx?: number;
+}) {
+  const avatarColW = aoKinAvatarNameColWPx({ nameplateFontSizePx, tightPadXPx });
+  const hasRight = captionRightTop != null || captionRightBottom != null;
+  return (
+    <div
+      className="grid w-fit max-w-full items-start"
+      style={{
+        gridTemplateColumns: hasRight ? `${avatarColW}px minmax(0, max-content)` : `${avatarColW}px`,
+        columnGap: hasRight ? KIN_SIDEBAR_CAPTION_COL_GAP_PX : 0,
+        maxWidth: maxWidthPx,
+      }}
+    >
+      <div
+        className="box-border flex shrink-0 flex-col items-center justify-start gap-0"
+        style={{ width: avatarColW, minWidth: avatarColW }}
+      >
+        <div className="flex w-full justify-center">{face}</div>
+        <div className="flex w-full justify-center">
+          <AoP5NameplateSmFrame
+            width={CHAT_NAMEPLATE_MIN_W_PX}
+            text={name}
+            maxChars={7}
+            variant="tight"
+            fontSizePx={nameplateFontSizePx}
+            tightPadXPx={tightPadXPx}
+          />
+        </div>
+      </div>
+      {hasRight ? (
+        <div className="flex min-w-0 w-full flex-col justify-start gap-0 self-start leading-none">
+          {centerRonLine ? (
+            <div className="w-full text-center">{captionRightTop ?? null}</div>
+          ) : (
+            captionRightTop ?? null
+          )}
+          <div className={centerRonLine ? "w-full text-left" : undefined}>{captionRightBottom ?? null}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** メイン入力の邦主列（名札幅と送信・令旨行の広い方） */
+const MAIN_JUCHI_AVATAR_COL_MIN_W_PX = 58;
+const MAIN_JUCHI_AVATAR_COL_W_PX = Math.max(
+  aoMainChatNameplateOuterWidthPx("ジュチ"),
+  MAIN_JUCHI_AVATAR_COL_MIN_W_PX,
+);
 
 type NokorDef = {
   name: string;
@@ -222,9 +340,9 @@ const NOKOR: readonly NokorDef[] = [
   { name: "ケテ", captionPrefix: "第三の", captionRubyBase: "千戸長", captionRubyRt: "ミンガン", line2: "兵馬論", src: "/personas/AO_Char_Qete.png" },
   { name: "バイジュ", captionPrefix: "第四の", captionRubyBase: "千戸長", captionRubyRt: "ミンガン", line2: "心気論", src: "/personas/AO_Char_Baiju.png" },
   { name: "クドゥカ", captionPrefix: "オイラト", captionRubyBase: "族長", captionRubyRt: "ノヤン", line2: "巷間論", src: "/personas/AO_Char_QudukaBeki.png" },
-  { name: "タタ・トゥンガ", captionPrefix: "", captionRubyBase: "師傅", captionRubyRt: "アタベク", line2: "学究論", src: "/personas/AO_Char_TataTunga.png" },
+  { name: "タタ・トゥンガ", captionPrefix: "", captionRubyBase: "師傅", captionRubyRt: "アタベク", line2: "典籍論", src: "/personas/AO_Char_TataTunga.png" },
   { name: "チン・テムール", captionPrefix: "", captionRubyBase: "政商", captionRubyRt: "オルトク", line2: "遠交論", src: "/personas/AO_Char_ChinTemur.png" },
-  { name: "コルグズ", captionPrefix: "", captionRubyBase: "書記", captionRubyRt: "ビチクチ", line2: "—", src: "/personas/AO_Char_Qorguz.png" },
+  { name: "コルグズ", captionPrefix: "", captionRubyBase: "書記", captionRubyRt: "ビチクチ", line2: "", src: "/personas/AO_Char_Qorguz.png" },
 ] as const;
 
 function isSyntheticAssistantNoiseForHistory(text: string): boolean {
@@ -260,6 +378,44 @@ const MAIN_COLUMN_W_PX = NOKOR_STRIP_W_PX + MAIN_COLUMN_PAD_PX * 2;
 /** メイン中段の横パディング（px-3）— チャット吹き出し幅をメインと揃える */
 const MAIN_MIDDLE_SECTION_PAD_X_PX = 12;
 const MAIN_BUBBLE_ROW_GAP_PX = 10;
+/** メイン入力・チャット（ユーザー）の吹き出し〜顔グラ列 */
+const AO_AVATAR_BUBBLE_GAP_TIGHT_PX = Math.round(MAIN_BUBBLE_ROW_GAP_PX / 2);
+/** メイン入力：吹き出し終端〜邦主列開始（tight gap の 50%） */
+const MAIN_COMPOSE_AVATAR_GAP_PX = Math.max(2, Math.round(AO_AVATAR_BUBBLE_GAP_TIGHT_PX / 2));
+/** チャット履歴エリアの横パディング（左＝AI 顔グラ開始／メイン左端揃え） */
+const CHAT_AREA_PAD_X_PX = MAIN_COLUMN_GUTTER_X_PX + MAIN_MIDDLE_SECTION_PAD_X_PX;
+/** チャット右：メイン右端揃え（左 `CHAT_AREA_PAD_X_PX` と対称）。スクロールバー分は `[scrollbar-gutter:stable]` が確保 */
+const CHAT_AREA_PAD_RIGHT_PX = CHAT_AREA_PAD_X_PX;
+
+function mainComposeRowGridStyle(avatarColWPx: number = MAIN_JUCHI_AVATAR_COL_W_PX): CSSProperties {
+  return {
+    display: "grid",
+    width: "100%",
+    minWidth: 0,
+    alignItems: "stretch",
+    gridTemplateColumns: `minmax(0, 1fr) ${avatarColWPx}px`,
+    columnGap: MAIN_COMPOSE_AVATAR_GAP_PX,
+  };
+}
+
+/** 左サイド（顔＋名）｜説明 の列間 */
+const KIN_SIDEBAR_CAPTION_COL_GAP_PX = 4;
+
+/** チャット AI：名札 min＝顔枠外寸・長名は可変、顔はエリア中央 */
+function AoChatAiAvatarStack({ face, label }: { face: ReactNode; label: string }) {
+  const stackW = aoMainChatNameplateOuterWidthPx(label);
+  return (
+    <div className="flex flex-col items-stretch gap-0" style={{ width: stackW }}>
+      <div className="flex w-full justify-center">{face}</div>
+      <AoP5NameplateSmFrame
+        width={CHAT_NAMEPLATE_MIN_W_PX}
+        text={label}
+        {...MAIN_CHAT_NAMEPLATE_OPTS}
+      />
+    </div>
+  );
+}
+
 /** チャット履歴吹き出しの最小高さ（約1行＋パディング。入力欄の MAIN_SPEECH_BUBBLE_H_PX は別） */
 const CHAT_HISTORY_BUBBLE_MIN_H_PX = Math.ceil(13 * 1.42) + 8;
 
@@ -285,8 +441,8 @@ function aoCompactUserRawPanelRect(messagesRoot: HTMLElement, msgId: string): {
   let cand: Element | null = row.nextElementSibling;
   while (cand) {
     if (cand instanceof HTMLElement && cand.matches("[data-ao-chat-row]")) {
-      // ユーザー行は flex-row-reverse、AI 行は通常順。直後のユーザー連続はスキップする。
-      if (!cand.classList.contains("flex-row-reverse")) {
+      // ユーザー行は data-ao-chat-side=user。直後のユーザー連続はスキップする。
+      if (cand.getAttribute("data-ao-chat-side") !== "user") {
         aiBubbleEl = cand.querySelector("[data-ao-chat-bubble]");
         break;
       }
@@ -382,6 +538,27 @@ const AO_PC_HEADER_FRAME_BELOW_H_PX = 58 + 14;
  * 125% で「現状150%相当」の見え方に寄せるため、文字系だけ 150/125=1.2 を上乗せする。
  */
 const AO_PC_ZOOM_COMP_SCALE = 1.2;
+/** メイン入力・ジュチ直下「邦　主」本体（Tailwind `text-[10px]`） */
+const MAIN_JUCHI_RUBY_MAIN_CLASS =
+  "text-[10px] font-semibold font-serif text-[#3D1C08]";
+/** 左サイド・僚友の論名行（為政論等）：メインの邦　主と同じクラス */
+const KIN_NOKOR_LINE2_CLASS = MAIN_JUCHI_RUBY_MAIN_CLASS;
+/** 左サイド・邦主枠内の「邦　主」（論タブと同系） */
+function aoKinSidebarLordCaptionMainClass(viewportCompact: boolean): string {
+  return viewportCompact
+    ? "text-[10px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
+    : "text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]";
+}
+/** 論名行の上余白（調整前 4px → 150%） */
+const KIN_SIDEBAR_RON_LINE_PAD_TOP_BEFORE_PX = 4;
+const KIN_SIDEBAR_RON_LINE_PAD_TOP_PX = Math.round(KIN_SIDEBAR_RON_LINE_PAD_TOP_BEFORE_PX * 1.5);
+function kinSidebarRonLinePadStyle(): CSSProperties {
+  return { paddingTop: KIN_SIDEBAR_RON_LINE_PAD_TOP_PX, lineHeight: 1.15 };
+}
+/** メイン論タブ（巷間論〜兵馬論）字サイズ */
+function aoMainRonTabTopicFontPx(viewportCompact: boolean): number {
+  return viewportCompact ? 10 : Math.round(12 * AO_PC_ZOOM_COMP_SCALE);
+}
 /** 中央カラム main 外周の縦 gap（旧 3 の 30%） */
 const MAIN_COLUMN_STACK_GAP_PX = Math.round(3 * 0.3);
 const MAIN_INNER_TOP_PAD_BEFORE_PX = MAIN_COLUMN_PAD_PX;
@@ -522,7 +699,7 @@ const JUCHI_PORTRAIT_RAISE_ABOVE_BUBBLE_PX = 15;
 /** Tailwind `gap-0.5` の px 換算（テーマ既定 0.125rem≒2px） */
 const AO_TAILWIND_GAP_05_PX = 2;
 /** ジュチ顔枠の実高（aspect 4/5・幅 NOKOR_PORTRAIT_W_PX） */
-const JUCHI_PORTRAIT_BOX_H_PX = Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4);
+const JUCHI_PORTRAIT_BOX_H_PX = NOKOR_PORTRAIT_BOX_H_PX;
 /** 「ジュチ」行 text-[10px] leading-tight（1.25） */
 const JUCHI_LINE_NAME_H_PX = Math.ceil(10 * 1.25);
 /**
@@ -805,111 +982,86 @@ function aoNokorCellClasses(active: boolean) {
 function AoNokorStripArea({
   activeNames,
   nameplateFontSizePx = 8,
-  textBandMaxPx,
+  mobileDrawer = false,
+  viewportCompact = false,
 }: {
   activeNames: ReadonlySet<string>;
   /** 狭ビュードロワーのみ 7 など。既定 8 は PC 左列と同じ */
   nameplateFontSizePx?: number;
-  /** モバイルドロワー：顔グラ右・名前直下の説明の最大幅（7文字 tight 名札の外寸と一致）。設定時は行のパディングを邦主行と揃える */
-  textBandMaxPx?: number;
+  mobileDrawer?: boolean;
+  viewportCompact?: boolean;
 }) {
-  const drawerStrip = textBandMaxPx != null;
-  /** PC：7文字名札相当の説明列幅（パディング50%込み）。ドロワーは従来算出の textBandMaxPx */
-  const pcNokorDescBandPx = drawerStrip
-    ? undefined
-    : aoP5NameplateSmTightPlateOuterWidthPx({
-        bandWidthPx: NOKOR_PORTRAIT_W_PX,
-        nameplateFontSizePx,
-        layoutCharCount: 7,
-        tightPadXPx: AO_PC_NOKOR_TIGHT_PAD_X_PX,
-      });
-  /** PC：僚友セル周りの余白を約50％に（ドロワーは可操作幅優先で据え置き） */
-  const rowPad = drawerStrip ? 3 : 1;
-  const rowGap = drawerStrip ? 8 : 1;
+  const drawerStrip = mobileDrawer;
+  const nokorTightPadXPx = drawerStrip ? undefined : AO_PC_NOKOR_TIGHT_PAD_X_PX;
+  const nokorLine2PadStyle = kinSidebarRonLinePadStyle();
+  /** 邦主枠内セルと同じ 3px。右のみ僚友説明側へ広げる */
+  const rowPadBase = 3;
+  const rowPadRight = rowPadBase + (drawerStrip ? 2 : 5);
 
   const rowInner = (p: (typeof NOKOR)[number], active: boolean) => (
     <div
       className={aoNokorCellClasses(active)}
       style={{
-        width: "fit-content",
+        width: drawerStrip ? "fit-content" : "100%",
         maxWidth: drawerStrip ? "100%" : undefined,
         paddingLeft: 0,
         paddingRight: 0,
       }}
     >
       <div
-        className={`flex w-fit min-w-0 items-start transition-none ${active ? "translate-x-px translate-y-px" : "translate-x-0 translate-y-0"}`}
+        className={`flex min-w-0 flex-col items-stretch transition-none ${drawerStrip ? "w-fit" : "w-full"} ${active ? "translate-x-px translate-y-px" : "translate-x-0 translate-y-0"}`}
         style={{
-          padding: rowPad,
-          gap: rowGap,
-          ...(drawerStrip ? { maxWidth: "100%" } : {}),
+          paddingTop: rowPadBase,
+          paddingBottom: rowPadBase,
+          paddingLeft: rowPadBase,
+          paddingRight: rowPadRight,
+          maxWidth: drawerStrip ? "100%" : undefined,
         }}
       >
-        <div className="shrink-0">
-          <AoP5FaceFrameMid
-            src={p.src}
-            alt={p.name}
-            width={NOKOR_PORTRAIT_W_PX}
-            height={Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4)}
-          />
-        </div>
-        <div
-          className="min-w-0 shrink-0 pt-0"
-          style={
-            drawerStrip
-              ? { width: textBandMaxPx, maxWidth: textBandMaxPx }
-              : {
-                  width: pcNokorDescBandPx,
-                  maxWidth: pcNokorDescBandPx,
-                  marginLeft: 2,
-                  marginRight: -2,
-                }
-          }
-        >
-          <div className="mb-[2px] flex justify-center">
-            <AoP5NameplateSmFrame
+        <AoKinAvatarStack
+          face={
+            <AoP5FaceFrameMid
+              src={p.src}
+              alt={p.name}
               width={NOKOR_PORTRAIT_W_PX}
-              text={p.name}
-              maxChars={7}
-              variant="tight"
-              fontSizePx={nameplateFontSizePx}
-              tightPadXPx={drawerStrip ? undefined : AO_PC_NOKOR_TIGHT_PAD_X_PX}
+              height={NOKOR_PORTRAIT_BOX_H_PX}
+              portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
             />
-          </div>
-          <div
-            className={`min-w-0 text-left text-[7px] font-semibold leading-[1.15] text-[#3D1C08] ${
-              drawerStrip ? "pl-0" : "pl-[2em]"
-            }`}
-          >
-            {p.captionPrefix ? <span>{p.captionPrefix}</span> : null}
-            <ruby className="font-serif">
-              {p.captionRubyBase}
-              <rt className="font-serif text-[4px] text-[#6A3F0A]/80">{p.captionRubyRt}</rt>
-            </ruby>
-          </div>
-          <div
-            className={`min-w-0 text-left text-[7px] font-semibold leading-[1.1] text-[#3D1C08] mt-[8px] ${
-              drawerStrip ? "pl-0" : "pl-[2em]"
-            }`}
-          >
-            {p.line2}
-          </div>
-        </div>
+          }
+          name={p.name}
+          nameplateFontSizePx={nameplateFontSizePx}
+          tightPadXPx={nokorTightPadXPx}
+          centerRonLine
+          captionRightTop={
+            <div className={`min-w-0 ${KIN_NOKOR_LINE2_CLASS}`} style={nokorLine2PadStyle}>
+              {p.line2 || "\u00a0"}
+            </div>
+          }
+          captionRightBottom={
+            <div className="min-w-0 text-left text-[7px] font-semibold leading-[1.15] text-[#3D1C08]">
+              {p.captionPrefix ? <span>{p.captionPrefix}</span> : null}
+              <ruby className="font-serif">
+                {p.captionRubyBase}
+                <rt className="font-serif text-[4px] text-[#6A3F0A]/80">{p.captionRubyRt}</rt>
+              </ruby>
+            </div>
+          }
+        />
       </div>
     </div>
   );
 
   return (
     <div
-      className={`flex flex-col justify-start overflow-visible pt-0 ${drawerStrip ? "min-w-0 w-full" : "w-fit min-w-0"}`}
+      className={`flex w-full flex-col justify-start overflow-visible pt-0 ${drawerStrip ? "min-w-0" : "min-w-0"}`}
       style={{
         paddingBottom: 0,
         paddingLeft: 0,
         paddingRight: 0,
       }}
     >
-      <div className={`${drawerStrip ? "w-full min-w-0" : "w-fit"} ${drawerStrip ? "" : "px-[1px] pb-[1px]"}`}>
-        <div className={`flex flex-col gap-[2px] ${drawerStrip ? "min-w-0 w-full" : "w-fit min-w-0"}`}>
+      <div className="w-full min-w-0">
+        <div className="flex w-full min-w-0 flex-col gap-[2px]">
           {NOKOR.map((p) => {
             const active = activeNames.has(p.name);
             return (
@@ -930,6 +1082,7 @@ function AoLeftKinSideColumn({
   activeNames,
   nameplateFontSizePx = 8,
   mobileDrawerNokorLayout = false,
+  viewportCompact = false,
 }: {
   measureRef?: RefObject<HTMLDivElement | null>;
   activeNames: ReadonlySet<string>;
@@ -937,20 +1090,21 @@ function AoLeftKinSideColumn({
   nameplateFontSizePx?: number;
   /** 狭ビュー・ポータル内のみ：右カラム幅を 7文字 tight 名札外寸に合わせる */
   mobileDrawerNokorLayout?: boolean;
+  viewportCompact?: boolean;
 }) {
-  const drawerNokorTextBandPx = mobileDrawerNokorLayout
-    ? aoP5NameplateSmTightPlateOuterWidthPx({
-        bandWidthPx: NOKOR_PORTRAIT_W_PX,
-        nameplateFontSizePx,
-        layoutCharCount: 7,
-      })
-    : undefined;
-
-  const drawerKin = drawerNokorTextBandPx != null;
+  const drawerKin = mobileDrawerNokorLayout;
+  const lordCaptionPadStyle = kinSidebarRonLinePadStyle();
+  const lordCaptionMainClass = aoKinSidebarLordCaptionMainClass(viewportCompact);
+  const lordCaptionRtClass = viewportCompact
+    ? "font-serif text-[7px] text-[#6A3F0A]/80"
+    : "font-serif text-[9px] text-[#6A3F0A]/80";
+  const kinOrnamentFrameClass = drawerKin
+    ? "min-w-0 w-full overflow-visible"
+    : "w-full max-w-full shrink-0 overflow-visible";
 
   const kinColumnInner = (
-    <div className="flex max-h-max min-w-0 flex-col items-start gap-[6px]">
-          <div className="flex shrink-0 min-w-0 flex-col" style={{ gap: 0 }}>
+    <div className="flex max-h-max w-full min-w-0 flex-col items-stretch gap-[6px]">
+          <div className="flex w-full shrink-0 min-w-0 flex-col" style={{ gap: 0 }}>
             <div className="flex h-[32px] w-full min-w-0 items-center justify-center px-1 text-[#3D1C08]" aria-hidden>
               <AoRubyGold
                 main="邦　主"
@@ -964,77 +1118,56 @@ function AoLeftKinSideColumn({
 
             <AoOrnamentalFrame
               scale={0.5}
-              className={
-                drawerNokorTextBandPx != null
-                  ? "min-w-0 overflow-visible"
-                  : "w-fit max-w-full shrink-0 overflow-visible"
-              }
+              className={kinOrnamentFrameClass}
               contentClassName="overflow-visible"
-              contentStyle={{ padding: drawerNokorTextBandPx != null ? "6px" : "3px" }}
+              contentStyle={{ padding: drawerKin ? "6px" : "3px" }}
             >
-              <div
-                className={`flex min-h-0 flex-col py-0 ao-p5-parchment-surface ${drawerNokorTextBandPx != null ? "w-full" : "w-fit"}`}
-              >
+              <div className="flex min-h-0 w-full flex-col py-0 ao-p5-parchment-surface">
                 <div
                   className={aoNokorCellClasses(false)}
                   style={{
-                    width: "fit-content",
-                    maxWidth: drawerNokorTextBandPx != null ? "100%" : undefined,
+                    width: "100%",
+                    maxWidth: drawerKin ? "100%" : undefined,
                     paddingLeft: 0,
                     paddingRight: 0,
                   }}
                 >
                   <div
-                    className="flex w-fit min-w-0 items-start transition-none translate-x-0 translate-y-0"
+                    className="flex w-full min-w-0 flex-col items-stretch transition-none translate-x-0 translate-y-0"
                     style={{
                       padding: 3,
-                      gap: 8,
-                      ...(drawerNokorTextBandPx != null ? { maxWidth: "100%" } : {}),
+                      maxWidth: drawerKin ? "100%" : undefined,
                     }}
                   >
-                    <div className="shrink-0">
-                      <AoP5FaceFrameMid
-                        src="/personas/juci.png"
-                        alt="ジュチ"
-                        width={NOKOR_PORTRAIT_W_PX}
-                        height={Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4)}
-                      />
-                    </div>
-                    <div
-                      className={
-                        drawerNokorTextBandPx != null
-                          ? "min-w-0 w-max shrink-0 pt-0"
-                          : "min-w-0 w-max shrink-0 pt-0"
-                      }
-                      style={
-                        drawerNokorTextBandPx != null
-                          ? { width: drawerNokorTextBandPx, maxWidth: drawerNokorTextBandPx }
-                          : undefined
-                      }
-                    >
-                      <div className="mb-[2px] flex justify-center">
-                        <AoP5NameplateSmFrame
+                    <AoKinAvatarStack
+                      face={
+                        <AoP5FaceFrameMid
+                          src="/personas/juci.png"
+                          alt="ジュチ"
                           width={NOKOR_PORTRAIT_W_PX}
-                          text="ジュチ"
-                          maxChars={7}
-                          variant="tight"
-                          fontSizePx={nameplateFontSizePx}
+                          height={NOKOR_PORTRAIT_BOX_H_PX}
+                          portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
                         />
-                      </div>
-                      <div className="min-w-0 text-left text-[10px] font-semibold leading-[1.15] text-[#3D1C08]">
-                        <ruby className="font-serif">
-                          邦　主
-                          <rt className="font-serif text-[8px] text-[#6A3F0A]/80">ウルス・ハン</rt>
-                        </ruby>
-                      </div>
-                    </div>
+                      }
+                      name="ジュチ"
+                      nameplateFontSizePx={nameplateFontSizePx}
+                      tightPadXPx={mobileDrawerNokorLayout ? undefined : AO_PC_NOKOR_TIGHT_PAD_X_PX}
+                      captionRightTop={
+                        <div className="min-w-0 text-left" style={lordCaptionPadStyle}>
+                          <ruby className={lordCaptionMainClass}>
+                            邦　主
+                            <rt className={lordCaptionRtClass}>ウルス・ハン</rt>
+                          </ruby>
+                        </div>
+                      }
+                    />
                   </div>
                 </div>
               </div>
             </AoOrnamentalFrame>
           </div>
 
-          <div className="flex min-w-0 flex-col" style={{ gap: 0 }}>
+          <div className="flex w-full min-w-0 flex-col" style={{ gap: 0 }}>
             <div className="flex h-[32px] w-full min-w-0 items-center justify-center px-1 text-[#3D1C08]" aria-hidden>
               <AoRubyGold
                 main="僚　友"
@@ -1048,19 +1181,16 @@ function AoLeftKinSideColumn({
 
             <AoOrnamentalFrame
               scale={0.5}
-              className={
-                drawerNokorTextBandPx != null
-                  ? "min-w-0 overflow-visible"
-                  : "w-fit max-w-full shrink-0 overflow-visible"
-              }
+              className={kinOrnamentFrameClass}
               contentClassName="overflow-visible"
-              contentStyle={{ padding: drawerNokorTextBandPx != null ? "6px" : "3px" }}
+              contentStyle={{ padding: drawerKin ? "6px" : "3px" }}
             >
-              <div className={`ao-p5-parchment-surface ${drawerNokorTextBandPx != null ? "w-full" : "w-fit"}`}>
+              <div className="ao-p5-parchment-surface w-full">
                 <AoNokorStripArea
                   activeNames={activeNames}
                   nameplateFontSizePx={nameplateFontSizePx}
-                  textBandMaxPx={drawerNokorTextBandPx}
+                  mobileDrawer={mobileDrawerNokorLayout}
+                  viewportCompact={viewportCompact}
                 />
               </div>
             </AoOrnamentalFrame>
@@ -1069,25 +1199,23 @@ function AoLeftKinSideColumn({
   );
 
   return (
-    <div ref={measureRef} className="self-start w-max max-w-full">
+    <div ref={measureRef} className="min-w-0 w-full max-w-full self-start">
       {drawerKin ? (
         <AoOrnamentalFrame
-          className="relative flex max-h-max min-h-0 w-fit max-w-full min-w-0 flex-col"
+          className="relative flex max-h-max min-h-0 w-full max-w-full min-w-0 flex-col"
           style={{ boxSizing: "border-box", boxShadow: AO_DROP_SHADOW_MAIN_FRAME }}
-          contentClassName="flex max-h-max min-w-0 flex-col items-start"
+          contentClassName="flex max-h-max min-w-0 w-full flex-col items-stretch"
         >
           {kinColumnInner}
         </AoOrnamentalFrame>
       ) : (
         <AoOrnamentalFrame
-          className="relative flex max-h-max min-h-0 w-fit max-w-full shrink-0 flex-col"
+          className="relative flex max-h-max min-h-0 w-full max-w-full shrink-0 flex-col"
           style={{
             boxSizing: "border-box",
             boxShadow: AO_DROP_SHADOW_MAIN_FRAME,
-            width: "fit-content",
-            maxWidth: "100%",
           }}
-          contentClassName="flex max-h-max min-w-0 flex-col items-start"
+          contentClassName="flex max-h-max min-w-0 w-full flex-col items-stretch"
         >
           {kinColumnInner}
         </AoOrnamentalFrame>
@@ -1189,6 +1317,9 @@ export default function Home() {
   const [usageOpen, setUsageOpen] = useState(false);
   /** 新規／過去ログ一覧を、令旨・年代記と同じメイン帯オーバーレイ内に表示 */
   const [ronListOverlayOpen, setRonListOverlayOpen] = useState(false);
+  /** 年代記・論議事一覧：削除確認ポップアップ対象（ローカル thread id） */
+  const [deleteConfirmThreadId, setDeleteConfirmThreadId] = useState<string | null>(null);
+  const [deleteLogPopupTemplate, setDeleteLogPopupTemplate] = useState(AO_POPUP_DELETE_LOG_FALLBACK);
   const [draft, setDraft] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingDotsPhase, setThinkingDotsPhase] = useState(0);
@@ -1236,6 +1367,10 @@ export default function Home() {
   const [viewportH, setViewportH] = useState<number>(0);
   const currentThreadIdRef = useRef<string | null>(null);
   const selectedTopicRef = useRef<TopicUiId | null>(selectedTopic);
+  /** 議事一覧・令旨・年代記で別論を押した直前の論（戻るで復元） */
+  const topicBeforeTopicOverlayRef = useRef<TopicUiId | null>(null);
+  /** 設定・使用量を開く直前の論（戻るで復元。開中は論押下なし） */
+  const topicBeforeSettingsUsageRef = useRef<TopicUiId | null>(null);
   const composeLockedRef = useRef(composeLocked);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** ヘッダ＋Frame 帯下端までの px（ドロワーをその下から縦スライドさせる） */
@@ -1254,6 +1389,7 @@ export default function Home() {
   const [agendaPageIndex, setAgendaPageIndex] = useState(0);
   /** 令旨／年代記オーバーレイ内一覧のページ（0 始まり） */
   const [overlayListPageIndex, setOverlayListPageIndex] = useState(0);
+  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1273,6 +1409,23 @@ export default function Home() {
         setPersonaCatalog(buildAoPersonaCatalog(data.personas ?? []));
       } catch {
         if (!cancelled) setPersonaCatalog(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/popup/delete_log");
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { template_text?: string };
+        if (data.template_text?.trim()) setDeleteLogPopupTemplate(data.template_text);
+      } catch {
+        /* fallback template */
       }
     })();
     return () => {
@@ -1391,22 +1544,14 @@ export default function Home() {
   const activeNokorNames = useMemo(() => activeNokorNamesForTopic(selectedTopic), [selectedTopic]);
 
   const topicThreads = useMemo(() => {
-    if (!topicProjectIds?.length) return [];
-    const allow = new Set(topicProjectIds);
-    return state.threads
-      .filter((t) => {
-        if (!allow.has(t.projectId)) return false;
-        /** 巷間論（chat）は Supabase 一覧が無いため、送信前の ephemeral 空スレも議事表に出す */
-        if (t.projectId === "chat") return true;
-        return !t.ephemeral;
-      })
-      .sort(compareThreadsForGiList);
-  }, [state, topicProjectIds]);
+    if (!selectedTopic) return [];
+    return threadsForTopicGiList(state.threads, selectedTopic);
+  }, [state.threads, selectedTopic]);
 
-  /** メイン右列：選択論の議事一覧（新規／過去ログテーブル用。ソート後は aoThreadsForPostMenu の上限まで） */
+  /** メイン右列：選択論の議事一覧（新規／過去ログテーブル用） */
   const ronSidebarThreads = useMemo(() => {
     if (!selectedTopic) return [];
-    return aoThreadsForPostMenu(state.threads, selectedTopic);
+    return threadsForTopicGiList(state.threads, selectedTopic);
   }, [state.threads, selectedTopic]);
 
   const agendaMaxPageIndex = useMemo(() => {
@@ -1635,7 +1780,8 @@ export default function Home() {
 
   useEffect(() => {
     const ac = new AbortController();
-    void fetchThreadListWithTopic(false, selectedTopic, ac.signal);
+    /** 論切替時はキャッシュを使わない（典籍論など空リストがキャッシュされると復帰しない） */
+    void fetchThreadListWithTopic(true, selectedTopic, ac.signal);
     return () => ac.abort();
   }, [selectedTopic, fetchThreadListWithTopic]);
 
@@ -1685,8 +1831,213 @@ export default function Home() {
     setUsageOpen(false);
   }
 
+  function restoreTopicFromBeforeTopicOverlay() {
+    const restore = topicBeforeTopicOverlayRef.current;
+    if (restore != null) {
+      setSelectedTopic(restore);
+      topicBeforeTopicOverlayRef.current = null;
+    } else if (currentThread) {
+      const fromThread = topicUiIdForProjectId(currentThread.projectId);
+      if (fromThread) setSelectedTopic(fromThread);
+    }
+  }
+
+  function restoreTopicFromBeforeSettingsUsage() {
+    const restore = topicBeforeSettingsUsageRef.current;
+    if (restore != null) {
+      setSelectedTopic(restore);
+      topicBeforeSettingsUsageRef.current = null;
+    } else if (currentThread) {
+      const fromThread = topicUiIdForProjectId(currentThread.projectId);
+      if (fromThread) setSelectedTopic(fromThread);
+    }
+  }
+
+  /** 設定・使用量を閉じ、開く前に選んでいた論を押下状態に戻す */
+  function closeSettingsUsageOverlay() {
+    setSettingsOpen(false);
+    setUsageOpen(false);
+    restoreTopicFromBeforeSettingsUsage();
+    scheduleFocusMainPrompt();
+  }
+
+  function openSettingsOverlay() {
+    setRonListOverlayOpen(false);
+    closeMainSubOverlaysExceptRon();
+    topicBeforeSettingsUsageRef.current = selectedTopicRef.current;
+    setSelectedTopic(null);
+    setSettingsOpen(true);
+  }
+
+  function openUsageOverlay() {
+    setRonListOverlayOpen(false);
+    closeMainSubOverlaysExceptRon();
+    topicBeforeSettingsUsageRef.current = selectedTopicRef.current;
+    setSelectedTopic(null);
+    setUsageOpen(true);
+  }
+
+  function openChronicleOverlay() {
+    setRonListOverlayOpen(false);
+    setContextOpen(false);
+    setUsageOpen(false);
+    setSettingsOpen(false);
+    topicBeforeTopicOverlayRef.current = null;
+    setChronicleOpen(true);
+    void fetchThreadListWithTopic(true, selectedTopicRef.current);
+  }
+
+  function openContextOverlay() {
+    setRonListOverlayOpen(false);
+    setChronicleOpen(false);
+    setUsageOpen(false);
+    setSettingsOpen(false);
+    topicBeforeTopicOverlayRef.current = null;
+    setContextOpen(true);
+    void fetchThreadListWithTopic(true, selectedTopicRef.current);
+  }
+
+  /** 令旨・年代記オーバーレイを閉じ、未確定の論切替を戻す */
+  function closeContextChronicleOverlay() {
+    setContextOpen(false);
+    setChronicleOpen(false);
+    setRonListOverlayOpen(false);
+    restoreTopicFromBeforeTopicOverlay();
+    scheduleFocusMainPrompt();
+  }
+
+  /** 議事一覧オーバーレイを閉じ、新規／過去ログ未選択なら表示中議事の論タブへ戻す */
+  function closeRonAgendaOverlay() {
+    setContextOpen(false);
+    setChronicleOpen(false);
+    setSettingsOpen(false);
+    setUsageOpen(false);
+    setRonListOverlayOpen(false);
+    restoreTopicFromBeforeTopicOverlay();
+    scheduleFocusMainPrompt();
+  }
+
+  /** メイン帯オーバーレイ共通「戻る」 */
+  function onMainOverlayBackClick() {
+    if (showRonAgendaPanel) {
+      closeRonAgendaOverlay();
+      return;
+    }
+    if (settingsOpen || usageOpen) {
+      closeSettingsUsageOverlay();
+      return;
+    }
+    if (overlayMode) {
+      closeContextChronicleOverlay();
+      return;
+    }
+    setContextOpen(false);
+    setChronicleOpen(false);
+    setSettingsOpen(false);
+    setUsageOpen(false);
+    setRonListOverlayOpen(false);
+    scheduleFocusMainPrompt();
+  }
+
+  function dismissSettingsUsageBeforeTopicNav() {
+    if (!settingsOpen && !usageOpen) return;
+    setSettingsOpen(false);
+    setUsageOpen(false);
+    restoreTopicFromBeforeSettingsUsage();
+  }
+
+  function topicRonLabelForThread(th: Thread, topic: TopicUiId | null): string {
+    const tid = topicUiIdForProjectId(th.projectId);
+    const id = tid ?? topic;
+    if (!id) return "";
+    return AO_TOPICS.find((t) => t.id === id)?.label ?? "";
+  }
+
+  function requestDeleteAoThread(threadId: string) {
+    const th = state.threads.find((t) => t.id === threadId);
+    if (!th || deletingThreadId) return;
+    if (!isAoNativeThread(th)) {
+      window.alert("取り込み済みの議事はここから削除できません。");
+      return;
+    }
+    setDeleteConfirmThreadId(threadId);
+  }
+
+  async function deleteAoThread(threadId: string) {
+    const th = state.threads.find((t) => t.id === threadId);
+    if (!th || deletingThreadId) return;
+    if (!isAoNativeThread(th)) {
+      window.alert("取り込み済みの議事はここから削除できません。");
+      return;
+    }
+
+    setDeleteConfirmThreadId(null);
+    setDeletingThreadId(threadId);
+    try {
+      if (th.supabaseThreadId) {
+        const res = await fetch(`/api/threads/${encodeURIComponent(th.supabaseThreadId)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          window.alert(data.error ?? `削除に失敗しました（${res.status}）`);
+          return;
+        }
+      }
+
+      const deletedProjectId = th.projectId;
+      const topicForRefresh = selectedTopicRef.current;
+      const wasCurrent = state.currentThreadId === threadId;
+
+      setState((prev) => {
+        const rest = prev.threads.filter((t) => t.id !== threadId);
+        if (prev.currentThreadId !== threadId) {
+          return { ...prev, threads: rest };
+        }
+        const sameProject = rest.find((t) => t.projectId === deletedProjectId && !t.ephemeral);
+        const fallback = sameProject ?? rest.find((t) => t.projectId === deletedProjectId) ?? rest[0];
+        if (fallback) {
+          return {
+            ...prev,
+            threads: rest,
+            currentThreadId: fallback.id,
+            currentProjectId: fallback.projectId,
+          };
+        }
+        if (topicForRefresh) {
+          const nt = createAoThreadForTopic(topicForRefresh);
+          return {
+            ...prev,
+            threads: [nt, ...rest],
+            currentThreadId: nt.id,
+            currentProjectId: nt.projectId,
+          };
+        }
+        return {
+          ...prev,
+          threads: rest.length > 0 ? rest : prev.threads,
+          currentThreadId: rest[0]?.id ?? prev.currentThreadId,
+          currentProjectId: rest[0]?.projectId ?? prev.currentProjectId,
+        };
+      });
+
+      if (wasCurrent) {
+        setComposeLocked(false);
+        setDraft("");
+      }
+
+      if (topicForRefresh) {
+        void fetchThreadListWithTopic(true, topicForRefresh);
+      }
+    } finally {
+      setDeletingThreadId(null);
+    }
+  }
+
   function onMainRonTabClick(topicId: TopicUiId) {
     const inChronicleOrReijitsu = Boolean(chronicleOpen || contextOpen);
+
+    dismissSettingsUsageBeforeTopicNav();
 
     if (!inChronicleOrReijitsu) {
       setComposeLocked(false);
@@ -1701,16 +2052,22 @@ export default function Home() {
         if (!o) closeMainSubOverlaysExceptRon();
         return !o;
       });
+      topicBeforeTopicOverlayRef.current = null;
       return;
     }
 
     if (inChronicleOrReijitsu) {
+      if (prevSel !== topicId) {
+        topicBeforeTopicOverlayRef.current = prevSel;
+      }
       setSelectedTopic(topicId);
+      void fetchThreadListWithTopic(true, topicId);
       setState((prev) => pruneEphemeralEmptyThreads(prev));
       return;
     }
 
     closeMainSubOverlaysExceptRon();
+    topicBeforeTopicOverlayRef.current = prevSel;
     setSelectedTopic(topicId);
     setRonListOverlayOpen(true);
     setState((prev) => pruneEphemeralEmptyThreads(prev));
@@ -1903,17 +2260,76 @@ export default function Home() {
   const anyMainOverlay = Boolean(overlayMode) || settingsOpen || usageOpen || ronListOverlayOpen;
   const showRonAgendaPanel = Boolean(ronListOverlayOpen && !overlayMode && !settingsOpen && !usageOpen);
 
+  const deleteConfirmThread = useMemo(() => {
+    if (!deleteConfirmThreadId) return null;
+    return state.threads.find((t) => t.id === deleteConfirmThreadId) ?? null;
+  }, [deleteConfirmThreadId, state.threads]);
+
+  const deleteConfirmPopupMarkdown = useMemo(() => {
+    if (!deleteConfirmThread) return null;
+    const ron = topicRonLabelForThread(deleteConfirmThread, selectedTopic);
+    const title = aoThreadTitleForList(deleteConfirmThread);
+    const body = substituteAoPopupTemplateMarkdown(deleteLogPopupTemplate, {
+      論: ron,
+      議題: title,
+    });
+    return aoPopupMarkdownForBubble(body);
+  }, [deleteConfirmThread, deleteLogPopupTemplate, selectedTopic]);
+
+  const deleteConfirmKorguzKin = useMemo(() => {
+    const p = NOKOR.find((n) => n.name === "コルグズ");
+    if (!p) return null;
+    return (
+      <div
+        className="flex w-fit min-w-0 flex-col items-stretch transition-none translate-x-0 translate-y-0"
+        style={{
+          paddingTop: 3,
+          paddingBottom: 0,
+          paddingLeft: 3,
+          paddingRight: 0,
+        }}
+      >
+        <AoKinAvatarStack
+          face={
+            <AoP5FaceFrameMid
+              src={p.src}
+              alt={p.name}
+              width={NOKOR_PORTRAIT_W_PX}
+              height={NOKOR_PORTRAIT_BOX_H_PX}
+              portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
+            />
+          }
+          name={p.name}
+          nameplateFontSizePx={8}
+          tightPadXPx={AO_PC_NOKOR_TIGHT_PAD_X_PX}
+        />
+      </div>
+    );
+  }, []);
+
+  const showDeleteConfirmPopup = Boolean(
+    deleteConfirmThread &&
+    deleteConfirmPopupMarkdown &&
+    deleteConfirmKorguzKin &&
+    (overlayMode === "chronicle" || showRonAgendaPanel),
+  );
+
   const overlayThreadsMaxPageIndex = useMemo(() => {
     if (!overlayMode) return 0;
     const n = topicThreads.length;
     return Math.max(0, Math.ceil(n / AGENDA_PAGE_SIZE) - 1);
   }, [overlayMode, topicThreads]);
 
+  const overlayListPageIndexClamped = useMemo(() => {
+    if (!overlayMode) return 0;
+    return Math.min(overlayListPageIndex, overlayThreadsMaxPageIndex);
+  }, [overlayMode, overlayListPageIndex, overlayThreadsMaxPageIndex]);
+
   const overlayThreadsSlice = useMemo(() => {
     if (!overlayMode) return [];
-    const start = overlayListPageIndex * AGENDA_PAGE_SIZE;
+    const start = overlayListPageIndexClamped * AGENDA_PAGE_SIZE;
     return topicThreads.slice(start, start + AGENDA_PAGE_SIZE);
-  }, [overlayMode, topicThreads, overlayListPageIndex]);
+  }, [overlayMode, topicThreads, overlayListPageIndexClamped]);
 
   useEffect(() => {
     if (!overlayMode) return;
@@ -1928,6 +2344,10 @@ export default function Home() {
   useEffect(() => {
     if (overlayMode || settingsOpen || usageOpen) setRonListOverlayOpen(false);
   }, [overlayMode, settingsOpen, usageOpen]);
+
+  useEffect(() => {
+    if (!overlayMode && !showRonAgendaPanel) setDeleteConfirmThreadId(null);
+  }, [overlayMode, showRonAgendaPanel]);
 
   /** スマホのヘッダ帯ジェスチャを無効にする（オーバーレイ・議事メニュー・Raw 時は誤操作防止） */
   const blockCompactKinHeaderSwipe = anyMainOverlay || Boolean(rawPromptOverlay);
@@ -2004,7 +2424,7 @@ export default function Home() {
   const compactSpeechBubbleH = viewportCompact
     ? Math.round(MAIN_SPEECH_BUBBLE_H_PX * 0.88)
     : MAIN_SPEECH_BUBBLE_H_PX;
-  const compactRonTabTopicFs = viewportCompact ? 10 : Math.round(12 * AO_PC_ZOOM_COMP_SCALE);
+  const compactRonTabTopicFs = aoMainRonTabTopicFontPx(viewportCompact);
   const compactGijiTitleFs = viewportCompact ? Math.max(9, AO_GIJI_TITLE_FONT_PX - 3) : AO_GIJI_TITLE_FONT_PX;
   const compactMainTextareaFs = viewportCompact ? COMPACT_COMPOSE_INPUT_FS : 13;
   const compactMainTextareaVisualScale = viewportCompact ? COMPACT_COMPOSE_INPUT_VISUAL_SCALE : 1;
@@ -2015,16 +2435,10 @@ export default function Home() {
   /** 羊皮紙ブロック内の追加余白（テキスト〜内縁） */
   const ronListParchmentPadStr = viewportCompact ? "2px 3px" : "3px 4px";
   const compactRonTitleChipH = viewportCompact ? 26 : 32;
-  const compactExecuteIcoSize = viewportCompact
-    ? Math.max(14, Math.round(Math.max(16, Math.round(JUCHI_SEND_BTN_MIN_H_PX * 1.25)) * 0.78))
-    : Math.max(16, Math.round(JUCHI_SEND_BTN_MIN_H_PX * 1.25));
   /** 令旨／年代記／設定／使用量サブページ帯の縦（論リストの実測に合わせる） */
   const ronSubpageBandPx = Math.max(28, Math.round(ronListPx ?? (viewportCompact ? 96 : 140)));
 
-  const chatRowGap = Math.max(
-    2,
-    Math.round((viewportCompact ? 6 : MAIN_BUBBLE_ROW_GAP_PX) * 0.3),
-  );
+  const chatRowGap = MAIN_BUBBLE_ROW_GAP_PX;
   /** 履歴吹き出しは列 flex で親幅いっぱいまで広げる（実効幅は顔グラ列＋ gap で決まる） */
   const chatBubbleMaxWidth: CSSProperties["maxWidth"] = "100%";
 
@@ -2231,6 +2645,7 @@ export default function Home() {
                 mobileDrawerNokorLayout
                 nameplateFontSizePx={7}
                 activeNames={activeNokorNames}
+                viewportCompact
               />
             </div>
           </aside>
@@ -2389,7 +2804,11 @@ export default function Home() {
             {/* 左カラム：メイン部と同等の角／枠で囲う（狭ビューポートではスワイプドロワーでも表示） */}
             {!viewportCompact ? (
               <div className="min-h-0 shrink-0 overflow-y-auto overflow-x-visible">
-                <AoLeftKinSideColumn measureRef={leftColumnMeasureRef} activeNames={activeNokorNames} />
+                <AoLeftKinSideColumn
+                  measureRef={leftColumnMeasureRef}
+                  activeNames={activeNokorNames}
+                  viewportCompact={viewportCompact}
+                />
               </div>
             ) : null}
             <div
@@ -2410,7 +2829,7 @@ export default function Home() {
               contentClassName="flex shrink-0 flex-col min-w-0"
             >
             <main
-              className={`ao-p5-parchment-surface relative box-border flex min-h-0 w-full shrink-0 flex-col min-w-0 ${viewportCompact ? "min-h-0 shrink-0 overflow-x-hidden overflow-y-auto" : "overflow-visible"}`}
+              className={`ao-p5-parchment-surface relative box-border flex min-h-0 w-full shrink-0 flex-col min-w-0 ${viewportCompact ? "min-h-0 shrink-0 overflow-x-visible overflow-y-auto" : "overflow-visible"}`}
               style={{
                 /* メイン部：固定高だと余りが空白として残るため、基本は内容高に追従させる */
                 paddingLeft: `${MAIN_COLUMN_GUTTER_X_PX}px`,
@@ -2421,7 +2840,7 @@ export default function Home() {
             >
               <section
                 className={`relative flex min-h-0 min-w-0 flex-col overflow-y-auto ${
-                  viewportCompact ? "shrink-0 overflow-x-hidden" : "min-w-0 flex-1 overflow-x-hidden"
+                  viewportCompact ? "shrink-0 overflow-x-visible" : "min-w-0 flex-1 overflow-x-visible"
                 }`}
               >
           <div className={`relative z-10 flex min-h-0 flex-col ${viewportCompact ? "" : "flex-1"}`}>
@@ -2513,7 +2932,7 @@ export default function Home() {
                 <>
                 {/* タイトル行（右上：年代記／使用量／設定）＋吹き出し（右にユーザー） */}
                 <div
-                  className={`mt-0 flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 shrink-0 overflow-x-hidden overflow-y-visible" : "flex-1 overflow-visible"}`}
+                  className={`mt-0 flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 shrink-0 overflow-x-visible overflow-y-visible" : "flex-1 overflow-visible"}`}
                   style={{
                     paddingTop: 0,
                     gap: viewportCompact ? 4 : 6,
@@ -2525,9 +2944,9 @@ export default function Home() {
                     <div
                       className="grid w-full min-w-0"
                       style={{
-                        gridTemplateColumns: `minmax(0, 1fr) ${CHAT_AVATAR_COL_W_PX}px`,
-                        columnGap: chatRowGap,
+                        ...mainComposeRowGridStyle(),
                         rowGap: 4,
+                        gridTemplateRows: "auto auto",
                       }}
                     >
                       <div className="min-w-0">
@@ -2606,13 +3025,7 @@ export default function Home() {
                             type="button"
                             className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                             aria-label="年代記"
-                            onClick={() => {
-                              setRonListOverlayOpen(false);
-                              setChronicleOpen(true);
-                              setContextOpen(false);
-                              setUsageOpen(false);
-                              setSettingsOpen(false);
-                            }}
+                            onClick={() => openChronicleOverlay()}
                           >
                             <span className="ao-p5-kurultai-ink-icon">
                               <IcoBook size={compactGijiChipIconPx} />
@@ -2622,13 +3035,7 @@ export default function Home() {
                             type="button"
                             className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                             aria-label="AI API 使用量を表示"
-                            onClick={() => {
-                              setRonListOverlayOpen(false);
-                              setChronicleOpen(false);
-                              setContextOpen(false);
-                              setSettingsOpen(false);
-                              setUsageOpen(true);
-                            }}
+                            onClick={() => openUsageOverlay()}
                           >
                             <span className="ao-p5-kurultai-ink-icon">
                               <IcoCoinBag size={compactGijiChipIconPx} />
@@ -2638,13 +3045,7 @@ export default function Home() {
                             type="button"
                             className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                             aria-label="設定を開く"
-                            onClick={() => {
-                              setRonListOverlayOpen(false);
-                              setContextOpen(false);
-                              setChronicleOpen(false);
-                              setUsageOpen(false);
-                              setSettingsOpen(true);
-                            }}
+                            onClick={() => openSettingsOverlay()}
                           >
                             <span className="ao-p5-kurultai-ink-icon">
                               <IcoGear size={compactGijiChipIconPx} />
@@ -2699,25 +3100,31 @@ export default function Home() {
                     </div>
 
                     <div
-                      className="relative z-20 box-border flex shrink-0 flex-col items-center gap-0 font-serif"
+                      className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0 font-serif"
                       style={{
-                        width: CHAT_AVATAR_COL_W_PX,
                         minHeight: viewportCompact ? compactSpeechBubbleH : MAIN_SPEECH_BUBBLE_H_PX,
                         marginTop: 0,
                       }}
                     >
-                      <AoP5FaceFrameMid
-                        src="/personas/juci.png"
-                        alt="ジュチ"
-                        width={NOKOR_PORTRAIT_W_PX}
-                        height={JUCHI_PORTRAIT_BOX_H_PX}
+                      <div className="flex w-full justify-center">
+                        <AoP5FaceFrameMid
+                          src="/personas/juci.png"
+                          alt="ジュチ"
+                          width={NOKOR_PORTRAIT_W_PX}
+                          height={JUCHI_PORTRAIT_BOX_H_PX}
+                          portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
+                        />
+                      </div>
+                      <AoP5NameplateSmFrame
+                        width={CHAT_NAMEPLATE_MIN_W_PX}
+                        text="ジュチ"
+                        {...MAIN_CHAT_NAMEPLATE_OPTS}
                       />
-                      <AoP5NameplateSmFrame width={NOKOR_PORTRAIT_W_PX} text="ジュチ" maxChars={7} variant="tight" fontSizePx={7} />
                       <div className="w-full text-center leading-tight">
                         <AoRubyGold
                           main="邦　主"
                           rt="ウルス・ハン"
-                          mainClassName="text-[10px] font-semibold font-serif text-[#3D1C08]"
+                          mainClassName={MAIN_JUCHI_RUBY_MAIN_CLASS}
                           rtClassName="text-[8px] font-serif text-[#6A3F0A]/80"
                         />
                       </div>
@@ -2730,18 +3137,14 @@ export default function Home() {
                           className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoExecute size={compactExecuteIcoSize} />
+                            <IcoExecute size={compactGijiChipIconPx} />
                           </span>
                         </button>
                         <button
                           type="button"
                           className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS}`}
                           aria-label="令旨"
-                          onClick={() => {
-                            setRonListOverlayOpen(false);
-                            setContextOpen(true);
-                            setChronicleOpen(false);
-                          }}
+                          onClick={() => openContextOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
                             <IcoScroll size={compactGijiChipIconPx} />
@@ -2829,13 +3232,7 @@ export default function Home() {
                           type="button"
                           className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                           aria-label="年代記"
-                          onClick={() => {
-                            setRonListOverlayOpen(false);
-                            setChronicleOpen(true);
-                            setContextOpen(false);
-                            setUsageOpen(false);
-                            setSettingsOpen(false);
-                          }}
+                          onClick={() => openChronicleOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
                             <IcoBook size={compactGijiChipIconPx} />
@@ -2845,13 +3242,7 @@ export default function Home() {
                           type="button"
                           className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                           aria-label="AI API 使用量を表示"
-                          onClick={() => {
-                            setRonListOverlayOpen(false);
-                            setChronicleOpen(false);
-                            setContextOpen(false);
-                            setSettingsOpen(false);
-                            setUsageOpen(true);
-                          }}
+                          onClick={() => openUsageOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
                             <IcoCoinBag size={compactGijiChipIconPx} />
@@ -2861,13 +3252,7 @@ export default function Home() {
                           type="button"
                           className={AO_MAIN_HEADER_ICON_BTN_CLASS}
                           aria-label="設定を開く"
-                          onClick={() => {
-                            setRonListOverlayOpen(false);
-                            setContextOpen(false);
-                            setChronicleOpen(false);
-                            setUsageOpen(false);
-                            setSettingsOpen(true);
-                          }}
+                          onClick={() => openSettingsOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
                             <IcoGear size={compactGijiChipIconPx} />
@@ -2876,8 +3261,8 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex min-h-0 flex-1 items-stretch pb-0" style={{ gap: chatRowGap }}>
-                    <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-visible pr-0">
+                  <div className="min-h-0 min-w-0 flex-1 pb-0" style={mainComposeRowGridStyle()}>
+                    <div className="isolate flex min-h-0 min-w-0 flex-col overflow-visible pr-0">
                       <div
                         ref={compactTextareaWrapRef}
                         className="mr-0 min-h-0 min-w-0 w-full"
@@ -2924,29 +3309,35 @@ export default function Home() {
                     </div>
 
                     <div
-                      className="relative z-20 box-border flex shrink-0 flex-col items-center gap-0 font-serif"
+                      className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0 overflow-visible font-serif"
                       style={{
-                        width: CHAT_AVATAR_COL_W_PX,
                         minHeight: viewportCompact ? compactSpeechBubbleH : MAIN_SPEECH_BUBBLE_H_PX,
                         marginTop: 0,
                       }}
                     >
-                      <AoP5FaceFrameMid
-                        src="/personas/juci.png"
-                        alt="ジュチ"
-                        width={NOKOR_PORTRAIT_W_PX}
-                        height={JUCHI_PORTRAIT_BOX_H_PX}
+                      <div className="flex w-full justify-center">
+                        <AoP5FaceFrameMid
+                          src="/personas/juci.png"
+                          alt="ジュチ"
+                          width={NOKOR_PORTRAIT_W_PX}
+                          height={JUCHI_PORTRAIT_BOX_H_PX}
+                          portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
+                        />
+                      </div>
+                      <AoP5NameplateSmFrame
+                        width={CHAT_NAMEPLATE_MIN_W_PX}
+                        text="ジュチ"
+                        {...MAIN_CHAT_NAMEPLATE_OPTS}
                       />
-                      <AoP5NameplateSmFrame width={NOKOR_PORTRAIT_W_PX} text="ジュチ" maxChars={7} variant="tight" fontSizePx={7} />
                       <div className="w-full text-center leading-tight">
                         <AoRubyGold
                           main="邦　主"
                           rt="ウルス・ハン"
-                          mainClassName="text-[10px] font-semibold font-serif text-[#3D1C08]"
+                          mainClassName={MAIN_JUCHI_RUBY_MAIN_CLASS}
                           rtClassName="text-[8px] font-serif text-[#6A3F0A]/80"
                         />
                       </div>
-                      <div className="relative z-30 flex w-full items-center justify-center gap-1.5 px-0.5 pt-0.5">
+                      <div className="relative z-30 flex w-full max-w-full items-center justify-center gap-1.5 px-0.5 pt-0.5">
                         <button
                           type="button"
                           disabled={composeLocked}
@@ -2955,18 +3346,14 @@ export default function Home() {
                           className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoExecute size={compactExecuteIcoSize} />
+                            <IcoExecute size={compactGijiChipIconPx} />
                           </span>
                         </button>
                         <button
                           type="button"
                           className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS}`}
                           aria-label="令旨"
-                          onClick={() => {
-                            setRonListOverlayOpen(false);
-                            setContextOpen(true);
-                            setChronicleOpen(false);
-                          }}
+                          onClick={() => openContextOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
                             <IcoScroll size={compactGijiChipIconPx} />
@@ -2983,7 +3370,7 @@ export default function Home() {
                 <>
                   <div className="shrink-0 w-full" style={{ height: ronSubpageBandPx }} aria-hidden />
                   <div
-                    className="pointer-events-auto absolute inset-x-0 top-0 z-[50] box-border flex min-h-0 flex-col overflow-hidden"
+                    className={`pointer-events-auto absolute inset-x-0 top-0 z-[50] box-border flex min-h-0 flex-col ${showDeleteConfirmPopup ? "overflow-visible" : "overflow-hidden"}`}
                     style={{ height: ronSubpageBandPx }}
                     role="dialog"
                     aria-modal="true"
@@ -3018,6 +3405,7 @@ export default function Home() {
                                   onClick={() => {
                                     const nt = createAoThreadForTopic(selectedTopic);
                                     setComposeLocked(false);
+                                    topicBeforeTopicOverlayRef.current = null;
                                     setRonListOverlayOpen(false);
                                     setState((prev) => {
                                       const withoutGhost = prev.threads.filter(
@@ -3084,14 +3472,7 @@ export default function Home() {
                                   type="button"
                                   className={AO_AGENDA_NAV_BTN_CLASS}
                                   aria-label="戻る"
-                                  onClick={() => {
-                                    setContextOpen(false);
-                                    setChronicleOpen(false);
-                                    setSettingsOpen(false);
-                                    setUsageOpen(false);
-                                    setRonListOverlayOpen(false);
-                                    scheduleFocusMainPrompt();
-                                  }}
+                                  onClick={closeRonAgendaOverlay}
                                 >
                                   <IcoArrowLeft size={14} className="shrink-0" />
                                 </button>
@@ -3251,14 +3632,7 @@ export default function Home() {
                               type="button"
                               className={AO_AGENDA_NAV_BTN_CLASS}
                               aria-label="戻る"
-                              onClick={() => {
-                                setContextOpen(false);
-                                setChronicleOpen(false);
-                                setSettingsOpen(false);
-                                setUsageOpen(false);
-                                setRonListOverlayOpen(false);
-                                scheduleFocusMainPrompt();
-                              }}
+                              onClick={onMainOverlayBackClick}
                             >
                               <IcoArrowLeft size={14} className="shrink-0" />
                             </button>
@@ -3286,10 +3660,10 @@ export default function Home() {
                               {topicThreads.length === 0 ? (
                                 <>
                                   <div
-                                    className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-[11px] text-[#3D1C08]"
+                                    className="grid w-full grid-cols-[28px_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-[11px] text-[#3D1C08]"
                                     style={{ borderColor: "#3D1C08" }}
                                   >
-                                    <div className="w-[24px]" />
+                                    <div />
                                     <div className="min-w-0 text-left">該当する議事はありません。</div>
                                     <div className="min-w-[52px] shrink-0 text-center text-[11px] leading-tight text-[#c2cad6]" />
                                     <div className="min-w-[108px] shrink-0 pr-[20px] text-right" />
@@ -3297,10 +3671,10 @@ export default function Home() {
                                   {Array.from({ length: Math.max(0, AGENDA_PAGE_SIZE - 1) }).map((_, i) => (
                                     <div
                                       key={`sub-empty-row-${i}`}
-                                      className="grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5"
+                                      className="grid w-full grid-cols-[28px_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5"
                                       style={{ borderColor: "#3D1C08", minHeight: 18 }}
                                     >
-                                      <div className="w-[24px]" />
+                                      <div />
                                       <div />
                                       <div className="min-w-[52px] shrink-0" />
                                       <div className="min-w-[108px] shrink-0 pr-[20px]" />
@@ -3309,27 +3683,44 @@ export default function Home() {
                                 </>
                               ) : (
                                 overlayThreadsSlice.map((t) => (
-                                  <button
+                                  <div
                                     key={t.id}
-                                    type="button"
-                                    className="group/row grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-left text-[11px] hover:bg-[#143d5e]/60"
+                                    className="group/row grid w-full grid-cols-[28px_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-left text-[11px] hover:bg-[#143d5e]/60"
                                     style={{ borderColor: "#3D1C08" }}
-                                    onClick={() => {
-                                      setCurrentThread(t.id);
-                                      setComposeLocked(true);
-                                    }}
                                   >
-                                    <div className="w-[24px]" />
-                                    <span className="min-w-0 truncate text-[#3D1C08] group-hover/row:underline">
+                                    <div className="flex items-center justify-center">
+                                      {isAoNativeThread(t) ? (
+                                        <button
+                                          type="button"
+                                          className={AO_AGENDA_NAV_BTN_CLASS}
+                                          aria-label={`議事「${aoThreadTitleForList(t)}」を削除`}
+                                          disabled={deletingThreadId === t.id}
+                                          onClick={() => requestDeleteAoThread(t.id)}
+                                        >
+                                          <IcoTrash size={12} />
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="min-w-0 truncate border-0 bg-transparent p-0 text-left text-[#3D1C08] outline-none group-hover/row:underline"
+                                      onClick={() => {
+                                        setCurrentThread(t.id);
+                                        setComposeLocked(true);
+                                        const topic = topicUiIdForProjectId(t.projectId);
+                                        if (topic) setSelectedTopic(topic);
+                                        topicBeforeTopicOverlayRef.current = null;
+                                      }}
+                                    >
                                       {aoThreadTitleForList(t)}
-                                    </span>
+                                    </button>
                                     <span className="min-w-[52px] shrink-0 whitespace-nowrap text-center text-[11px] leading-tight text-[#6A3F0A]/80">
                                       {threadSourceProviderUlusLabel(t.sourceProvider)}
                                     </span>
                                     <span className="min-w-0 shrink-0 whitespace-nowrap pr-[20px] text-right text-[11px] leading-tight text-[#6A3F0A]/80 tabular-nums">
                                       {formatDate(t.updatedAt)}
                                     </span>
-                                  </button>
+                                  </div>
                                 ))
                               )}
                             </div>
@@ -3348,10 +3739,27 @@ export default function Home() {
                                       onClick={() => {
                                         setComposeLocked(false);
                                         setCurrentThread(t.id);
+                                        const topic = topicUiIdForProjectId(t.projectId);
+                                        if (topic) setSelectedTopic(topic);
+                                        topicBeforeTopicOverlayRef.current = null;
                                         setRonListOverlayOpen(false);
                                         scheduleFocusMainPrompt();
                                       }}
                                     >
+                                      <td className="w-[28px] px-0.5 py-0.5">
+                                        <button
+                                          type="button"
+                                          className={AO_AGENDA_NAV_BTN_CLASS}
+                                          aria-label={`議事「${aoThreadTitleForList(t)}」を削除`}
+                                          disabled={deletingThreadId === t.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            requestDeleteAoThread(t.id);
+                                          }}
+                                        >
+                                          <IcoTrash size={12} />
+                                        </button>
+                                      </td>
                                       <td className="max-w-0 px-1.5 py-0.5">
                                         <span className="block truncate">{aoThreadTitleForList(t)}</span>
                                       </td>
@@ -3374,25 +3782,32 @@ export default function Home() {
                               open={settingsOpen}
                               embeddedSubpage={settingsEmbeddedSubpage}
                               onEmbeddedSubpageChange={setSettingsEmbeddedSubpage}
-                              onClose={() => {
-                                setSettingsOpen(false);
-                                scheduleFocusMainPrompt();
-                              }}
+                              onClose={closeSettingsUsageOverlay}
                             />
                           ) : null}
                           {usageOpen ? (
                             <AoUsageOverlay
                               embedded
                               open={usageOpen}
-                              onClose={() => {
-                                setUsageOpen(false);
-                                scheduleFocusMainPrompt();
-                              }}
+                              onClose={closeSettingsUsageOverlay}
                             />
                           ) : null}
                         </div>
                       </div>
                     </AoOrnamentalFrame>
+                    {showDeleteConfirmPopup && deleteConfirmPopupMarkdown && deleteConfirmKorguzKin ? (
+                      <AoDeleteConfirmPopup
+                        kinColumn={deleteConfirmKorguzKin}
+                        messageMarkdown={deleteConfirmPopupMarkdown}
+                        frameInsetPx={ronListFrameInsetPx}
+                        parchmentPadStr={ronListParchmentPadStr}
+                        confirmDisabled={Boolean(deletingThreadId)}
+                        onCancel={() => setDeleteConfirmThreadId(null)}
+                        onConfirm={() => {
+                          if (deleteConfirmThreadId) void deleteAoThread(deleteConfirmThreadId);
+                        }}
+                      />
+                    ) : null}
                   </div>
                 </>
                 )}
@@ -3415,8 +3830,8 @@ export default function Home() {
               ref={messagesRef}
               className="relative z-10 min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
               style={{
-                paddingLeft: MAIN_COLUMN_GUTTER_X_PX + MAIN_MIDDLE_SECTION_PAD_X_PX,
-                paddingRight: MAIN_COLUMN_GUTTER_X_PX + MAIN_MIDDLE_SECTION_PAD_X_PX,
+                paddingLeft: CHAT_AREA_PAD_X_PX,
+                paddingRight: CHAT_AREA_PAD_RIGHT_PX,
                 paddingTop: MAIN_MIDDLE_SECTION_PAD_X_PX,
                 paddingBottom: MAIN_MIDDLE_SECTION_PAD_X_PX,
               }}
@@ -3466,7 +3881,8 @@ export default function Home() {
                           src={avatarSrc}
                           alt={label}
                           width={NOKOR_PORTRAIT_W_PX}
-                          height={Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4)}
+                          height={NOKOR_PORTRAIT_BOX_H_PX}
+                          portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
                         />
                       </button>
                     );
@@ -3474,16 +3890,13 @@ export default function Home() {
                       <div
                         key={m.id}
                         data-ao-chat-row
+                        data-ao-chat-side="ai"
                         data-ao-msg-id={m.id}
                         className="flex w-full items-start"
                         style={{ gap: chatRowGap }}
                       >
-                        <div
-                          className="flex shrink-0 flex-col items-center gap-0 font-serif"
-                          style={{ width: CHAT_AVATAR_COL_W_PX }}
-                        >
-                          {avatarBtn}
-                          <AoP5NameplateSmFrame width={NOKOR_PORTRAIT_W_PX} text={label} maxChars={7} variant="tight" fontSizePx={7} />
+                        <div className="flex shrink-0 flex-col items-stretch gap-0 font-serif">
+                          <AoChatAiAvatarStack face={avatarBtn} label={label} />
                         </div>
                         <div
                           data-ao-chat-bubble
@@ -3524,7 +3937,8 @@ export default function Home() {
                         src={avatarSrc}
                         alt={label}
                         width={NOKOR_PORTRAIT_W_PX}
-                        height={Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4)}
+                        height={NOKOR_PORTRAIT_BOX_H_PX}
+                        portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
                       />
                     </button>
                   );
@@ -3532,20 +3946,14 @@ export default function Home() {
                     <div
                       key={m.id}
                       data-ao-chat-row
+                      data-ao-chat-side="user"
                       data-ao-msg-id={m.id}
-                      className="flex w-full flex-row-reverse items-start"
-                      style={{ gap: chatRowGap }}
+                      className="grid w-full min-w-0 max-w-full items-start"
+                      style={mainComposeRowGridStyle()}
                     >
                       <div
-                        className="relative z-20 box-border flex shrink-0 flex-col items-center gap-0 font-serif"
-                        style={{ width: CHAT_AVATAR_COL_W_PX }}
-                      >
-                        {userAvatarBtn}
-                        <AoP5NameplateSmFrame width={NOKOR_PORTRAIT_W_PX} text="ジュチ" maxChars={7} variant="tight" fontSizePx={7} />
-                      </div>
-                      <div
                         data-ao-chat-bubble
-                        className="flex min-h-0 min-w-0 flex-1 flex-col items-end justify-start overflow-visible"
+                        className="flex min-h-0 min-w-0 flex-col items-end justify-end overflow-visible"
                       >
                         <AoP5NineSliceBubble
                           variant="user"
@@ -3559,6 +3967,16 @@ export default function Home() {
                             <AoMessageMarkdown text={msgTextForUi(currentThread, m)} />
                           )}
                         </AoP5NineSliceBubble>
+                      </div>
+                      <div className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0 font-serif">
+                        <div className="flex w-full justify-center">{userAvatarBtn}</div>
+                        <div className="flex w-full justify-center">
+                          <AoP5NameplateSmFrame
+                            width={CHAT_NAMEPLATE_MIN_W_PX}
+                            text="ジュチ"
+                            {...MAIN_CHAT_NAMEPLATE_OPTS}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -3574,22 +3992,18 @@ export default function Home() {
                       const thinkingUi = aoThinkingSpeakerUi(currentThread, personaCatalog);
                       return (
                         <>
-                          <div
-                            className="flex shrink-0 flex-col items-center gap-0 font-serif"
-                            style={{ width: CHAT_AVATAR_COL_W_PX }}
-                          >
-                            <AoP5FaceFrameMid
-                              src={thinkingUi.avatarSrc}
-                              alt={thinkingUi.label}
-                              width={NOKOR_PORTRAIT_W_PX}
-                              height={Math.ceil((NOKOR_PORTRAIT_W_PX * 5) / 4)}
-                            />
-                            <AoP5NameplateSmFrame
-                              width={NOKOR_PORTRAIT_W_PX}
-                              text={thinkingUi.label}
-                              maxChars={7}
-                              variant="tight"
-                              fontSizePx={7}
+                          <div className="flex shrink-0 flex-col items-stretch gap-0 font-serif">
+                            <AoChatAiAvatarStack
+                              face={
+                                <AoP5FaceFrameMid
+                                  src={thinkingUi.avatarSrc}
+                                  alt={thinkingUi.label}
+                                  width={NOKOR_PORTRAIT_W_PX}
+                                  height={NOKOR_PORTRAIT_BOX_H_PX}
+                                  portraitScale={AO_MAIN_CHAT_FACE_PORTRAIT_SCALE}
+                                />
+                              }
+                              label={thinkingUi.label}
                             />
                           </div>
                           <div className="flex min-h-0 min-w-0 flex-1 flex-col items-start justify-start overflow-visible">

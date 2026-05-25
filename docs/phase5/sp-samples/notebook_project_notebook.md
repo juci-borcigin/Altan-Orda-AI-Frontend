@@ -1,4 +1,4 @@
-# 組み立て SP サンプル: 学究論
+# 組み立て SP サンプル: 典籍論（Notebook / project_notebook）
 
 - project_id: `notebook`
 - section_key: `project_notebook`

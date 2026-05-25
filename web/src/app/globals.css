@@ -1104,6 +1104,30 @@ body {
   background: rgba(0, 0, 0, 0.05);
 }
 
+/* 削除確認ポップアップ（2行・やや小さめ・左上詰め） */
+.ao-popup-bubble-content {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+}
+.ao-md-body.ao-popup-confirm-md {
+  width: 100%;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+}
+.ao-md-body.ao-popup-confirm-md .ao-md-p {
+  margin: 0;
+  text-align: left;
+}
+.ao-md-body.ao-popup-confirm-md .ao-md-p:first-child {
+  margin-top: 0;
+}
+
 .ao-pbreak {
   border-top: 1px dashed rgba(201, 146, 42, 0.2);
   margin: 7px 0 6px;

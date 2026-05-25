@@ -11,13 +11,22 @@
     "backfill:embeddings": "npx tsx scripts/backfill-embeddings.ts",
     "backfill:embeddings:dry": "npx tsx scripts/backfill-embeddings.ts --dry-run",
     "probe:rag": "npx tsx scripts/probe-rag.ts",
+    "probe:books": "npx tsx scripts/probe-books-rag.ts",
+    "init:qdrant": "npx tsx scripts/init-qdrant.ts",
+    "qdrant:recreate-hybrid": "npx tsx scripts/qdrant-recreate-hybrid.ts",
+    "qdrant:hybrid-poc": "npx tsx scripts/qdrant-hybrid-poc.ts",
     "seed:phase5": "npx tsx scripts/seed-phase5.ts",
-    "samples:phase5-sp": "npx tsx scripts/generate-phase5-sp-samples.ts"
+    "samples:phase5-sp": "npx tsx scripts/generate-phase5-sp-samples.ts",
+    "ingest:books-batch": "npx tsx scripts/ingest-books-batch.ts",
+    "recover:failed-books": "npx tsx scripts/recover-failed-books.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",
+    "epub2": "^3.0.2",
     "next": "16.2.2",
     "next-auth": "^5.0.0-beta.31",
+    "pdf-parse": "^1.1.1",
+    "pdf-to-img": "^6.1.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",

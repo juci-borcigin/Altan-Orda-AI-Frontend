@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { isProjectId, type ProjectId } from "@/lib/ao-types";
+import { isProjectId, normalizeProjectId, type ProjectId } from "@/lib/ao-types";
 import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
 
 const LIST_CACHE_TTL_MS = 45_000;
@@ -10,6 +10,16 @@ const listCache = new Map<string, CacheEntry>();
 
 function listCacheKey(projectIds: readonly ProjectId[], limit: number, offset: number) {
   return `${[...projectIds].sort().join(",")}|${limit}|${offset}`;
+}
+
+/** 一覧 API：`notebook` 要求時は DB レガシー `study` 行も含める */
+function projectIdsForDbIn(projectIds: readonly ProjectId[]): string[] {
+  const out = new Set<string>();
+  for (const id of projectIds) {
+    out.add(id);
+    if (id === "notebook") out.add("study");
+  }
+  return [...out];
 }
 
 function listCacheSet(key: string, payload: CacheEntry["payload"]) {
@@ -60,10 +70,12 @@ export async function GET(req: Request) {
     }
   }
 
+  const dbProjectIds = projectIdsForDbIn(projectIds);
+
   const { data, error } = await supa
     .from("ao_threads")
     .select("id, client_thread_id, title, project_id, created_at, updated_at, source_provider")
-    .in("project_id", projectIds)
+    .in("project_id", dbProjectIds)
     .order("updated_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -72,10 +84,13 @@ export async function GET(req: Request) {
   }
 
   const payload = {
-    threads: (data ?? []) as DbThreadRow[],
+    threads: ((data ?? []) as DbThreadRow[]).map((row) => {
+      const pid = normalizeProjectId(row.project_id);
+      return pid ? { ...row, project_id: pid } : row;
+    }),
     limit,
     offset,
   };
-  if (!bust) listCacheSet(ckey, payload);
+  if (!bust && payload.threads.length > 0) listCacheSet(ckey, payload);
   return NextResponse.json(payload);
 }

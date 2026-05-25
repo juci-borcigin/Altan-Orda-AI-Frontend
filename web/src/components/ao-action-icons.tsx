@@ -213,6 +213,19 @@ export function IcoLogout({ size = 18, className }: { size?: number; className?:
 /** @deprecated IcoExecute と同一 */
 export const IcoPlay = IcoExecute;
 
+/** 削除（ゴミ箱・線画） */
+export function IcoTrash({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} strokeWidth={1.75} className={className}>
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </IconStroke24>
+  );
+}
+
 export function IcoCheck({ size = 16, className }: { size?: number; className?: string }) {
   return (
     <svg
@@ -230,5 +243,25 @@ export function IcoCheck({ size = 16, className }: { size?: number; className?: 
     >
       <path d="M20 6 9 17l-5-5" />
     </svg>
+  );
+}
+
+/** システムポップアップ：承認（丸枠＋チェック） */
+export function IcoPopupOk({ size = 22, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.65}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.2 10.8 15 16 9.5" strokeWidth={2} />
+    </IconStroke24>
+  );
+}
+
+/** システムポップアップ：取消（丸枠＋×） */
+export function IcoPopupNo({ size = 22, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} className={className} strokeWidth={1.65}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9 9l6 6M15 9l-6 6" strokeWidth={2} />
+    </IconStroke24>
   );
 }

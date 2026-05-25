@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import { AoP5Bubble, AoP5Corner, AoP5CornerMaster, AoP5DecorativeFrame, AoP5NineSliceBubble, AoP5ParchmentBubble, AoP5PortraitCard, AoP5PortraitFrame, AoP5PortraitFrameC, AoP5NameplateSm, AoP5FaceFrameMid, AoP5NameplateSmFrame } from "@/components/ao-phase5";
 import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
@@ -180,6 +181,10 @@ export default function Phase5PreviewPage() {
           </div>
           <div className="mt-1 text-[11px] opacity-80">
             URL: <code className="rounded bg-black/10 px-1 py-0.5">/phase5-preview</code>
+            {" · "}
+            <Link href="/phase5-preview/notebook-sources" className="font-semibold underline">
+              典籍論ソース取込（仮 UI）
+            </Link>
           </div>
         </header>
 

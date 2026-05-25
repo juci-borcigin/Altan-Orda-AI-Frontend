@@ -21,7 +21,7 @@ export const PHASE5_PROJECT_MAP: Record<
   plan: { section_key: "project_plan", topic_label_ja: "為政論" },
   work: { section_key: "project_work", topic_label_ja: "兵馬論" },
   mental: { section_key: "project_mental", topic_label_ja: "心気論" },
-  notebook: { section_key: "project_notebook", topic_label_ja: "学究論" },
+  notebook: { section_key: "project_notebook", topic_label_ja: "典籍論" },
   foreign: { section_key: "project_foreign", topic_label_ja: "遠交論" },
 };
 

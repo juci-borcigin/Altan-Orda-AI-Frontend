@@ -8,7 +8,7 @@ import {
   type ThreadHistoryCompression,
 } from "@/lib/ao-history-compress";
 import { summarizeHistoryWithLlm } from "@/lib/ao-summary-llm";
-import { RAG_DEFAULT_KIND, searchRagChunks } from "@/lib/rag-context";
+import { searchPhase5Rag } from "@/lib/rag-phase5";
 import { Phase5DbConfigError } from "./phase5-db-errors";
 import {
   buildPhase5SystemPrompt,
@@ -78,12 +78,13 @@ export async function tryBuildPhase5ChatSystem(opts: {
   };
 
   if (opts.openAiKey?.trim()) {
-    const rag = await searchRagChunks(
+    const rag = await searchPhase5Rag(
       opts.supa,
       opts.lastUser,
       opts.isFirstUserTurn,
       opts.openAiKey.trim(),
       {
+        projectId: opts.projectId,
         enabled: bundle.runtime.rag_enabled,
         when: bundle.runtime.rag_when,
         isFirstUserTurn: opts.isFirstUserTurn,
@@ -91,7 +92,6 @@ export async function tryBuildPhase5ChatSystem(opts: {
         match_threshold: bundle.runtime.rag_match_threshold,
         max_chars: bundle.runtime.rag_max_chars,
         filter_project_id: bundle.project.project_id,
-        filter_kind: RAG_DEFAULT_KIND,
         project_label_ja: bundle.project.label_ja ?? null,
         exclude_thread_id: opts.supabaseThreadId?.trim() || null,
       },

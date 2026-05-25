@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { openAiEmbed } from "./embed-openai";
 import {
   buildRagEmbedQuery,
   normalizeEmbedProjectId,
@@ -69,11 +70,35 @@ export async function searchRagChunks(
   if (!query) return empty;
 
   const emb = await openAiEmbed(query, openaiKey);
+  return searchRagChunksWithVector(supa, emb, {
+    ...opts,
+    isFirstUserTurn,
+    filter_project_id: filterProjectId,
+    filter_kind: filterKind,
+  });
+}
+
+/** クエリベクトル済みの Supabase RAG（Phase5 複合検索用） */
+export async function searchRagChunksWithVector(
+  supa: SupabaseClient,
+  queryEmbedding: number[],
+  opts?: Partial<RagSearchOptions> & { isFirstUserTurn?: boolean },
+): Promise<RagSearchResult> {
+  const empty: RagSearchResult = { block: "", hitCount: 0, topSimilarity: null };
+  const enabled = opts?.enabled ?? true;
+  const when = opts?.when ?? "first_user";
+  if (!enabled) return empty;
+  if (when === "first_user" && !opts?.isFirstUserTurn) return empty;
+
+  const filterProjectId =
+    opts?.filter_project_id !== undefined ? opts.filter_project_id : null;
+  const filterKind = opts?.filter_kind ?? RAG_DEFAULT_KIND;
   const match_count = opts?.match_count ?? 5;
   const match_threshold = opts?.match_threshold ?? RAG_MATCH_THRESHOLD;
   const excludeThreadId = opts?.exclude_thread_id?.trim() || null;
+
   const { data, error } = await supa.rpc("match_embeddings", {
-    query_embedding: emb,
+    query_embedding: queryEmbedding,
     match_count,
     match_threshold,
     filter_project_id: filterProjectId,
@@ -87,14 +112,14 @@ export async function searchRagChunks(
   const rows = (Array.isArray(data) ? data : []) as RagMatchRow[];
   if (rows.length === 0) {
     console.info(
-      `[rag] 0 hits query_chars=${query.length} threshold=${match_threshold} project=${filterProjectId ?? "*"} kind=${filterKind}`,
+      `[rag] 0 hits threshold=${match_threshold} project=${filterProjectId ?? "*"} kind=${filterKind}`,
     );
     return empty;
   }
   const topSimilarity =
     typeof rows[0]?.similarity === "number" ? rows[0].similarity : null;
   console.info(
-    `[rag] ${rows.length} hits top_sim=${topSimilarity?.toFixed(4) ?? "?"} threshold=${match_threshold} when=${when} project=${filterProjectId ?? "*"} kind=${filterKind}`,
+    `[rag] ${rows.length} hits top_sim=${topSimilarity?.toFixed(4) ?? "?"} kind=${filterKind} project=${filterProjectId ?? "*"}`,
   );
   let block = rows
     .map((row) => row.chunk_text?.trim() ?? "")
@@ -105,28 +130,6 @@ export async function searchRagChunks(
     block = `${block.slice(0, maxChars)}\n\n---\n\n（RAG ブロックは長さのため省略）`;
   }
   return { block, hitCount: rows.length, topSimilarity };
-}
-
-async function openAiEmbed(text: string, apiKey: string): Promise<number[]> {
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: text.slice(0, 8000),
-    }),
-  });
-  const raw = await res.text();
-  if (!res.ok) {
-    throw new Error(`OpenAI embeddings ${res.status}: ${raw.slice(0, 400)}`);
-  }
-  const data = JSON.parse(raw) as { data?: Array<{ embedding?: number[] }> };
-  const emb = data.data?.[0]?.embedding;
-  if (!emb?.length) throw new Error("OpenAI embeddings: missing vector");
-  return emb;
 }
 
 async function loadRagBlock(

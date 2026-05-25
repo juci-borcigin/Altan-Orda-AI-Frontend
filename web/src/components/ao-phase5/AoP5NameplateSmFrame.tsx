@@ -40,14 +40,54 @@ export function aoP5NameplateSmTightPlateOuterWidthPx(opts: {
   return Math.max(width, neededW);
 }
 
+/** `AoP5NameplateSmFrame` の外寸幅（plateW）をレイアウト用に算出 */
+export function aoP5NameplateSmOuterWidthPx(opts: {
+  text: string;
+  /** 最小幅（px）。メイン／チャットでは顔枠 Face_SM の外寸 */
+  minWidthPx: number;
+  maxChars?: number;
+  fontSizePx?: number;
+  variant?: "default" | "tight" | "flush";
+  fitToText?: boolean;
+  lockOuterWidth?: boolean;
+  tightPadXPx?: number;
+}): number {
+  const width = opts.minWidthPx;
+  const maxChars = opts.maxChars ?? 7;
+  const variant = opts.variant ?? "default";
+  const fitToText = opts.fitToText ?? false;
+  const lockOuterWidth = opts.lockOuterWidth ?? false;
+  const fontSizePx = opts.fontSizePx;
+  const text = opts.text;
+  const tightPadXPx = opts.tightPadXPx;
+
+  const scale = (width / 60) * 0.5;
+  const tight = variant === "tight" || variant === "flush";
+  const flush = variant === "flush";
+  const tightHorizPad = tight && !flush ? (tightPadXPx ?? TIGHT_NAMEPLATE_PAD_X_PX) : TIGHT_NAMEPLATE_PAD_X_PX;
+  const geomScale = tight ? scale * 0.55 : scale;
+  const cnr = Math.max(6, Math.round(NAME_CNR_NAT * geomScale));
+  const fontSize = Math.max(7, (fontSizePx ?? Math.max(10, Math.round((11 * width) / 80))) - (tight ? 3 : 2));
+  const charN = Math.max(1, Math.min(maxChars, text.length || 1));
+  const estTextW = Math.ceil(fontSize * charN * 1.05 + fontSize * 0.055 * Math.max(0, charN - 1));
+  const neededW =
+    estTextW + Math.max(3, Math.round(NAME_RITE_W_NAT * geomScale)) * 2 + 2 + (tight && !flush ? 2 * (tightHorizPad - 1) : 0);
+  if (lockOuterWidth) return width;
+  if (fitToText) return Math.max(neededW, cnr * 2 + 2);
+  return Math.max(width, neededW);
+}
+
 export interface AoP5NameplateSmFrameProps {
   text: string;
+  /** 最小幅（px）。外寸は max(width, テキスト＋余白) */
   width: number;
   maxChars?: number;
   fontSizePx?: number;
   variant?: "default" | "tight" | "flush";
   /** true の場合、指定 width を最小幅にせず文字幅にフィットさせる */
   fitToText?: boolean;
+  /** true のとき外寸幅を width に固定（顔枠外寸と揃える。長い名前は内側でクリップ） */
+  lockOuterWidth?: boolean;
   /** tight（非 flush）時のテキスト左右パディング（px）。未指定時は既定 6 */
   tightPadXPx?: number;
   className?: string;
@@ -70,6 +110,7 @@ export function AoP5NameplateSmFrame({
   fontSizePx,
   variant = "default",
   fitToText = false,
+  lockOuterWidth = false,
   tightPadXPx,
   className,
   style,
@@ -95,7 +136,11 @@ export function AoP5NameplateSmFrame({
 
   const neededW =
     estTextW + riteW * 2 + 2 + (tight && !flush ? 2 * (tightHorizPad - 1) : 0);
-  const plateW = fitToText ? Math.max(neededW, cnr * 2 + 2) : Math.max(width, neededW);
+  const plateW = lockOuterWidth
+    ? width
+    : fitToText
+      ? Math.max(neededW, cnr * 2 + 2)
+      : Math.max(width, neededW);
   /** tight は tbH と同じく geomScale 基準。scale のままだと inner が過大になり repeat-y の側面タイルが目立つ */
   const innerHDepthScale = tight ? geomScale : scale;
   const innerH = Math.max(fontSize + 2, Math.round(NAME_BTM_H_NAT * innerHDepthScale * 3));
@@ -235,6 +280,8 @@ export function AoP5NameplateSmFrame({
           fontSize: px(fontSize),
           lineHeight: 1,
           whiteSpace: "nowrap",
+          overflow: lockOuterWidth ? "hidden" : undefined,
+          textOverflow: lockOuterWidth ? "ellipsis" : undefined,
           color: "#2a1406",
           fontWeight: 800,
           letterSpacing: "0.06em",

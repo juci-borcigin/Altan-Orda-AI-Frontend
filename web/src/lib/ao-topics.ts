@@ -1,4 +1,5 @@
 import type { ProjectId } from "./ao-types";
+import { normalizeProjectId } from "./ao-types";
 import { aoUid, type Thread } from "./ao-state";
 
 /** メイン「論」タブの識別子（UI 用。DB の project_id とは別名） */
@@ -16,7 +17,7 @@ export const AO_TOPICS: Array<{
   { id: "shisei", label: "為政論", projectIds: ["plan"] },
   { id: "heiba", label: "兵馬論", projectIds: ["work"] },
   { id: "shinki", label: "心気論", projectIds: ["mental"] },
-  { id: "gakkyu", label: "学究論", projectIds: ["notebook"] },
+  { id: "gakkyu", label: "典籍論", projectIds: ["notebook"] },
   { id: "enkou", label: "遠交論", projectIds: ["foreign"] },
 ];
 
@@ -27,6 +28,21 @@ export const AO_KOUKAN_THREAD_DISPLAY_TITLE = "巷　間　論";
 export function projectIdsForTopic(topicId: TopicUiId | null): readonly ProjectId[] | null {
   if (!topicId) return null;
   return AO_TOPICS.find((t) => t.id === topicId)?.projectIds ?? null;
+}
+
+/** 議事の project_id → メイン「論」タブ ID（表示中チャットと論ハイライトの同期用） */
+export function topicUiIdForProjectId(projectId: ProjectId): TopicUiId | null {
+  for (const t of AO_TOPICS) {
+    if (t.projectIds.includes(projectId)) return t.id;
+  }
+  return null;
+}
+
+/** 議事の project_id（DB レガシー `study` → `notebook` 等）が論タブの対象に含まれるか */
+export function threadMatchesTopicProjectIds(t: Thread, topicProjectIds: readonly ProjectId[]): boolean {
+  const pid = normalizeProjectId(String(t.projectId));
+  if (!pid) return false;
+  return topicProjectIds.includes(pid);
 }
 
 /** updated_at 降順、同値なら title 降順（文字列比較は ja） */
@@ -96,17 +112,26 @@ export function aoPostingProjectIdForTopic(topicId: TopicUiId): ProjectId {
   }
 }
 
-/** 投稿メニュー：AO ネイティブ議事かつ当該論の project_id（巷間論 chat は ephemeral 空も含む）。UI ページング用に十分な件数まで */
-export function aoThreadsForPostMenu(threads: Thread[], topicId: TopicUiId): Thread[] {
-  const pid = aoPostingProjectIdForTopic(topicId);
+/**
+ * 年代記・議事一覧：当該論の議事（Supabase 同期済みは取り込み nblm 等も含む。巷間論 chat は ephemeral 空も可）
+ */
+export function threadsForTopicGiList(threads: Thread[], topicId: TopicUiId): Thread[] {
+  const pids = projectIdsForTopic(topicId);
+  if (!pids?.length) return [];
   return threads
     .filter((t) => {
-      if (!isAoNativeThread(t) || t.projectId !== pid) return false;
-      if (pid === "chat") return true;
-      return !t.ephemeral;
+      if (!threadMatchesTopicProjectIds(t, pids)) return false;
+      if (t.projectId === "chat") return true;
+      if (t.supabaseThreadId) return true;
+      return isAoNativeThread(t) && !t.ephemeral;
     })
     .sort(compareThreadsForGiList)
     .slice(0, 120);
+}
+
+/** @deprecated 名称互換。`threadsForTopicGiList` と同一 */
+export function aoThreadsForPostMenu(threads: Thread[], topicId: TopicUiId): Thread[] {
+  return threadsForTopicGiList(threads, topicId);
 }
 
 /** 選択中の論用・空の AO 下書き（初回送信まで ephemeral。DB 行は送信時のみ） */

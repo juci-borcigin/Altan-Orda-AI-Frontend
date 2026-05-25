@@ -1,4 +1,5 @@
 import type { ProjectId } from "@/lib/ao-types";
+import { normalizeProjectId } from "@/lib/ao-types";
 import type { AppState, Msg, Thread } from "@/lib/ao-state";
 import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
 import { msFromDb } from "@/lib/ao-supabase-thread-map";
@@ -9,6 +10,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
   const updatedAt = msFromDb(row.updated_at);
   const createdAt = prev?.createdAt ?? msFromDb(row.created_at);
   const sp = typeof row.source_provider === "string" && row.source_provider.trim() ? row.source_provider.trim() : prev?.sourceProvider;
+  const projectId = normalizeProjectId(row.project_id) ?? (prev?.projectId ?? "work");
 
   if (prev) {
     const hasLocalMessages = prev.messages.length > 0 || prev.ephemeral === true;
@@ -19,7 +21,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
         id: clientId,
         supabaseThreadId: sid,
         title: row.title,
-        projectId: row.project_id as ProjectId,
+        projectId,
         createdAt,
         updatedAt,
         sourceProvider: sp,
@@ -31,7 +33,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
         id: clientId,
         supabaseThreadId: sid,
         title: row.title,
-        projectId: row.project_id as ProjectId,
+        projectId,
         createdAt,
         updatedAt,
         sourceProvider: sp,
@@ -44,7 +46,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
       id: clientId,
       supabaseThreadId: sid,
       title: row.title,
-      projectId: row.project_id as ProjectId,
+      projectId,
       createdAt,
       updatedAt,
       sourceProvider: sp,
@@ -57,7 +59,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
     id: clientId,
     supabaseThreadId: sid,
     title: row.title,
-    projectId: row.project_id as ProjectId,
+    projectId,
     createdAt,
     updatedAt,
     messages: [],
@@ -88,13 +90,17 @@ export function mergeThreadSummariesIntoState(
   });
 
   const keptSameProjectNotInBatch = prev.threads.filter((t) => {
-    if (!pidSet.has(t.projectId)) return false;
+    const pid = normalizeProjectId(String(t.projectId));
+    if (!pid || !pidSet.has(pid)) return false;
     if (rowKeys.has(t.id)) return false;
     if (t.supabaseThreadId && rowSids.has(t.supabaseThreadId)) return false;
     return true;
   });
 
-  const keptOtherProjects = prev.threads.filter((t) => !pidSet.has(t.projectId));
+  const keptOtherProjects = prev.threads.filter((t) => {
+    const pid = normalizeProjectId(String(t.projectId));
+    return !pid || !pidSet.has(pid);
+  });
 
   const nextThreads = [...fromApi, ...keptSameProjectNotInBatch, ...keptOtherProjects];
 
