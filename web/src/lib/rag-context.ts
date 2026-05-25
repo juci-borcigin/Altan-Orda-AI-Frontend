@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { openAiEmbed } from "./embed-openai";
 import {
   buildRagEmbedQuery,
   normalizeEmbedProjectId,
@@ -130,6 +129,28 @@ export async function searchRagChunksWithVector(
     block = `${block.slice(0, maxChars)}\n\n---\n\n（RAG ブロックは長さのため省略）`;
   }
   return { block, hitCount: rows.length, topSimilarity };
+}
+
+async function openAiEmbed(text: string, apiKey: string): Promise<number[]> {
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "text-embedding-3-small",
+      input: text.slice(0, 8000),
+    }),
+  });
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new Error(`OpenAI embeddings ${res.status}: ${raw.slice(0, 400)}`);
+  }
+  const data = JSON.parse(raw) as { data?: Array<{ embedding?: number[] }> };
+  const emb = data.data?.[0]?.embedding;
+  if (!emb?.length) throw new Error("OpenAI embeddings: missing vector");
+  return emb;
 }
 
 async function loadRagBlock(
