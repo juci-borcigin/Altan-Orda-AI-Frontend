@@ -69,9 +69,32 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
 }
 
 /**
+ * 一覧 API に無い同論スレをローカルに残すか。
+ * - 未同期・巷間論・手元に messages があるものは残す（limit 50 外の正規行も含む）
+ * - Supabase 同期済みで messages 空かつサーバー読込済みなのに一覧に無い → 他端末削除等の幽霊とみなし落とす
+ */
+export function shouldKeepLocalThreadOffListBatch(
+  t: Thread,
+  rowKeys: Set<string>,
+  rowSids: Set<string>,
+): boolean {
+  if (rowKeys.has(t.id)) return false;
+  if (t.supabaseThreadId && rowSids.has(t.supabaseThreadId)) return false;
+  if (
+    t.supabaseThreadId &&
+    !rowSids.has(t.supabaseThreadId) &&
+    t.messages.length === 0 &&
+    t.serverMessagesLoaded === true
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Supabase の議事一覧（メタのみ）を state にマージする。
  * - API 行は updated_at 降順で渡す想定（先頭が最新）
- * - topicProjectIds に含まれる論のスレは、バッチに無い既存スレも末尾に残す
+ * - topicProjectIds に含まれる論のスレは、バッチに無い既存スレのうち {@link shouldKeepLocalThreadOffListBatch} が true のものだけ末尾に残す
  * - それ以外の project のスレはそのまま維持
  */
 export function mergeThreadSummariesIntoState(
@@ -92,9 +115,7 @@ export function mergeThreadSummariesIntoState(
   const keptSameProjectNotInBatch = prev.threads.filter((t) => {
     const pid = normalizeProjectId(String(t.projectId));
     if (!pid || !pidSet.has(pid)) return false;
-    if (rowKeys.has(t.id)) return false;
-    if (t.supabaseThreadId && rowSids.has(t.supabaseThreadId)) return false;
-    return true;
+    return shouldKeepLocalThreadOffListBatch(t, rowKeys, rowSids);
   });
 
   const keptOtherProjects = prev.threads.filter((t) => {

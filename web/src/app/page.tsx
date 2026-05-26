@@ -1495,6 +1495,12 @@ export default function Home() {
         const r = await fetch(`/api/threads/${encodeURIComponent(sid)}/messages`);
         if (cancelled) return;
         if (!r.ok) {
+          if (r.status === 404) {
+            setState((p) =>
+              applyRemoveThreadFromState(p, clientId, selectedTopicRef.current),
+            );
+            return;
+          }
           setState((p) => ({
             ...p,
             threads: p.threads.map((t) => {
@@ -1953,6 +1959,49 @@ export default function Home() {
     return AO_TOPICS.find((t) => t.id === id)?.label ?? "";
   }
 
+  /** DELETE /api/threads：404 は他端末等で既に消えている＝ローカル削除を続行 */
+  function aoDeleteThreadApiSucceeded(res: Response): boolean {
+    return res.ok || res.status === 404;
+  }
+
+  function applyRemoveThreadFromState(
+    prev: AppState,
+    threadId: string,
+    topicForRefresh: TopicUiId | null,
+  ): AppState {
+    const removed = prev.threads.find((t) => t.id === threadId);
+    const rest = prev.threads.filter((t) => t.id !== threadId);
+    if (prev.currentThreadId !== threadId) {
+      return { ...prev, threads: rest };
+    }
+    const deletedProjectId = removed?.projectId;
+    const sameProject = rest.find((t) => t.projectId === deletedProjectId && !t.ephemeral);
+    const fallback = sameProject ?? rest.find((t) => t.projectId === deletedProjectId) ?? rest[0];
+    if (fallback) {
+      return {
+        ...prev,
+        threads: rest,
+        currentThreadId: fallback.id,
+        currentProjectId: fallback.projectId,
+      };
+    }
+    if (topicForRefresh) {
+      const nt = createAoThreadForTopic(topicForRefresh);
+      return {
+        ...prev,
+        threads: [nt, ...rest],
+        currentThreadId: nt.id,
+        currentProjectId: nt.projectId,
+      };
+    }
+    return {
+      ...prev,
+      threads: rest.length > 0 ? rest : prev.threads,
+      currentThreadId: rest[0]?.id ?? prev.currentThreadId,
+      currentProjectId: rest[0]?.projectId ?? prev.currentProjectId,
+    };
+  }
+
   function requestDeleteAoThread(threadId: string) {
     const th = state.threads.find((t) => t.id === threadId);
     if (!th || deletingThreadId) return;
@@ -1978,48 +2027,17 @@ export default function Home() {
         const res = await fetch(`/api/threads/${encodeURIComponent(th.supabaseThreadId)}`, {
           method: "DELETE",
         });
-        if (!res.ok) {
+        if (!aoDeleteThreadApiSucceeded(res)) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
           window.alert(data.error ?? `削除に失敗しました（${res.status}）`);
           return;
         }
       }
 
-      const deletedProjectId = th.projectId;
       const topicForRefresh = selectedTopicRef.current;
       const wasCurrent = state.currentThreadId === threadId;
 
-      setState((prev) => {
-        const rest = prev.threads.filter((t) => t.id !== threadId);
-        if (prev.currentThreadId !== threadId) {
-          return { ...prev, threads: rest };
-        }
-        const sameProject = rest.find((t) => t.projectId === deletedProjectId && !t.ephemeral);
-        const fallback = sameProject ?? rest.find((t) => t.projectId === deletedProjectId) ?? rest[0];
-        if (fallback) {
-          return {
-            ...prev,
-            threads: rest,
-            currentThreadId: fallback.id,
-            currentProjectId: fallback.projectId,
-          };
-        }
-        if (topicForRefresh) {
-          const nt = createAoThreadForTopic(topicForRefresh);
-          return {
-            ...prev,
-            threads: [nt, ...rest],
-            currentThreadId: nt.id,
-            currentProjectId: nt.projectId,
-          };
-        }
-        return {
-          ...prev,
-          threads: rest.length > 0 ? rest : prev.threads,
-          currentThreadId: rest[0]?.id ?? prev.currentThreadId,
-          currentProjectId: rest[0]?.projectId ?? prev.currentProjectId,
-        };
-      });
+      setState((prev) => applyRemoveThreadFromState(prev, threadId, topicForRefresh));
 
       if (wasCurrent) {
         setComposeLocked(false);
@@ -2661,41 +2679,41 @@ export default function Home() {
 
       <header
         ref={compactKinHeaderMeasureRef}
-        className={`ao-header-safe-x relative shrink-0 ${
-          viewportCompact
-            ? "flex min-h-[44px] flex-wrap items-center justify-center gap-x-3 gap-y-1 px-2 py-1.5"
-            : "z-10 grid h-[58px] grid-cols-[1fr_auto_1fr] items-center gap-3 px-4"
+        className={`ao-header-safe-x relative shrink-0 grid grid-cols-[1fr_auto_1fr] items-center ${
+          viewportCompact ? "min-h-0 gap-x-1.5 px-2 py-0.5" : "z-10 h-[58px] gap-3 px-4"
         }`}
         style={{
           background: AO_P5_PARCHMENT,
           ...(viewportCompact ? { zIndex: AO_Z_COMPACT_HEADER } : {}),
         }}
       >
-        {/* 左: 消費銀バー */}
+        {/* 左: 消費銀バー（スマホは左上端） */}
         <div
-          className={`flex min-w-0 items-center gap-2 ${viewportCompact ? "order-2 flex-[1_1_100%] justify-center" : "justify-self-start"}`}
+          className={`flex min-w-0 items-center justify-self-start ${viewportCompact ? "gap-1" : "gap-1.5"}`}
         >
-          <span className="shrink-0 text-[10px] text-[#6A3F0A]">消費銀</span>
+          <span className={`shrink-0 text-[#6A3F0A] ${viewportCompact ? "text-[9px]" : "text-[10px]"}`}>
+            消費銀
+          </span>
           <div
-            className={`h-[7px] rounded border border-[#C9922A]/40 bg-[#F5EDD6] ${viewportCompact ? "min-w-[72px] max-w-[160px] flex-1" : "min-w-[120px] max-w-[220px] flex-1"}`}
+            className={`h-[7px] rounded border border-[#C9922A]/40 bg-[#F5EDD6] ${viewportCompact ? "min-w-[56px] max-w-[120px] flex-1" : "min-w-[120px] max-w-[220px] flex-1"}`}
           >
             <div className="h-full w-[72%] rounded bg-[#C9922A]" />
           </div>
         </div>
         {/* 中: ロゴ 3 種。360〜767 で min-[360]:block と md:hidden が競合しうるため、16 Pro は block + max-[359]:hidden + md:hidden で表す */}
-        <div className={`flex justify-center ${viewportCompact ? "order-1" : "justify-self-center"}`}>
+        <div className="flex justify-center justify-self-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/phase5/logo-se1.png"
             alt="Altan Orda"
-            className="hidden max-[359px]:block h-[22px] w-auto max-w-[78vw] sm:h-[26px] md:hidden"
+            className="hidden max-[359px]:block h-[18px] w-auto max-w-[78vw] md:hidden"
             draggable={false}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/phase5/logo-16pro.png"
             alt="Altan Orda"
-            className="block max-[359px]:hidden h-[22px] w-auto max-w-[78vw] sm:h-[26px] md:hidden"
+            className="block max-[359px]:hidden h-[18px] w-auto max-w-[78vw] md:hidden"
             draggable={false}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2706,14 +2724,22 @@ export default function Home() {
             draggable={false}
           />
         </div>
-        {/* 右: 焼き印スタイルアイコンボタン */}
-        <div className={`flex items-center gap-2 ${viewportCompact ? "hidden" : "justify-self-end"}`}>
-          <a className="ao-seal-btn-p5 inline-flex items-center justify-center" aria-label="ログイン" href="/api/ao-login">
-            <IcoLogin size={15} />
+        {/* 右: 焼き印スタイルアイコンボタン（スマホは右上端） */}
+        <div className={`flex items-center justify-self-end ${viewportCompact ? "gap-1" : "gap-1.5"}`}>
+          <a
+            className={`ao-seal-btn-p5 inline-flex items-center justify-center ${viewportCompact ? "ao-seal-btn-p5--compact" : ""}`}
+            aria-label="ログイン"
+            href="/api/ao-login"
+          >
+            <IcoLogin size={viewportCompact ? compactGijiChipIconPx : 15} />
           </a>
           <form action="/api/ao-logout" method="post" className="inline-flex" suppressHydrationWarning>
-            <button type="submit" className="ao-seal-btn-p5" aria-label="ログアウト">
-              <IcoLogout size={15} />
+            <button
+              type="submit"
+              className={`ao-seal-btn-p5 ${viewportCompact ? "ao-seal-btn-p5--compact" : ""}`}
+              aria-label="ログアウト"
+            >
+              <IcoLogout size={viewportCompact ? compactGijiChipIconPx : 15} />
             </button>
           </form>
         </div>
@@ -2742,7 +2768,7 @@ export default function Home() {
           ref={setCompactKinPortalHost}
           className="pointer-events-none absolute inset-x-0 bottom-0"
           style={{
-            top: leftKinDrawerOpen ? 0 : kinDrawerAnchorBottomPx,
+            top: kinDrawerAnchorBottomPx,
             zIndex: leftKinDrawerOpen ? AO_Z_COMPACT_KIN_DRAWER_OPEN : AO_Z_COMPACT_KIN_DRAWER_HOST,
           }}
         />
@@ -2824,7 +2850,7 @@ export default function Home() {
               style={{
                 ...mainColumnWidthStyle,
                 boxShadow: AO_DROP_SHADOW_MAIN_FRAME,
-                ...(viewportCompact ? { zIndex: AO_Z_COMPACT_MAIN, maxHeight: mainTopFixedH } : {}),
+                ...(viewportCompact ? { zIndex: AO_Z_COMPACT_MAIN } : {}),
               }}
               contentClassName="flex shrink-0 flex-col min-w-0"
             >
@@ -2840,10 +2866,10 @@ export default function Home() {
             >
               <section
                 className={`relative flex min-h-0 min-w-0 flex-col overflow-y-auto ${
-                  viewportCompact ? "shrink-0 overflow-x-visible" : "min-w-0 flex-1 overflow-x-visible"
+                  viewportCompact ? "min-w-0 flex-1 overflow-x-visible" : "min-w-0 flex-1 overflow-x-visible"
                 }`}
               >
-          <div className={`relative z-10 flex min-h-0 flex-col ${viewportCompact ? "" : "flex-1"}`}>
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           {/* ③ 論（縦）：左列 */}
           <div
             className="flex min-h-0 flex-1 flex-col px-0"
@@ -2927,12 +2953,16 @@ export default function Home() {
               </div>
 
               {/* 右：タイトル＋吹き出し（既存の中段をここで続ける） */}
-              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col self-stretch">
+              <div
+                className={`relative flex min-h-0 min-w-0 flex-1 flex-col self-stretch ${
+                  viewportCompact ? "min-h-0" : ""
+                }`}
+              >
                 {!anyMainOverlay ? (
                 <>
                 {/* タイトル行（右上：年代記／使用量／設定）＋吹き出し（右にユーザー） */}
                 <div
-                  className={`mt-0 flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 shrink-0 overflow-x-visible overflow-y-visible" : "flex-1 overflow-visible"}`}
+                  className={`mt-0 flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 flex-1 overflow-x-visible overflow-y-visible" : "flex-1 overflow-visible"}`}
                   style={{
                     paddingTop: 0,
                     gap: viewportCompact ? 4 : 6,
@@ -2941,14 +2971,15 @@ export default function Home() {
                   }}
                 >
                   {viewportCompact ? (
-                    <div
-                      className="grid w-full min-w-0"
-                      style={{
-                        ...mainComposeRowGridStyle(),
-                        rowGap: 4,
-                        gridTemplateRows: "auto auto",
-                      }}
-                    >
+                    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-1">
+                      <div
+                        className="grid w-full min-w-0 shrink-0"
+                        style={{
+                          gridTemplateColumns: "minmax(0, 1fr) auto",
+                          columnGap: MAIN_COMPOSE_AVATAR_GAP_PX,
+                          alignItems: "center",
+                        }}
+                      >
                       <div className="min-w-0">
                       <AoOrnamentalFrame
                         scale={0.5}
@@ -3053,26 +3084,32 @@ export default function Home() {
                           </button>
                         </div>
                       </div>
-                      <div className="isolate flex min-h-0 min-w-0 flex-col overflow-visible pr-0">
+                      </div>
+                      <div
+                        className="flex min-h-0 w-full min-w-0 flex-1 items-stretch"
+                        style={mainComposeRowGridStyle()}
+                      >
+                      <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-visible pr-0">
                       <div
                         ref={compactTextareaWrapRef}
-                        className="mr-0 min-h-0 min-w-0 w-full"
+                        className="mr-0 flex min-h-0 min-w-0 w-full flex-1 flex-col"
                         style={{
-                          flex: composeTextareaHPx != null ? "0 0 auto" : "1 1 0%",
-                          height: composeTextareaHPx ?? undefined,
                           minHeight: compactSpeechBubbleH,
+                          maxHeight: composeTextareaHPx ?? undefined,
+                          height: composeTextareaHPx ?? undefined,
+                          flex: composeTextareaHPx != null ? "0 0 auto" : "1 1 0%",
                         }}
                       >
                         <AoP5NineSliceBubble
                           variant="user"
                           frameScale={0.5}
                           fillHeight
-                          className="block h-full min-h-0 w-full overflow-hidden"
+                          className="flex h-full min-h-0 w-full flex-1 overflow-hidden"
                           contentPadX={8}
                           contentPadY={6}
                           style={{
                             filter: "none",
-                            minHeight: viewportCompact ? compactSpeechBubbleH : undefined,
+                            minHeight: compactSpeechBubbleH,
                           }}
                         >
                           <AoMainComposeTextarea
@@ -3100,9 +3137,9 @@ export default function Home() {
                     </div>
 
                     <div
-                      className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0 font-serif"
+                      className="relative z-20 box-border flex min-w-0 flex-col items-center justify-end gap-0 self-stretch font-serif"
                       style={{
-                        minHeight: viewportCompact ? compactSpeechBubbleH : MAIN_SPEECH_BUBBLE_H_PX,
+                        minHeight: compactSpeechBubbleH,
                         marginTop: 0,
                       }}
                     >
@@ -3151,6 +3188,7 @@ export default function Home() {
                           </span>
                         </button>
                       </div>
+                    </div>
                     </div>
                     </div>
                   ) : (
