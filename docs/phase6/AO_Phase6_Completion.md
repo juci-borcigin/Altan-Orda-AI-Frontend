@@ -55,6 +55,8 @@ Phase 6 のスコープは **典籍論（`project_id=notebook`）のソースを
 | 議事削除 | コルグズ確認ポップアップ、`DELETE /api/threads` |
 | クロスデバイス削除 | 404 冪等削除、一覧マージで幽霊除去、`messages` 404 で state 整理 |
 | スマホ UI | ヘッダ（消費銀・ログイン）、入力吹き出し、邦主ドロワー位置 |
+| iOS ホーム画面アイコン | `web/public/apple-touch-icon.png`（180x180）+ `metadata.icons.apple` で参照 |
+| Favicon | `web/public/favicon.ico`（`/favicon.ico`）+ `metadata.icons.icon` で参照（`src/app/favicon.ico` は優先配信・ビルド都合で撤去） |
 
 ---
 
