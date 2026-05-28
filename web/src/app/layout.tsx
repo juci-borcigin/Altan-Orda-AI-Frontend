@@ -34,6 +34,9 @@ const hakushuReishoNenga = localFont({
 export const metadata: Metadata = {
   title: "Altan Orda",
   description: "Altan Orda — Jochi Ulus UI",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 /** iPhone Chrome 等でレイアウト幅をデバイスに合わせる */
