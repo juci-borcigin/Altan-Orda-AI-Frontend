@@ -36,6 +36,7 @@ export const metadata: Metadata = {
   description: "Altan Orda — Jochi Ulus UI",
   icons: {
     icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
   },
 };
 
