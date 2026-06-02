@@ -34,6 +34,7 @@ import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
 import { chatSseStream } from "@/lib/ao-chat-sse";
+import { postOpenAiChatCompletionStream } from "@/lib/ao-openai-stream";
 import type { MsgChatCompletionMeta } from "@/lib/ao-state";
 
 type InMsg = {
@@ -542,7 +543,7 @@ function normalizeDbSourceProvider(sp: string | null | undefined): string | null
 
 /** 巷間論（chat）は Supabase に残さない */
 function allowsSupabaseThreadPersist(projectId: ProjectId): boolean {
-  return projectId !== "chat";
+  return true;
 }
 
 /**
@@ -972,8 +973,6 @@ export async function POST(req: Request) {
         temperature: 0.7,
         max_tokens: completionBudget,
         messages,
-        /** ゲートウェイによっては既定がストリームになり JSON.parse が失敗するため明示 */
-        stream: false,
       };
       if (tools && !forceNoTools) {
         payload.tools = tools;
@@ -983,14 +982,43 @@ export async function POST(req: Request) {
         payload.tool_choice = "none";
       }
 
-      const json = await postChatCompletion(
-        url,
-        headers,
-        payload,
-        AbortSignal.timeout(requestTimeoutMs()),
-      );
-
-      addCompletionUsageToAgg(usageAgg, json);
+      const useLlmStream = forceNoTools || !tools;
+      let json: CompletionJson;
+      if (useLlmStream) {
+        const streamed = await postOpenAiChatCompletionStream(
+          url,
+          headers,
+          payload,
+          AbortSignal.timeout(requestTimeoutMs()),
+          (full) => {
+            emit("delta", { content: full });
+          },
+        );
+        finalContent = streamed.content;
+        if (streamed.usage) {
+          addCompletionUsageToAgg(usageAgg, { usage: streamed.usage });
+        }
+        json = {
+          choices: [
+            {
+              finish_reason: streamed.finishReason ?? undefined,
+              native_finish_reason: streamed.nativeFinishReason ?? undefined,
+              message: { role: "assistant", content: finalContent },
+            },
+          ],
+          usage: streamed.usage ?? undefined,
+        };
+        lastCompletionJson = json;
+      } else {
+        payload.stream = false;
+        json = await postChatCompletion(
+          url,
+          headers,
+          payload,
+          AbortSignal.timeout(requestTimeoutMs()),
+        );
+        addCompletionUsageToAgg(usageAgg, json);
+      }
 
       const choice0 = json.choices?.[0];
       const msg = choice0?.message;
@@ -1000,8 +1028,10 @@ export async function POST(req: Request) {
 
       const calls = msg.tool_calls;
       if (forceNoTools || !calls?.length) {
-        finalContent = extractAssistantVisibleText(msg, choice0?.text);
-        lastCompletionJson = json;
+        if (!useLlmStream) {
+          finalContent = extractAssistantVisibleText(msg, choice0?.text);
+          lastCompletionJson = json;
+        }
         if (isChatDebugMode()) {
           console.log(
             "[chat-debug] final assistant message: tool_calls=",
@@ -1300,7 +1330,8 @@ export async function POST(req: Request) {
             .eq("id", persistedThreadUuid);
 
           const oai = process.env.OPENAI_API_KEY?.trim();
-          if (oai && insertedRows?.length) {
+          // 巷間論（chat）は Supabase へ保存するが、ベクトル化／RAG 対象にはしない
+          if (oai && insertedRows?.length && projectId !== "chat") {
             const { data: threadMeta } = await supa
               .from("ao_threads")
               .select("source_provider,title,project_id")

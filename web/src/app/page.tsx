@@ -17,7 +17,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  AO_KOUKAN_THREAD_DISPLAY_TITLE,
   AO_TOPICS,
   type TopicUiId,
   activeNokorNamesForTopic,
@@ -85,7 +84,6 @@ import {
   aoThreadTitleChipLabel,
   aoThreadTitleForList,
   aoTitleSnippetFromFirstUserPost,
-  isKoukanThread,
 } from "@/lib/ao-thread-title";
 import { displayTextForClaudeImportedAssistant } from "@/lib/ao-claude-display-text";
 import {
@@ -109,6 +107,7 @@ import {
   aoP5NameplateSmTightPlateOuterWidthPx,
 } from "@/components/ao-phase5";
 import { detectNamedSpeaker, getPrimarySpeakerForProject } from "@/lib/ao-prompts";
+import { previewAssistantStreamChunks } from "@/lib/phase5/phase5-chat-output";
 import type { ProjectId } from "@/lib/ao-types";
 
 const STORAGE_KEY = "ao_state_v1";
@@ -151,7 +150,7 @@ const AO_SUBPAGE_HDR_NEW_BTN_CLASS =
 
 /** 応答待ちインジケータ（フェーズ循環） */
 /** 常に 1 文字以上（空フェーズなし）で吹き出し高さを維持 */
-const AO_THINKING_DOT_CYCLE = ["．", "．．", "．．．", "．．．．", "．"];
+const AO_THINKING_DOT_CYCLE = [".", "..", "...", "...."];
 
 function aoResolveUsdForOverlay(u: MsgTurnUsage): number | null {
   return u.estimatedUsd ?? estimateUsdFromTokensClient(u.promptTokens, u.completionTokens);
@@ -620,37 +619,109 @@ const AO_Z_COMPACT_MAP_STACK = 25;
 const AO_Z_COMPACT_MAIN = 20;
 const AO_Z_COMPACT_CHAT = 10;
 
+function aoIsProbablyMobileUa(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = (navigator.userAgent || "").toLowerCase();
+  // iPad は「スマホ専用」調整を避ける（iPadOS は desktop 表記になることもある）
+  const isIpad = ua.includes("ipad");
+  if (isIpad) return false;
+  return (
+    ua.includes("iphone") ||
+    ua.includes("ipod") ||
+    (ua.includes("android") && ua.includes("mobile")) ||
+    ua.includes("windows phone")
+  );
+}
+
+function aoIsProbablyPhoneLikeDevice(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const touch = typeof navigator.maxTouchPoints === "number" ? navigator.maxTouchPoints : 0;
+  if (touch <= 0) return false;
+  const sw = typeof window.screen?.width === "number" ? window.screen.width : window.innerWidth;
+  const sh = typeof window.screen?.height === "number" ? window.screen.height : window.innerHeight;
+  const short = Math.min(sw, sh);
+  // iPhone（16 Pro など）の CSS px は短辺 360〜430 前後。安全側で 520px を上限とする。
+  return short > 0 && short <= 520;
+}
+
 /** ハイドレーション時はサーバと同じ false を強制し、クライアント初回コミット後に実ビューポートへ同期する */
 function subscribeAoViewportCompact(onStoreChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
+  // SSR の serverSnapshot(false) から、マウント直後に実ビューポートへ同期する
+  // （実機では resize が発火せず、永遠に false 固定になるケースを防ぐ）
+  const handler = () => onStoreChange();
+  const timers: number[] = [];
+  const rafs: number[] = [];
+
+  // iOS 等で meta viewport の反映が遅れても追随できるよう、複数回再同期する
   try {
-    const mq = window.matchMedia(`(max-width: ${AO_MOBILE_MAX_CSS_PX}px)`);
+    queueMicrotask(handler);
+  } catch {
+    timers.push(window.setTimeout(handler, 0));
+  }
+  rafs.push(
+    window.requestAnimationFrame(() => {
+      rafs.push(window.requestAnimationFrame(handler));
+    }),
+  );
+  timers.push(window.setTimeout(handler, 60));
+  timers.push(window.setTimeout(handler, 240));
+
+  // 変化検知：matchMedia だけでなく resize / orientation / visualViewport も拾う
+  window.addEventListener("resize", handler);
+  window.addEventListener("orientationchange", handler);
+  window.addEventListener("pageshow", handler);
+  const vv = window.visualViewport;
+  if (vv && typeof vv.addEventListener === "function") {
+    vv.addEventListener("resize", handler);
+    vv.addEventListener("scroll", handler);
+  }
+
+  let mq: MediaQueryList | null = null;
+  let mqCleanup: (() => void) | null = null;
+  try {
+    mq = window.matchMedia(`(max-width: ${AO_MOBILE_MAX_CSS_PX}px)`);
     const legacyMq = mq as MediaQueryList & {
       addListener?: (listener: (ev: MediaQueryListEvent) => void) => void;
       removeListener?: (listener: (ev: MediaQueryListEvent) => void) => void;
     };
-    const handler = () => onStoreChange();
     if (typeof mq.addEventListener === "function") {
       mq.addEventListener("change", handler);
-      return () => mq.removeEventListener("change", handler);
-    }
-    if (typeof legacyMq.addListener === "function" && typeof legacyMq.removeListener === "function") {
+      mqCleanup = () => mq?.removeEventListener("change", handler);
+    } else if (typeof legacyMq.addListener === "function" && typeof legacyMq.removeListener === "function") {
       legacyMq.addListener(handler);
-      return () => legacyMq.removeListener?.(handler);
+      mqCleanup = () => legacyMq.removeListener?.(handler);
     }
   } catch {
-    window.addEventListener("resize", onStoreChange);
-    return () => window.removeEventListener("resize", onStoreChange);
+    mqCleanup = null;
   }
-  return () => {};
+
+  return () => {
+    for (const id of timers) window.clearTimeout(id);
+    for (const id of rafs) window.cancelAnimationFrame(id);
+    window.removeEventListener("resize", handler);
+    window.removeEventListener("orientationchange", handler);
+    window.removeEventListener("pageshow", handler);
+    if (vv && typeof vv.removeEventListener === "function") {
+      vv.removeEventListener("resize", handler);
+      vv.removeEventListener("scroll", handler);
+    }
+    mqCleanup?.();
+  };
 }
 
 function getAoViewportCompactSnapshot(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.matchMedia(`(max-width: ${AO_MOBILE_MAX_CSS_PX}px)`).matches;
+    const byWidth = window.matchMedia(`(max-width: ${AO_MOBILE_MAX_CSS_PX}px)`).matches;
+    if (byWidth) return true;
+    // 「PCサイト表示」等で viewport 幅が大きくても、スマホ実機なら compact を優先
+    if (aoIsProbablyMobileUa()) return true;
+    return aoIsProbablyPhoneLikeDevice();
   } catch {
-    return window.innerWidth <= AO_MOBILE_MAX_CSS_PX;
+    if (window.innerWidth <= AO_MOBILE_MAX_CSS_PX) return true;
+    if (aoIsProbablyMobileUa()) return true;
+    return aoIsProbablyPhoneLikeDevice();
   }
 }
 
@@ -723,7 +794,7 @@ const JUCHI_COLUMN_CONTENT_H_PX =
 const MAIN_SPEECH_BUBBLE_H_PX = JUCHI_COLUMN_CONTENT_H_PX - JUCHI_PORTRAIT_RAISE_ABOVE_BUBBLE_PX;
 
 /** コンパクト投稿欄の見た目字サイズ（px）。scale 算出の参照 */
-const COMPACT_COMPOSE_VISUAL_FS = 10;
+const COMPACT_COMPOSE_VISUAL_FS = 11;
 /** iOS フォーカス自動ズーム回避用の実 font-size */
 const COMPACT_COMPOSE_INPUT_FS = 16;
 /**
@@ -731,6 +802,9 @@ const COMPACT_COMPOSE_INPUT_FS = 16;
  * 試験: COMPACT_COMPOSE_VISUAL_FS / COMPACT_COMPOSE_INPUT_FS
  */
 const COMPACT_COMPOSE_INPUT_VISUAL_SCALE = COMPACT_COMPOSE_VISUAL_FS / COMPACT_COMPOSE_INPUT_FS;
+
+/** 狭ビュー：入力吹き出しを下へ少し伸ばす（論列の下端と視覚的に揃える微調整） */
+const COMPACT_COMPOSE_BOTTOM_BLEED_PX = 8;
 
 /** 僚友セル選択時インセット（枠線は aoNokorCellClasses 側で常時固定・ここは影のみ） */
 const AO_PUSH_INSET_NOKOR_ACTIVE =
@@ -2087,6 +2161,18 @@ export default function Home() {
     closeMainSubOverlaysExceptRon();
     topicBeforeTopicOverlayRef.current = prevSel;
     setSelectedTopic(topicId);
+    if (topicId === "koukan") {
+      // 単タップ：一覧を出さず即「新規」へ（空スレは ephemeral として保持し、送信時に確定・保存）
+      setRonListOverlayOpen(false);
+      setState((prev) => {
+        const pruned = pruneEphemeralEmptyThreads(prev);
+        const nt = createAoThreadForTopic("koukan");
+        return { ...pruned, threads: [nt, ...pruned.threads], currentThreadId: nt.id, currentProjectId: nt.projectId };
+      });
+      setDraft("");
+      scheduleFocusMainPrompt();
+      return;
+    }
     setRonListOverlayOpen(true);
     setState((prev) => pruneEphemeralEmptyThreads(prev));
   }
@@ -2100,13 +2186,11 @@ export default function Home() {
     const userMsg: Msg = { id: aoUid("m"), side: "user", speaker: "ジュチ", text, createdAt: Date.now() };
     const th = state.threads[idx];
     const snippet = aoTitleSnippetFromFirstUserPost(text);
-    const resolvedTitle = isKoukanThread(th)
-      ? AO_KOUKAN_THREAD_DISPLAY_TITLE
-      : aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
+    const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
     const { ephemeral: _dropEphemeral, ...thPersist } = th;
     const nextThread: Thread = {
       ...thPersist,
-      title: isKoukanThread(th) ? AO_KOUKAN_THREAD_DISPLAY_TITLE : th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
+      title: th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
       messages: [...th.messages, userMsg],
       updatedAt: Date.now(),
     };
@@ -2115,6 +2199,9 @@ export default function Home() {
     setState({ ...state, threads: arr });
     setThinkingUiPhase(1);
     setIsThinking(true);
+    const streamSpeakerDefault = getPrimarySpeakerForProject(nextThread.projectId);
+    let streamMsgIds: string[] = [];
+    let sawStreamDelta = false;
     try {
       const history: Array<{
         role: "user" | "assistant";
@@ -2157,6 +2244,43 @@ export default function Home() {
             setThinkingUiPhase(2);
           }
         },
+        onDelta: ({ content }) => {
+          if (currentThreadIdRef.current !== nextThread.id) return;
+          sawStreamDelta = true;
+          setIsThinking(false);
+          setIsTyping(true);
+          const preview = previewAssistantStreamChunks(content, streamSpeakerDefault);
+          const prevStreamIds = streamMsgIds;
+          const nextIds: string[] = [];
+          const streamMsgs: Msg[] = [];
+          for (let i = 0; i < preview.length; i++) {
+            const c = preview[i]!;
+            const id = prevStreamIds[i] ?? aoUid("m");
+            nextIds.push(id);
+            streamMsgs.push({
+              id,
+              side: "ai",
+              speaker: c.speaker || "不明",
+              text: c.text,
+              createdAt: Date.now(),
+            });
+          }
+          streamMsgIds = nextIds;
+          setTypingId(nextIds[nextIds.length - 1] ?? null);
+          setState((prev) => {
+            const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
+            if (ti < 0) return prev;
+            const kept = prev.threads[ti].messages.filter((m) => !prevStreamIds.includes(m.id));
+            const nt = {
+              ...prev.threads[ti],
+              messages: [...kept, ...streamMsgs],
+              updatedAt: Date.now(),
+            };
+            const aa = [...prev.threads];
+            aa[ti] = nt;
+            return { ...prev, threads: aa };
+          });
+        },
       });
       const chunks = data.chunks as Array<{ speaker: string; text: string }> | undefined;
       if (!chunks?.length) {
@@ -2191,44 +2315,80 @@ export default function Home() {
       }
       setIsThinking(false);
       setThinkingUiPhase(1);
-      setIsTyping(true);
       const batchAiIds: string[] = [];
       const turnRaw = normalizeRawPromptsFromApi(data.rawPrompts);
       const turnCompletionMeta = normalizeCompletionMetaFromApi(data.completionMeta);
-      for (const c of chunks) {
-        const msgId = aoUid("m");
-        batchAiIds.push(msgId);
-        const shell: Msg = {
-          id: msgId,
-          side: "ai",
-          speaker: c.speaker || "不明",
-          text: "",
-          createdAt: Date.now(),
-          rawPrompts: turnRaw,
-        };
+
+      if (sawStreamDelta) {
+        const finalIds: string[] = [];
+        const finalMsgs: Msg[] = [];
+        for (let i = 0; i < chunks.length; i++) {
+          const c = chunks[i]!;
+          const id = streamMsgIds[i] ?? aoUid("m");
+          finalIds.push(id);
+          batchAiIds.push(id);
+          finalMsgs.push({
+            id,
+            side: "ai",
+            speaker: c.speaker || "不明",
+            text: c.text || "",
+            createdAt: Date.now(),
+            rawPrompts: turnRaw,
+          });
+        }
+        const prevStreamIds = streamMsgIds;
+        streamMsgIds = finalIds;
         setState((prev) => {
           const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
           if (ti < 0) return prev;
-          const nt = { ...prev.threads[ti], messages: [...prev.threads[ti].messages, shell], updatedAt: Date.now() };
+          const kept = prev.threads[ti].messages.filter((m) => !prevStreamIds.includes(m.id));
           const aa = [...prev.threads];
-          aa[ti] = nt;
+          aa[ti] = {
+            ...aa[ti],
+            messages: [...kept, ...finalMsgs],
+            updatedAt: Date.now(),
+          };
           return { ...prev, threads: aa };
         });
-        setTypingId(msgId);
-        await runTypewriter(c.text || "", (visible) => {
-          if (currentThreadIdRef.current !== nextThread.id) return;
+        setIsTyping(false);
+        setTypingId(null);
+      } else {
+        setIsTyping(true);
+        for (const c of chunks) {
+          const msgId = aoUid("m");
+          batchAiIds.push(msgId);
+          const shell: Msg = {
+            id: msgId,
+            side: "ai",
+            speaker: c.speaker || "不明",
+            text: "",
+            createdAt: Date.now(),
+            rawPrompts: turnRaw,
+          };
           setState((prev) => {
             const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
             if (ti < 0) return prev;
-            const mi = prev.threads[ti].messages.findIndex((m) => m.id === msgId);
-            if (mi < 0) return prev;
-            const msgs = [...prev.threads[ti].messages];
-            msgs[mi] = { ...msgs[mi], text: visible };
+            const nt = { ...prev.threads[ti], messages: [...prev.threads[ti].messages, shell], updatedAt: Date.now() };
             const aa = [...prev.threads];
-            aa[ti] = { ...aa[ti], messages: msgs, updatedAt: Date.now() };
+            aa[ti] = nt;
             return { ...prev, threads: aa };
           });
-        });
+          setTypingId(msgId);
+          await runTypewriter(c.text || "", (visible) => {
+            if (currentThreadIdRef.current !== nextThread.id) return;
+            setState((prev) => {
+              const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
+              if (ti < 0) return prev;
+              const mi = prev.threads[ti].messages.findIndex((m) => m.id === msgId);
+              if (mi < 0) return prev;
+              const msgs = [...prev.threads[ti].messages];
+              msgs[mi] = { ...msgs[mi], text: visible };
+              const aa = [...prev.threads];
+              aa[ti] = { ...aa[ti], messages: msgs, updatedAt: Date.now() };
+              return { ...prev, threads: aa };
+            });
+          });
+        }
       }
       const turnUsage = normalizeChatUsageFromApi(data.usage);
       if ((turnUsage && batchAiIds.length > 0) || turnRaw || turnUsage || turnCompletionMeta) {
@@ -2436,6 +2596,8 @@ export default function Home() {
   const compactGijiChipIconPx = Math.round(
     (viewportCompact ? 10 : 14) * AO_MAIN_TOOLBAR_ICON_SCALE,
   );
+  /** スマホ：メインエリアの主要ボタンを約 25% 大きく */
+  const compactGijiChipIconPxBig = viewportCompact ? Math.round(compactGijiChipIconPx * 1.25) : compactGijiChipIconPx;
   const compactReishiBtnMinH = viewportCompact
     ? Math.max(28, Math.round(REISHI_CHRONICLE_BTN_MIN_H_PX * 0.82))
     : REISHI_CHRONICLE_BTN_MIN_H_PX;
@@ -2513,7 +2675,8 @@ export default function Home() {
     const sync = () => {
       const rb = ron.getBoundingClientRect();
       const wt = wrap.getBoundingClientRect();
-      const h = Math.round(rb.bottom - wt.top);
+      const bleed = viewportCompact ? COMPACT_COMPOSE_BOTTOM_BLEED_PX : 0;
+      const h = Math.round(rb.bottom - wt.top + bleed);
       setComposeTextareaHPx(Math.max(minH, h));
     };
     sync();
@@ -2676,7 +2839,6 @@ export default function Home() {
     <div
       className="relative flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-white text-[var(--ao-white)] ao-mobile-stack-scale"
     >
-
       <header
         ref={compactKinHeaderMeasureRef}
         className={`ao-header-safe-x relative shrink-0 grid grid-cols-[1fr_auto_1fr] items-center ${
@@ -2850,7 +3012,7 @@ export default function Home() {
               style={{
                 ...mainColumnWidthStyle,
                 boxShadow: AO_DROP_SHADOW_MAIN_FRAME,
-                ...(viewportCompact ? { zIndex: AO_Z_COMPACT_MAIN } : {}),
+                ...(viewportCompact ? { zIndex: AO_Z_COMPACT_MAIN } : { zIndex: 20 }),
               }}
               contentClassName="flex shrink-0 flex-col min-w-0"
             >
@@ -2998,7 +3160,7 @@ export default function Home() {
                             paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
                           }}
                         >
-                          {titleEditing && currentThread && !isKoukanThread(currentThread) ? (
+                          {titleEditing && currentThread ? (
                             <input
                               ref={titleInputRef}
                               value={titleDraft}
@@ -3024,13 +3186,6 @@ export default function Home() {
                               style={{ fontSize: compactGijiTitleFs }}
                               className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
                             />
-                          ) : currentThread && isKoukanThread(currentThread) ? (
-                            <span
-                              style={{ fontSize: compactGijiTitleFs }}
-                              className="flex min-h-0 w-full min-w-0 items-center justify-center px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
-                            >
-                              『{aoThreadTitleChipLabel(currentThread)}』
-                            </span>
                           ) : (
                             <button
                               type="button"
@@ -3054,32 +3209,32 @@ export default function Home() {
                         <div className="flex w-full items-center justify-center gap-0.5">
                           <button
                             type="button"
-                            className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                             aria-label="年代記"
                             onClick={() => openChronicleOverlay()}
                           >
                             <span className="ao-p5-kurultai-ink-icon">
-                              <IcoBook size={compactGijiChipIconPx} />
+                              <IcoBook size={compactGijiChipIconPxBig} />
                             </span>
                           </button>
                           <button
                             type="button"
-                            className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                             aria-label="AI API 使用量を表示"
                             onClick={() => openUsageOverlay()}
                           >
                             <span className="ao-p5-kurultai-ink-icon">
-                              <IcoCoinBag size={compactGijiChipIconPx} />
+                              <IcoCoinBag size={compactGijiChipIconPxBig} />
                             </span>
                           </button>
                           <button
                             type="button"
-                            className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                             aria-label="設定を開く"
                             onClick={() => openSettingsOverlay()}
                           >
                             <span className="ao-p5-kurultai-ink-icon">
-                              <IcoGear size={compactGijiChipIconPx} />
+                              <IcoGear size={compactGijiChipIconPxBig} />
                             </span>
                           </button>
                         </div>
@@ -3171,20 +3326,20 @@ export default function Home() {
                           disabled={composeLocked}
                           onClick={() => void sendUserMessage()}
                           aria-label="送信"
-                          className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
+                          className={`${AO_MAIN_SEND_BTN_CLASS} ${viewportCompact ? "px-1.5 py-1" : ""} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoExecute size={compactGijiChipIconPx} />
+                            <IcoExecute size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                         <button
                           type="button"
-                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS}`}
+                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                           aria-label="令旨"
                           onClick={() => openContextOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoScroll size={compactGijiChipIconPx} />
+                            <IcoScroll size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                       </div>
@@ -3213,7 +3368,7 @@ export default function Home() {
                             paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
                           }}
                         >
-                          {titleEditing && currentThread && !isKoukanThread(currentThread) ? (
+                          {titleEditing && currentThread ? (
                             <input
                               ref={titleInputRef}
                               value={titleDraft}
@@ -3239,13 +3394,6 @@ export default function Home() {
                               style={{ fontSize: compactGijiTitleFs }}
                               className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
                             />
-                          ) : currentThread && isKoukanThread(currentThread) ? (
-                            <span
-                              style={{ fontSize: compactGijiTitleFs }}
-                              className="flex min-h-0 w-full min-w-0 items-center justify-center px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
-                            >
-                              『{aoThreadTitleChipLabel(currentThread)}』
-                            </span>
                           ) : (
                             <button
                               type="button"
@@ -3268,32 +3416,32 @@ export default function Home() {
                       <div className="flex items-center justify-end gap-0.5">
                         <button
                           type="button"
-                          className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                          className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                           aria-label="年代記"
                           onClick={() => openChronicleOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoBook size={compactGijiChipIconPx} />
+                            <IcoBook size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                         <button
                           type="button"
-                          className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                          className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                           aria-label="AI API 使用量を表示"
                           onClick={() => openUsageOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoCoinBag size={compactGijiChipIconPx} />
+                            <IcoCoinBag size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                         <button
                           type="button"
-                          className={AO_MAIN_HEADER_ICON_BTN_CLASS}
+                          className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                           aria-label="設定を開く"
                           onClick={() => openSettingsOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoGear size={compactGijiChipIconPx} />
+                            <IcoGear size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                       </div>
@@ -3381,20 +3529,20 @@ export default function Home() {
                           disabled={composeLocked}
                           onClick={() => void sendUserMessage()}
                           aria-label="送信"
-                          className={`${AO_MAIN_SEND_BTN_CLASS} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
+                          className={`${AO_MAIN_SEND_BTN_CLASS} ${viewportCompact ? "px-1.5 py-1" : ""} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoExecute size={compactGijiChipIconPx} />
+                            <IcoExecute size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                         <button
                           type="button"
-                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS}`}
+                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
                           aria-label="令旨"
                           onClick={() => openContextOverlay()}
                         >
                           <span className="ao-p5-kurultai-ink-icon">
-                            <IcoScroll size={compactGijiChipIconPx} />
+                            <IcoScroll size={compactGijiChipIconPxBig} />
                           </span>
                         </button>
                       </div>
@@ -3862,7 +4010,7 @@ export default function Home() {
             {/* ②-3 メイン部下: チャット履歴（地図より手前・メイン枠と同列で後ろから順に積む） */}
             <section
               className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-0 bg-transparent font-serif"
-              style={viewportCompact ? { zIndex: AO_Z_COMPACT_CHAT } : undefined}
+              style={viewportCompact ? { zIndex: AO_Z_COMPACT_CHAT } : { zIndex: 10 }}
             >
             <div
               ref={messagesRef}
@@ -4068,7 +4216,7 @@ export default function Home() {
                                   thinkingDotsText
                                 ) : (
                                   <>
-                                    ．．．．{"\n"}
+                                    ....{"\n"}
                                     {thinkingDotsText}
                                   </>
                                 )}

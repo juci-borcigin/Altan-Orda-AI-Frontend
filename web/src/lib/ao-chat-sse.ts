@@ -2,7 +2,7 @@
 
 export type ChatSsePhase = "final_completion";
 
-export type ChatSseEmit = (event: "phase" | "done" | "error", data: unknown) => void;
+export type ChatSseEmit = (event: "phase" | "delta" | "done" | "error", data: unknown) => void;
 
 export function encodeChatSseEvent(event: string, data: unknown): Uint8Array {
   return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -56,6 +56,8 @@ function parseSseBlocks(buffer: string): { events: Array<{ event: string; data: 
 
 export type ReadChatSseOptions = {
   onPhase?: (phase: ChatSsePhase) => void;
+  /** 最終 completion の本文増分（サーバーが `delta` イベントを送るとき） */
+  onDelta?: (payload: { content: string }) => void;
 };
 
 /**
@@ -97,6 +99,9 @@ export async function readChatSseDone(
       if (ev.event === "phase") {
         const p = JSON.parse(ev.data) as { phase?: string };
         if (p.phase === "final_completion") opts?.onPhase?.("final_completion");
+      } else if (ev.event === "delta") {
+        const d = JSON.parse(ev.data) as { content?: string };
+        if (typeof d.content === "string") opts?.onDelta?.({ content: d.content });
       } else if (ev.event === "done") {
         donePayload = JSON.parse(ev.data) as Record<string, unknown>;
       } else if (ev.event === "error") {

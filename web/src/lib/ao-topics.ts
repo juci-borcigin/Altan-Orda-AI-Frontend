@@ -12,7 +12,7 @@ export const AO_TOPICS: Array<{
   projectIds: readonly ProjectId[];
 }> = [
   { id: "kurultai", label: "大会盟", projectIds: ["debate"] },
-  /** 巷間論（chat）は Supabase 永続化なし・ローカルのみ */
+  /** 巷間論（chat） */
   { id: "koukan", label: "巷間論", projectIds: ["chat"] },
   { id: "shisei", label: "為政論", projectIds: ["plan"] },
   { id: "heiba", label: "兵馬論", projectIds: ["work"] },
@@ -20,9 +20,6 @@ export const AO_TOPICS: Array<{
   { id: "gakkyu", label: "典籍論", projectIds: ["notebook"] },
   { id: "enkou", label: "遠交論", projectIds: ["foreign"] },
 ];
-
-/** 巷間論の議事タイトル表示（自動スニペット・DB 保存なし） */
-export const AO_KOUKAN_THREAD_DISPLAY_TITLE = "巷　間　論";
 
 /** 選択中の論に属する project_id の集合（空＝タブ未選択時は呼び出し側で扱う） */
 export function projectIdsForTopic(topicId: TopicUiId | null): readonly ProjectId[] | null {
@@ -121,7 +118,6 @@ export function threadsForTopicGiList(threads: Thread[], topicId: TopicUiId): Th
   return threads
     .filter((t) => {
       if (!threadMatchesTopicProjectIds(t, pids)) return false;
-      if (t.projectId === "chat") return true;
       if (t.supabaseThreadId) return true;
       return isAoNativeThread(t) && !t.ephemeral;
     })
@@ -141,7 +137,7 @@ export function createAoThreadForTopic(topicId: TopicUiId): Thread {
   return {
     id: aoUid("th"),
     projectId,
-    title: projectId === "chat" ? AO_KOUKAN_THREAD_DISPLAY_TITLE : "",
+    title: "",
     createdAt: now,
     updatedAt: now,
     messages: [],

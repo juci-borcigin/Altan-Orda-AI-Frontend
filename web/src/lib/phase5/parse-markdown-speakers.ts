@@ -36,6 +36,43 @@ export function parseMarkdownSpeakers(text: string, defaultSpeaker: string): Mar
   return [{ speaker: defaultSpeaker, text: raw }];
 }
 
+/**
+ * ストリーム途中の部分本文用。末尾の未確定話者ブロックも flush する。
+ */
+export function parseMarkdownSpeakersStreaming(
+  text: string,
+  defaultSpeaker: string,
+): MarkdownSpeakerChunk[] {
+  const raw = text ?? "";
+  if (!raw.trim()) return [];
+
+  const lines = raw.split(/\r?\n/);
+  const chunks: MarkdownSpeakerChunk[] = [];
+  let currentSpeaker: string | null = null;
+  let buf: string[] = [];
+
+  const flush = (allowEmptyBody: boolean) => {
+    if (!currentSpeaker) return;
+    const body = buf.join("\n");
+    if (body.length > 0 || allowEmptyBody) chunks.push({ speaker: currentSpeaker, text: body });
+    buf = [];
+  };
+
+  for (const line of lines) {
+    const m = line.match(SPEAKER_LINE);
+    if (m) {
+      flush(false);
+      currentSpeaker = m[1].trim();
+      continue;
+    }
+    if (currentSpeaker) buf.push(line);
+  }
+  flush(true);
+
+  if (chunks.length > 0) return chunks;
+  return [{ speaker: defaultSpeaker, text: raw }];
+}
+
 export function isMarkdownParseFallback(chunks: MarkdownSpeakerChunk[], rawText: string): boolean {
   if (chunks.length !== 1) return false;
   const raw = (rawText ?? "").trim();

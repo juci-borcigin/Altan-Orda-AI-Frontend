@@ -2,6 +2,7 @@ import {
   isMarkdownParseFallback,
   mergeConsecutiveSameSpeaker,
   parseMarkdownSpeakers,
+  parseMarkdownSpeakersStreaming,
   type MarkdownSpeakerChunk,
 } from "./parse-markdown-speakers";
 
@@ -40,6 +41,15 @@ function isJsonlParseFallback(chunks: OutChunk[], rawText: string): boolean {
   if (c.speaker !== "不明") return false;
   const t = (rawText ?? "").trim();
   return c.text === "（空）" || t.length === 0 || c.text === t;
+}
+
+/** ストリーム途中の UI プレビュー（末尾ブロックも含める） */
+export function previewAssistantStreamChunks(text: string, defaultSpeaker: string): OutChunk[] {
+  const md = mergeConsecutiveSameSpeaker(parseMarkdownSpeakersStreaming(text, defaultSpeaker));
+  if (md.length > 0) return md;
+  const raw = (text ?? "").trim();
+  if (!raw) return [];
+  return [{ speaker: defaultSpeaker, text: raw }];
 }
 
 /** Markdown 優先。崩れ時のみ JSONL パース（二重対応期間） */
