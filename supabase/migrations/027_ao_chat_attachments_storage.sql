@@ -6,7 +6,15 @@ values (
   'ao-chat-attachments',
   false,
   4194304,
-  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']::text[]
+  array[
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
+    'application/pdf',
+    'text/plain', 'text/markdown', 'text/csv',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/msword',
+    'application/vnd.ms-excel'
+  ]::text[]
 )
 on conflict (id) do update set
   public = excluded.public,
