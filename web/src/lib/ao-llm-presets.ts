@@ -1,5 +1,5 @@
 /**
- * 設定 UI のモデル候補（OpenRouter の model ID を `value` に格納）。
+ * 設定 UI のモデル候補（vision 対応のみ。OpenRouter model ID を `value` に格納）。
  * 単価は OpenRouter 掲載の $/100万トークン（2026-05 時点の目安）。改定は各モデルページで要確認。
  * @see https://openrouter.ai/
  */
@@ -26,17 +26,15 @@ function aoLlmPresetModelSortKey(p: { value: string; label: string }): string {
   return (i >= 0 ? p.label.slice(0, i) : p.label).toLowerCase();
 }
 
+/** vision 対応モデルのみ（添付画像利用時） */
 const AO_LLM_MODEL_PRESET_ROWS_UNSORTED: ReadonlyArray<{ value: string; label: string }> = [
   aoOpenRouterPresetLabel("google/gemini-2.0-flash-001", 0.1, 0.4),
-  aoOpenRouterPresetLabel("google/gemma-4-26b-a4b-it", 0.06, 0.33),
   aoOpenRouterPresetLabel("openai/gpt-4o-mini", 0.15, 0.6),
-  aoOpenRouterPresetLabel("google/gemma-4-31b-it", 0.12, 0.37),
   aoOpenRouterPresetLabel("google/gemini-2.5-flash", 0.3, 2.5),
   aoOpenRouterPresetLabel("openai/gpt-4.1-mini", 0.4, 1.6),
   aoOpenRouterPresetLabel("openai/gpt-5.4-mini", 0.75, 4.5),
   aoOpenRouterPresetLabel("anthropic/claude-3.5-haiku", 0.8, 4.0),
   aoOpenRouterPresetLabel("anthropic/claude-haiku-4.5", 1.0, 5.0, "claude-4.5-haiku"),
-  aoOpenRouterPresetLabel("google/gemini-2.5-pro-preview", 1.25, 10.0),
   aoOpenRouterPresetLabel("google/gemini-2.5-pro", 1.25, 10.0),
   aoOpenRouterPresetLabel("openai/gpt-5.4", 2.5, 15.0),
   aoOpenRouterPresetLabel("anthropic/claude-sonnet-4.5", 3.0, 15.0),

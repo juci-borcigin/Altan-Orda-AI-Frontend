@@ -82,7 +82,7 @@ export function filterSpeakerChunks(
 }
 
 export function appendMarkdownFormatRetrySystem(
-  messages: Array<{ role: string; content?: string | null }>,
+  messages: Array<{ role: string; content?: unknown }>,
 ): void {
   const last = messages[messages.length - 1];
   if (last?.role === "system" && last.content === FORMAT_RETRY_MARKDOWN_PRIMARY) {

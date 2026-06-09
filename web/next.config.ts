@@ -27,6 +27,36 @@ const nextConfig: NextConfig = {
     root: ".",
   },
   ...(mergedAllowedDevOrigins.length > 0 ? { allowedDevOrigins: mergedAllowedDevOrigins } : {}),
+  /** 静的アセットのブラウザキャッシュ（HTML/API は対象外） */
+  async headers() {
+    return [
+      {
+        source: "/_next/static/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/phase5/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+      {
+        source: "/personas/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+      },
+      {
+        source: "/apple-touch-icon.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=604800, immutable" }],
+      },
+      {
+        source: "/favicon.ico",
+        headers: [{ key: "Cache-Control", value: "public, max-age=604800, immutable" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

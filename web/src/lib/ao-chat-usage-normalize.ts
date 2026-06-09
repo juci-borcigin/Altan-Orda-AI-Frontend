@@ -35,13 +35,24 @@ export function normalizeChatUsageFromApi(raw: unknown): MsgTurnUsage | undefine
   const modelId = modelIdRaw || "—";
   const estimatedUsd =
     numUsd(o.estimatedUsd) ?? numUsd(o.estimated_usd);
-  return {
+  const provider =
+    (typeof o.provider === "string" && o.provider.trim()) ||
+    (typeof o.llmProvider === "string" && o.llmProvider.trim()) ||
+    "";
+  const apiModel =
+    (typeof o.apiModel === "string" && o.apiModel.trim()) ||
+    (typeof o.api_model === "string" && o.api_model.trim()) ||
+    "";
+  const out: MsgTurnUsage = {
     promptTokens: pt,
     completionTokens: ct,
     totalTokens: tt > 0 ? tt : pt + ct,
     estimatedUsd,
     modelId,
   };
+  if (provider) out.provider = provider;
+  if (apiModel) out.apiModel = apiModel;
+  return out;
 }
 
 export function normalizeRawPromptsFromApi(raw: unknown): MsgRawPromptBundle | undefined {

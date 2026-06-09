@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
   type ChangeEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -26,6 +27,9 @@ import {
   threadMatchesTopicProjectIds,
   compareThreadsForGiList,
   createAoThreadForTopic,
+  focusStateOnTopic,
+  focusStateOnGakkyuBlank,
+  isGakkyuTopic,
   isAoNativeThread,
   projectIdsForTopic,
   topicUiIdForProjectId,
@@ -39,15 +43,20 @@ import {
   IcoBook,
   IcoCheck,
   IcoCoinBag,
-  IcoExecute,
   IcoGear,
   IcoLogin,
   IcoLogout,
   IcoRoundedPlus,
-  IcoScroll,
   IcoTrash,
 } from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
+import {
+  AoComposeAttachments,
+  AoMessageAttachments,
+  uploadChatAttachment,
+} from "@/components/ao-compose-attachments";
+import { AO_ATTACHMENT_MAX_COUNT, type AoMsgAttachment } from "@/lib/ao-attachments";
+import { latestClipboardFile } from "@/lib/ao-attachment-client";
 import { AoDeleteConfirmPopup } from "@/components/AoDeleteConfirmPopup";
 import { AoReijitsuOverlay, type AoReijitsuOverlayHandle } from "@/components/AoReijitsuOverlay";
 import { AoSettingsOverlay, AoSettingsSubpageTabs, type AoSettingsOverlayHandle, type AoSettingsSubpage } from "@/components/AoSettingsOverlay";
@@ -93,7 +102,9 @@ import {
 } from "@/lib/ao-chat-usage-normalize";
 import { readChatSseDone } from "@/lib/ao-chat-sse";
 import { estimateUsdFromTokensClient } from "@/lib/ao-usage-estimate-client";
-import { digestRawSent, openRawHtmlInNewTab } from "@/lib/ao-raw-overlay";
+import { openRawHtmlInNewTab } from "@/lib/ao-raw-overlay";
+import { AoMainJuchiActions } from "@/components/ao-main-juchi-actions";
+import { AoUsageChipPanel } from "@/components/ao-usage-chip";
 import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
 import {
   AoOrnamentalFrame,
@@ -423,6 +434,9 @@ const GIJI_CHIP_ORNAMENT_INSET_PX = 5;
 const GIJI_CHIP_ORNAMENT_CONTENT_PAD = "2px 6px";
 /** 議事タイトル羊皮紙（計測 ref）内の上下余白 — DevTools の青ボックスの Y */
 const GIJI_TITLE_PARCHMENT_PAD_Y_PX = 4;
+/** スマホ：装飾枠 contentInset は維持し、横パディングのみ削って 16 全角相当の幅を確保 */
+const GIJI_TITLE_CHIP_COMPACT_ORNAMENT_CONTENT_PAD = "2px 0";
+const GIJI_TITLE_CHIP_COMPACT_PARCHMENT_PAD_Y_PX = 2;
 
 /** スマホ・ユーザー Raw：上端はユーザー吹き出しに合わせ、幅は AI 吹き出し幅・右端はユーザー吹き出し右端。高さは AI 側チップ同様に固定。 */
 function aoCompactUserRawPanelRect(messagesRoot: HTMLElement, msgId: string): {
@@ -794,8 +808,8 @@ const JUCHI_COLUMN_CONTENT_H_PX =
 const MAIN_SPEECH_BUBBLE_H_PX = JUCHI_COLUMN_CONTENT_H_PX - JUCHI_PORTRAIT_RAISE_ABOVE_BUBBLE_PX;
 
 /** コンパクト投稿欄の見た目字サイズ（px）。scale 算出の参照 */
-const COMPACT_COMPOSE_VISUAL_FS = 11;
-/** iOS フォーカス自動ズーム回避用の実 font-size */
+const COMPACT_COMPOSE_VISUAL_FS = 12;
+/** iOS フォーカス自動ズーム回避用の実 font-size（入力系共通） */
 const COMPACT_COMPOSE_INPUT_FS = 16;
 /**
  * 見た目縮小倍率。`1` で scale 無効（16px 表示のまま＝今の挙動に戻す）。
@@ -1316,6 +1330,7 @@ function AoMainComposeTextarea({
   composeLocked,
   onChange,
   onKeyDown,
+  onPaste,
   placeholder,
   fontSizePx,
   visualScale,
@@ -1326,6 +1341,7 @@ function AoMainComposeTextarea({
   composeLocked: boolean;
   onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (e: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste?: (e: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   fontSizePx: number;
   /** 1 で縮小なし。コンパクト時のみ 1 未満を渡す */
@@ -1339,6 +1355,7 @@ function AoMainComposeTextarea({
       readOnly={readOnly}
       onChange={onChange}
       onKeyDown={onKeyDown}
+      onPaste={onPaste}
       placeholder={placeholder}
       className={`box-border min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent font-serif text-[#1a1208] outline-none ring-0 focus:ring-0 ${composeLocked ? "cursor-not-allowed opacity-60" : ""}`}
       style={{ padding: "0px", fontSize: fontSizePx }}
@@ -1364,6 +1381,41 @@ function AoMainComposeTextarea({
         {textarea}
       </div>
     </div>
+  );
+}
+
+/** スマホ：font-size 16px + scale で iOS 自動ズームを抑えつつ見た目サイズを維持 */
+function AoMainTitleInput({
+  inputRef,
+  value,
+  onChange,
+  onBlur,
+  visualFs,
+  useCompactNoZoom,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  value: string;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onBlur: () => void;
+  visualFs: number;
+  useCompactNoZoom: boolean;
+}) {
+  /**
+   * タイトル編集は scale ラッパーを使わない。
+   * scale 付き 16px input だと iOS の選択ハイライトが親幅（≈ visualScale 倍）に切られ、
+   * 一部だけ青反転する。表示ボタンと同じ visualFs で描画する。
+   */
+  const fontSizePx = visualFs;
+  return (
+    <input
+      ref={inputRef}
+      suppressHydrationWarning
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      style={{ fontSize: fontSizePx }}
+      className={`min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0 ${useCompactNoZoom ? "px-0" : "px-2"}`}
+    />
   );
 }
 
@@ -1395,6 +1447,8 @@ export default function Home() {
   const [deleteConfirmThreadId, setDeleteConfirmThreadId] = useState<string | null>(null);
   const [deleteLogPopupTemplate, setDeleteLogPopupTemplate] = useState(AO_POPUP_DELETE_LOG_FALLBACK);
   const [draft, setDraft] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<AoMsgAttachment[]>([]);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingDotsPhase, setThinkingDotsPhase] = useState(0);
   /** 考え中: 1=現行ドット1行 / 2=1行目固定＋2行目ドット（最終 completion 想定） */
@@ -1406,6 +1460,7 @@ export default function Home() {
     usage: MsgTurnUsage;
     completionMeta?: MsgChatCompletionMeta;
     rawPrompts?: MsgRawPromptBundle;
+    attachments?: AoMsgAttachment[];
     top: number;
     left: number;
     /** スマホ・ユーザー Raw の固定矩形（未指定時は従来の max 幅・max 高さ） */
@@ -1441,6 +1496,10 @@ export default function Home() {
   const [viewportH, setViewportH] = useState<number>(0);
   const currentThreadIdRef = useRef<string | null>(null);
   const selectedTopicRef = useRef<TopicUiId | null>(selectedTopic);
+  /** 論タブごとに bust 済みか（A1: 初回のみ bust=1、以降はサーバキャッシュ） */
+  const threadListBustedTopicsRef = useRef<Set<string>>(new Set());
+  /** 典籍論：一覧から議事を選んだときだけ ao_messages を取得する */
+  const gakkyuMessagesLoadThreadIdRef = useRef<string | null>(null);
   /** 議事一覧・令旨・年代記で別論を押した直前の論（戻るで復元） */
   const topicBeforeTopicOverlayRef = useRef<TopicUiId | null>(null);
   /** 設定・使用量を開く直前の論（戻るで復元。開中は論押下なし） */
@@ -1465,45 +1524,84 @@ export default function Home() {
   const [overlayListPageIndex, setOverlayListPageIndex] = useState(0);
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
 
+  /** A2: 起動直後のクリティカルパスを避け、idle 後にペルソナ／削除確認テンプレを取得 */
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/settings/ao-personas");
-        const data = (await res.json()) as {
-          personas?: Array<{
-            persona_key: string;
-            name: string;
-            alias: string;
-            default_project_id: string;
-            avatar_path: string;
-          }>;
-        };
-        if (!res.ok || cancelled) return;
-        setPersonaCatalog(buildAoPersonaCatalog(data.personas ?? []));
-      } catch {
-        if (!cancelled) setPersonaCatalog(null);
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const loadPersonas = () => {
+      void (async () => {
+        try {
+          const res = await fetch("/api/settings/ao-personas");
+          const data = (await res.json()) as {
+            personas?: Array<{
+              persona_key: string;
+              name: string;
+              alias: string;
+              default_project_id: string;
+              avatar_path: string;
+            }>;
+          };
+          if (!res.ok || cancelled) return;
+          setPersonaCatalog(buildAoPersonaCatalog(data.personas ?? []));
+        } catch {
+          if (!cancelled) setPersonaCatalog(null);
+        }
+      })();
+    };
+
+    const schedule = () => {
+      if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        idleId = window.requestIdleCallback(loadPersonas, { timeout: 3000 });
+      } else {
+        timeoutId = setTimeout(loadPersonas, 1500);
       }
-    })();
+    };
+
+    schedule();
     return () => {
       cancelled = true;
+      if (idleId != null && typeof window !== "undefined" && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) clearTimeout(timeoutId);
     };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/popup/delete_log");
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { template_text?: string };
-        if (data.template_text?.trim()) setDeleteLogPopupTemplate(data.template_text);
-      } catch {
-        /* fallback template */
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const loadDeleteLog = () => {
+      void (async () => {
+        try {
+          const res = await fetch("/api/popup/delete_log");
+          if (!res.ok || cancelled) return;
+          const data = (await res.json()) as { template_text?: string };
+          if (data.template_text?.trim()) setDeleteLogPopupTemplate(data.template_text);
+        } catch {
+          /* fallback template */
+        }
+      })();
+    };
+
+    const schedule = () => {
+      if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+        idleId = window.requestIdleCallback(loadDeleteLog, { timeout: 4000 });
+      } else {
+        timeoutId = setTimeout(loadDeleteLog, 2000);
       }
-    })();
+    };
+
+    schedule();
     return () => {
       cancelled = true;
+      if (idleId != null && typeof window !== "undefined" && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId != null) clearTimeout(timeoutId);
     };
   }, []);
 
@@ -1537,8 +1635,37 @@ export default function Home() {
   }, [settingsOpen]);
 
   useEffect(() => {
-    setState(loadState());
+    const loaded = loadState();
+    setState(focusStateOnTopic(loaded, selectedTopic ?? "heiba"));
   }, []);
+
+  /** 論タブ変更時：表示中議事が論とずれていれば最新（またはブランク）へ合わせる */
+  useEffect(() => {
+    if (!selectedTopic) return;
+    if (isGakkyuTopic(selectedTopic)) {
+      setState((prev) => {
+        const pids = projectIdsForTopic("gakkyu");
+        if (!pids?.length) return prev;
+        const cur = prev.threads.find((t) => t.id === prev.currentThreadId);
+        if (cur && threadMatchesTopicProjectIds(cur, pids)) return prev;
+        return focusStateOnGakkyuBlank(prev);
+      });
+      return;
+    }
+    setState((prev) => {
+      const pids = projectIdsForTopic(selectedTopic);
+      if (!pids?.length) return prev;
+      const cur = prev.threads.find((t) => t.id === prev.currentThreadId);
+      if (cur && threadMatchesTopicProjectIds(cur, pids)) return prev;
+      return focusStateOnTopic(prev, selectedTopic);
+    });
+  }, [selectedTopic]);
+
+  useEffect(() => {
+    if (!isGakkyuTopic(selectedTopic)) {
+      gakkyuMessagesLoadThreadIdRef.current = null;
+    }
+  }, [selectedTopic]);
 
   useEffect(() => {
     if (!persistReadyRef.current) {
@@ -1559,6 +1686,10 @@ export default function Home() {
   useEffect(() => {
     const th = currentThread;
     if (!th?.supabaseThreadId || th.ephemeral || th.messages.length > 0 || th.serverMessagesLoaded === true) {
+      return;
+    }
+    /** 典籍論は一覧から選んだ議事だけ DB（ao_messages）を読む */
+    if (th.projectId === "notebook" && gakkyuMessagesLoadThreadIdRef.current !== th.id) {
       return;
     }
     const sid = th.supabaseThreadId;
@@ -1860,16 +1991,23 @@ export default function Home() {
 
   useEffect(() => {
     const ac = new AbortController();
-    /** 論切替時はキャッシュを使わない（典籍論など空リストがキャッシュされると復帰しない） */
-    void fetchThreadListWithTopic(true, selectedTopic, ac.signal);
+    const topic = selectedTopic;
+    if (isGakkyuTopic(topic)) return () => ac.abort();
+    const topicKey = topic ?? "__none__";
+    const pids = projectIdsForTopic(topic);
+    const needBust = Boolean(topic && pids?.length && !threadListBustedTopicsRef.current.has(topicKey));
+    if (needBust) threadListBustedTopicsRef.current.add(topicKey);
+    void fetchThreadListWithTopic(needBust, topic, ac.signal);
     return () => ac.abort();
   }, [selectedTopic, fetchThreadListWithTopic]);
 
   useEffect(() => {
+    if (threadListAfterChatNonce === 0) return;
+    if (isGakkyuTopic(selectedTopicRef.current)) return;
     const ac = new AbortController();
     void fetchThreadListWithTopic(true, selectedTopicRef.current, ac.signal);
     return () => ac.abort();
-  }, [state.currentThreadId, threadListAfterChatNonce, fetchThreadListWithTopic]);
+  }, [threadListAfterChatNonce, fetchThreadListWithTopic]);
 
   useEffect(() => {
     composeLockedRef.current = composeLocked;
@@ -1882,6 +2020,19 @@ export default function Home() {
         promptTextareaRef.current?.focus({ preventScroll: true });
       });
     });
+  }
+
+  function selectRonAgendaThread(t: Thread) {
+    if (t.projectId === "notebook") {
+      gakkyuMessagesLoadThreadIdRef.current = t.id;
+    }
+    setComposeLocked(false);
+    setCurrentThread(t.id);
+    const topic = topicUiIdForProjectId(t.projectId);
+    if (topic) setSelectedTopic(topic);
+    topicBeforeTopicOverlayRef.current = null;
+    setRonListOverlayOpen(false);
+    scheduleFocusMainPrompt();
   }
 
   function setCurrentThread(threadId: string) {
@@ -1964,7 +2115,7 @@ export default function Home() {
     setSettingsOpen(false);
     topicBeforeTopicOverlayRef.current = null;
     setChronicleOpen(true);
-    void fetchThreadListWithTopic(true, selectedTopicRef.current);
+    void fetchThreadListWithTopic(false, selectedTopicRef.current);
   }
 
   function openContextOverlay() {
@@ -1974,7 +2125,7 @@ export default function Home() {
     setSettingsOpen(false);
     topicBeforeTopicOverlayRef.current = null;
     setContextOpen(true);
-    void fetchThreadListWithTopic(true, selectedTopicRef.current);
+    void fetchThreadListWithTopic(false, selectedTopicRef.current);
   }
 
   /** 令旨・年代記オーバーレイを閉じ、未確定の論切替を戻す */
@@ -2060,13 +2211,7 @@ export default function Home() {
       };
     }
     if (topicForRefresh) {
-      const nt = createAoThreadForTopic(topicForRefresh);
-      return {
-        ...prev,
-        threads: [nt, ...rest],
-        currentThreadId: nt.id,
-        currentProjectId: nt.projectId,
-      };
+      return focusStateOnTopic({ ...prev, threads: rest }, topicForRefresh);
     }
     return {
       ...prev,
@@ -2115,11 +2260,11 @@ export default function Home() {
 
       if (wasCurrent) {
         setComposeLocked(false);
-        setDraft("");
+        clearComposeInput();
       }
 
       if (topicForRefresh) {
-        void fetchThreadListWithTopic(true, topicForRefresh);
+        void fetchThreadListWithTopic(false, topicForRefresh);
       }
     } finally {
       setDeletingThreadId(null);
@@ -2153,37 +2298,92 @@ export default function Home() {
         topicBeforeTopicOverlayRef.current = prevSel;
       }
       setSelectedTopic(topicId);
-      void fetchThreadListWithTopic(true, topicId);
-      setState((prev) => pruneEphemeralEmptyThreads(prev));
+      if (isGakkyuTopic(topicId)) {
+        gakkyuMessagesLoadThreadIdRef.current = null;
+        setState((prev) => focusStateOnGakkyuBlank(prev));
+        setComposeLocked(true);
+        setRonListOverlayOpen(true);
+      } else {
+        setState((prev) => focusStateOnTopic(prev, topicId));
+      }
+      clearComposeInput();
       return;
     }
 
     closeMainSubOverlaysExceptRon();
     topicBeforeTopicOverlayRef.current = prevSel;
-    setSelectedTopic(topicId);
-    if (topicId === "koukan") {
-      // 単タップ：一覧を出さず即「新規」へ（空スレは ephemeral として保持し、送信時に確定・保存）
-      setRonListOverlayOpen(false);
-      setState((prev) => {
-        const pruned = pruneEphemeralEmptyThreads(prev);
-        const nt = createAoThreadForTopic("koukan");
-        return { ...pruned, threads: [nt, ...pruned.threads], currentThreadId: nt.id, currentProjectId: nt.projectId };
-      });
-      setDraft("");
-      scheduleFocusMainPrompt();
+    if (isGakkyuTopic(topicId)) {
+      gakkyuMessagesLoadThreadIdRef.current = null;
+      setSelectedTopic(topicId);
+      setState((prev) => focusStateOnGakkyuBlank(prev));
+      clearComposeInput();
+      setComposeLocked(true);
+      setRonListOverlayOpen(true);
       return;
     }
-    setRonListOverlayOpen(true);
-    setState((prev) => pruneEphemeralEmptyThreads(prev));
+    setSelectedTopic(topicId);
+    setState((prev) => focusStateOnTopic(prev, topicId));
+    clearComposeInput();
+    setRonListOverlayOpen(false);
+    scheduleFocusMainPrompt();
+  }
+
+  function clearComposeInput() {
+    setDraft("");
+    setPendingAttachments([]);
+  }
+
+  async function onComposePaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    if (composeLocked || !currentThread || isThinking || isTyping) return;
+    if (pendingAttachments.length >= AO_ATTACHMENT_MAX_COUNT) return;
+    const items = e.clipboardData?.items;
+    if (!items?.length) return;
+    const raw = latestClipboardFile(items);
+    if (!raw) return;
+    try {
+      const att = await uploadChatAttachment(raw, currentThread.id);
+      setPendingAttachments((prev) => {
+        if (prev.length >= AO_ATTACHMENT_MAX_COUNT) return prev;
+        return [...prev, att];
+      });
+    } catch (err) {
+      console.error("[attach paste]", err);
+    }
+  }
+
+  async function onAttachFilesSelected(files: FileList | null) {
+    if (!files?.length || !currentThread || composeLocked) return;
+    const room = AO_ATTACHMENT_MAX_COUNT - pendingAttachments.length;
+    if (room <= 0) return;
+    const slice = Array.from(files).slice(0, room);
+    const added: AoMsgAttachment[] = [];
+    for (const file of slice) {
+      try {
+        added.push(await uploadChatAttachment(file, currentThread.id));
+      } catch (e) {
+        console.error("[attach]", e);
+      }
+    }
+    if (added.length) setPendingAttachments((prev) => [...prev, ...added]);
+    if (attachInputRef.current) attachInputRef.current.value = "";
   }
 
   async function sendUserMessage() {
     const text = draft.trim();
-    if (!text || !currentThread || isThinking || isTyping || composeLocked) return;
+    const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
+    if ((!text && !attachments?.length) || !currentThread || isThinking || isTyping || composeLocked) return;
     setDraft("");
+    setPendingAttachments([]);
     const idx = state.threads.findIndex((t) => t.id === state.currentThreadId);
     if (idx < 0) return;
-    const userMsg: Msg = { id: aoUid("m"), side: "user", speaker: "ジュチ", text, createdAt: Date.now() };
+    const userMsg: Msg = {
+      id: aoUid("m"),
+      side: "user",
+      speaker: "ジュチ",
+      text: text || "(画像)",
+      attachments,
+      createdAt: Date.now(),
+    };
     const th = state.threads[idx];
     const snippet = aoTitleSnippetFromFirstUserPost(text);
     const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
@@ -2208,10 +2408,11 @@ export default function Home() {
         content: string;
         id?: string;
         speaker?: string;
+        attachments?: AoMsgAttachment[];
       }> = [];
       for (const m of visibleMessages(nextThread.messages)) {
         if (m.side === "user") {
-          history.push({ role: "user", content: m.text, id: m.id });
+          history.push({ role: "user", content: m.text, id: m.id, attachments: m.attachments });
           continue;
         }
         // B: 表示用のメタ文言は次回リクエスト履歴に混ぜない
@@ -2700,6 +2901,19 @@ export default function Home() {
 
   const thinkingDotsText = AO_THINKING_DOT_CYCLE[thinkingDotsPhase];
 
+  function attachmentsForUsageChip(side: "ai" | "user", m: Msg, thread: Thread | undefined): AoMsgAttachment[] | undefined {
+    if (side === "user") return m.attachments;
+    if (!thread) return undefined;
+    const msgs = thread.messages;
+    const idx = msgs.findIndex((x) => x.id === m.id);
+    if (idx < 0) return undefined;
+    for (let i = idx - 1; i >= 0; i--) {
+      const row = msgs[i];
+      if (row?.side === "user") return row.attachments;
+    }
+    return undefined;
+  }
+
   function openRawPromptPopover(
     anchorBtn: HTMLElement,
     side: "ai" | "user",
@@ -2707,6 +2921,7 @@ export default function Home() {
     rawPrompts?: MsgRawPromptBundle,
     anchorMsgId?: string,
     completionMeta?: MsgChatCompletionMeta,
+    attachments?: AoMsgAttachment[],
   ) {
     const avatarRect = anchorBtn.getBoundingClientRect();
     let anchorRect = avatarRect;
@@ -2724,6 +2939,7 @@ export default function Home() {
           usage,
           completionMeta,
           rawPrompts,
+          attachments,
           left: box.left,
           top: box.top,
           panelWidthPx: box.width,
@@ -2753,7 +2969,7 @@ export default function Home() {
       bubbleMinHeightPx:
         viewportCompact && verticalAnchorRect == null ? CHAT_HISTORY_BUBBLE_MIN_H_PX : undefined,
     });
-    setRawPromptOverlay({ variant: side, usage, completionMeta, rawPrompts, left, top });
+    setRawPromptOverlay({ variant: side, usage, completionMeta, rawPrompts, attachments, left, top });
   }
 
   const hydrateRawFromServerIfNeeded = useCallback(
@@ -2788,7 +3004,8 @@ export default function Home() {
           /* Raw 未取得でもオーバーレイは開く */
         }
       }
-      openRawPromptPopover(anchorBtn, side, usage, rawPrompts, m.id, completionMeta);
+      const attachments = attachmentsForUsageChip(side, m, th);
+      openRawPromptPopover(anchorBtn, side, usage, rawPrompts, m.id, completionMeta, attachments);
     },
     [state.threads, state.currentThreadId],
   );
@@ -3148,21 +3365,21 @@ export default function Home() {
                         contentInsetPx={GIJI_CHIP_ORNAMENT_INSET_PX}
                         className="w-full max-w-full overflow-visible"
                         contentClassName="overflow-visible"
-                        contentStyle={{ padding: GIJI_CHIP_ORNAMENT_CONTENT_PAD }}
+                        contentStyle={{ padding: GIJI_TITLE_CHIP_COMPACT_ORNAMENT_CONTENT_PAD }}
                       >
                         <div
                           ref={titleChipParchmentRef}
                           className="ao-p5-parchment-surface box-border flex w-full min-h-0 items-center justify-center px-0"
                           style={{
-                            minHeight: 0,
+                            minHeight: compactRonTitleChipH,
                             height: "auto",
-                            paddingTop: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
-                            paddingBottom: GIJI_TITLE_PARCHMENT_PAD_Y_PX,
+                            paddingTop: GIJI_TITLE_CHIP_COMPACT_PARCHMENT_PAD_Y_PX,
+                            paddingBottom: GIJI_TITLE_CHIP_COMPACT_PARCHMENT_PAD_Y_PX,
                           }}
                         >
                           {titleEditing && currentThread ? (
-                            <input
-                              ref={titleInputRef}
+                            <AoMainTitleInput
+                              inputRef={titleInputRef}
                               value={titleDraft}
                               onChange={(e) => {
                                 setTitleDraft(aoClampTitleDraftInput(e.target.value));
@@ -3183,8 +3400,8 @@ export default function Home() {
                                   return { ...prev, threads: arr };
                                 });
                               }}
-                              style={{ fontSize: compactGijiTitleFs }}
-                              className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
+                              visualFs={compactGijiTitleFs}
+                              useCompactNoZoom={viewportCompact}
                             />
                           ) : (
                             <button
@@ -3194,7 +3411,7 @@ export default function Home() {
                                 setTitleEditing(true);
                               }}
                               style={{ fontSize: compactGijiTitleFs }}
-                              className="flex min-h-0 w-full min-w-0 items-center justify-center rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
+                              className="flex min-h-0 w-full min-w-0 items-center justify-center rounded-none border-0 bg-transparent px-0 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08]"
                             >
                               『{aoThreadTitleChipLabel(currentThread)}』
                             </button>
@@ -3267,6 +3484,13 @@ export default function Home() {
                             minHeight: compactSpeechBubbleH,
                           }}
                         >
+                          <AoComposeAttachments
+                            pending={pendingAttachments}
+                            onRemove={(path) =>
+                              setPendingAttachments((prev) => prev.filter((a) => a.storagePath !== path))
+                            }
+                            className="mb-1 px-1"
+                          />
                           <AoMainComposeTextarea
                             textareaRef={promptTextareaRef}
                             value={draft}
@@ -3281,6 +3505,7 @@ export default function Home() {
                                 void sendUserMessage();
                               }
                             }}
+                            onPaste={(e) => void onComposePaste(e)}
                             placeholder={
                               composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined
                             }
@@ -3320,29 +3545,18 @@ export default function Home() {
                           rtClassName="text-[8px] font-serif text-[#6A3F0A]/80"
                         />
                       </div>
-                      <div className="relative z-30 flex w-full items-center justify-center gap-1.5 px-0.5 pt-0.5">
-                        <button
-                          type="button"
-                          disabled={composeLocked}
-                          onClick={() => void sendUserMessage()}
-                          aria-label="送信"
-                          className={`${AO_MAIN_SEND_BTN_CLASS} ${viewportCompact ? "px-1.5 py-1" : ""} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoExecute size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                          aria-label="令旨"
-                          onClick={() => openContextOverlay()}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoScroll size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                      </div>
+                      <AoMainJuchiActions
+                        attachInputRef={attachInputRef}
+                        composeLocked={composeLocked}
+                        pendingAttachmentCount={pendingAttachments.length}
+                        onAttachSelected={(files) => void onAttachFilesSelected(files)}
+                        onSend={() => void sendUserMessage()}
+                        onOpenContext={() => openContextOverlay()}
+                        iconSize={compactGijiChipIconPxBig}
+                        sendBtnClass={AO_MAIN_SEND_BTN_CLASS}
+                        iconBtnClass={AO_MAIN_ICON_BTN_CLASS}
+                        compactPadding={viewportCompact}
+                      />
                     </div>
                     </div>
                     </div>
@@ -3369,8 +3583,8 @@ export default function Home() {
                           }}
                         >
                           {titleEditing && currentThread ? (
-                            <input
-                              ref={titleInputRef}
+                            <AoMainTitleInput
+                              inputRef={titleInputRef}
                               value={titleDraft}
                               onChange={(e) => {
                                 setTitleDraft(aoClampTitleDraftInput(e.target.value));
@@ -3391,8 +3605,8 @@ export default function Home() {
                                   return { ...prev, threads: arr };
                                 });
                               }}
-                              style={{ fontSize: compactGijiTitleFs }}
-                              className="min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent px-2 py-0 text-center font-serif font-semibold leading-tight text-[#3D1C08] outline-none ring-0 placeholder:text-[#3D1C08]/45 focus:ring-0"
+                              visualFs={compactGijiTitleFs}
+                              useCompactNoZoom={viewportCompact}
                             />
                           ) : (
                             <button
@@ -3470,6 +3684,13 @@ export default function Home() {
                             minHeight: MAIN_SPEECH_BUBBLE_H_PX,
                           }}
                         >
+                          <AoComposeAttachments
+                            pending={pendingAttachments}
+                            onRemove={(path) =>
+                              setPendingAttachments((prev) => prev.filter((a) => a.storagePath !== path))
+                            }
+                            className="mb-1 px-1"
+                          />
                           <AoMainComposeTextarea
                             textareaRef={promptTextareaRef}
                             value={draft}
@@ -3484,6 +3705,7 @@ export default function Home() {
                                 void sendUserMessage();
                               }
                             }}
+                            onPaste={(e) => void onComposePaste(e)}
                             placeholder={
                               composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined
                             }
@@ -3523,29 +3745,18 @@ export default function Home() {
                           rtClassName="text-[8px] font-serif text-[#6A3F0A]/80"
                         />
                       </div>
-                      <div className="relative z-30 flex w-full max-w-full items-center justify-center gap-1.5 px-0.5 pt-0.5">
-                        <button
-                          type="button"
-                          disabled={composeLocked}
-                          onClick={() => void sendUserMessage()}
-                          aria-label="送信"
-                          className={`${AO_MAIN_SEND_BTN_CLASS} ${viewportCompact ? "px-1.5 py-1" : ""} relative z-30 touch-manipulation select-none disabled:cursor-not-allowed disabled:opacity-40`}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoExecute size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`relative z-30 shrink-0 cursor-pointer touch-manipulation select-none ${AO_MAIN_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                          aria-label="令旨"
-                          onClick={() => openContextOverlay()}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoScroll size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                      </div>
+                      <AoMainJuchiActions
+                        attachInputRef={attachInputRef}
+                        composeLocked={composeLocked}
+                        pendingAttachmentCount={pendingAttachments.length}
+                        onAttachSelected={(files) => void onAttachFilesSelected(files)}
+                        onSend={() => void sendUserMessage()}
+                        onOpenContext={() => openContextOverlay()}
+                        iconSize={compactGijiChipIconPxBig}
+                        sendBtnClass={AO_MAIN_SEND_BTN_CLASS}
+                        iconBtnClass={AO_MAIN_ICON_BTN_CLASS}
+                        compactPadding={viewportCompact}
+                      />
                     </div>
                   </div>
                     </>
@@ -3923,13 +4134,7 @@ export default function Home() {
                                       key={t.id}
                                       className="cursor-pointer border-b border-[#3D1C08] last:border-b-0 hover:bg-[#143d5e]/15"
                                       onClick={() => {
-                                        setComposeLocked(false);
-                                        setCurrentThread(t.id);
-                                        const topic = topicUiIdForProjectId(t.projectId);
-                                        if (topic) setSelectedTopic(topic);
-                                        topicBeforeTopicOverlayRef.current = null;
-                                        setRonListOverlayOpen(false);
-                                        scheduleFocusMainPrompt();
+                                        selectRonAgendaThread(t);
                                       }}
                                     >
                                       <td className="w-[28px] px-0.5 py-0.5">
@@ -4150,7 +4355,12 @@ export default function Home() {
                           {typingId === m.id ? (
                             <span>{msgTextForUi(currentThread, m)}</span>
                           ) : (
-                            <AoMessageMarkdown text={msgTextForUi(currentThread, m)} />
+                            <>
+                              <AoMessageMarkdown text={msgTextForUi(currentThread, m)} />
+                              {m.attachments?.length ? (
+                                <AoMessageAttachments attachments={m.attachments} />
+                              ) : null}
+                            </>
                           )}
                         </AoP5NineSliceBubble>
                       </div>
@@ -4319,131 +4529,31 @@ export default function Home() {
                       minHeight: 0,
                     }}
                   >
-                    <div className="shrink-0 font-bold">{rawPromptOverlay.usage.modelId}</div>
-                    <div className="shrink-0 tabular-nums">
-                      トークン: 入力 {rawPromptOverlay.usage.promptTokens}/出力 {rawPromptOverlay.usage.completionTokens}/計{" "}
-                      {rawPromptOverlay.usage.totalTokens}{" "}
-                      <span className="whitespace-nowrap">
-                        (概算${" "}
-                        {(() => {
-                          const u = aoResolveUsdForOverlay(rawPromptOverlay.usage);
-                          return u != null ? u.toFixed(6) : "—";
-                        })()}
-                        )
-                      </span>
-                    </div>
-                    {rawPromptOverlay.completionMeta ? (
-                      <div className="shrink-0 border-t border-[#c9b896]/60 pt-1 tabular-nums">
-                        <div className="font-semibold">完了メタ</div>
-                        <div>
-                          finish_reason:{" "}
-                          {rawPromptOverlay.completionMeta.finishReason ?? "—"}
-                          {rawPromptOverlay.completionMeta.nativeFinishReason != null &&
-                          rawPromptOverlay.completionMeta.nativeFinishReason !==
-                            rawPromptOverlay.completionMeta.finishReason ? (
-                            <>
-                              {" "}
-                              （ネイティブ: {rawPromptOverlay.completionMeta.nativeFinishReason}）
-                            </>
-                          ) : null}
-                        </div>
-                        <div>
-                          形式再試行: {rawPromptOverlay.completionMeta.formatRetriesUsed} / empty フォールバック:{" "}
-                          {rawPromptOverlay.completionMeta.emptyAssistantFallback ? "あり" : "なし"}
-                        </div>
-                        <div>
-                          web_search: 実行 {rawPromptOverlay.completionMeta.webSearchInvocations} / 上限スキップ{" "}
-                          {rawPromptOverlay.completionMeta.webSearchSkippedByLimit}（ラウンド上限{" "}
-                          {rawPromptOverlay.completionMeta.webSearchMaxPerRound}）
-                        </div>
-                        {(() => {
-                          const ragApi = rawPromptOverlay.completionMeta.rag;
-                          const digest = rawPromptOverlay.rawPrompts
-                            ? digestRawSent(rawPromptOverlay.rawPrompts.sent)
-                            : null;
-                          const ragOn =
-                            ragApi?.injected ?? digest?.ragInjected ?? false;
-                          const ragHits = ragApi?.hitCount ?? (ragOn ? "?" : 0);
-                          const ragSim =
-                            ragApi?.topSimilarity != null
-                              ? ragApi.topSimilarity.toFixed(3)
-                              : "—";
-                          return (
-                            <div className="border-t border-[#c9b896]/40 pt-0.5">
-                              RAG: {ragOn ? "注入あり" : "なし"}
-                              {ragOn ? (
-                                <>
-                                  {" "}
-                                  / 件数 {ragHits} / top {ragSim}
-                                  {ragApi?.matchThreshold != null
-                                    ? ` / 閾値 ${ragApi.matchThreshold}`
-                                    : null}
-                                </>
-                              ) : ragApi?.isFirstUserTurn === false ? (
-                                "（初回ターン以外は検索しない）"
-                              ) : null}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    ) : null}
-                    {rawPromptOverlay.rawPrompts ? (
-                      (() => {
-                        const digest = digestRawSent(rawPromptOverlay.rawPrompts.sent);
-                        return (
-                          <div
-                            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden border-t border-[#c9b896]/60 pt-1 leading-snug"
-                          >
-                            {digest ? (
-                              <div className="mb-1 tabular-nums">
-                                <div className="font-semibold">送信構成</div>
-                                <div>
-                                  messages {digest.messageCount}（user {digest.userCount} / asst{" "}
-                                  {digest.assistantCount} / tool {digest.toolCount}）
-                                </div>
-                                <div>令旨 system 約 {digest.systemChars.toLocaleString()} 文字</div>
-                                {digest.ragInjected ? (
-                                  <div>RAG チャンク 約 {digest.ragChunkChars.toLocaleString()} 文字</div>
-                                ) : null}
-                                {digest.hasToolCallsInPayload ? (
-                                  <div>
-                                    ペイロード内 web_search 呼び出し {digest.webSearchInPayload} 件
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            <div className="flex flex-col gap-1">
-                              <button
-                                type="button"
-                                className="w-full rounded border border-[#c9b896]/80 bg-[#fff8eb]/90 px-1 py-0.5 text-left text-[#5a3a10] underline-offset-2 hover:underline"
-                                onClick={() =>
-                                  openRawHtmlInNewTab(
-                                    "AO Raw — 送信全文",
-                                    rawPromptOverlay.rawPrompts!.sent,
-                                  )
-                                }
-                              >
-                                【送信全文】を別タブで開く（.html）
-                              </button>
-                              <button
-                                type="button"
-                                className="w-full rounded border border-[#c9b896]/80 bg-[#fff8eb]/90 px-1 py-0.5 text-left text-[#5a3a10] underline-offset-2 hover:underline"
-                                onClick={() =>
-                                  openRawHtmlInNewTab(
-                                    "AO Raw — モデル応答全文",
-                                    rawPromptOverlay.rawPrompts!.received,
-                                  )
-                                }
-                              >
-                                【モデル応答全文】を別タブで開く（.html）
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="shrink-0 text-[#5a3a10]">（この応答では Raw の記録がありません）</div>
-                    )}
+                    <AoUsageChipPanel
+                      usage={rawPromptOverlay.usage}
+                      completionMeta={rawPromptOverlay.completionMeta}
+                      rawPrompts={rawPromptOverlay.rawPrompts}
+                      attachments={rawPromptOverlay.attachments}
+                      resolveUsd={aoResolveUsdForOverlay}
+                      onOpenSent={
+                        rawPromptOverlay.rawPrompts
+                          ? () =>
+                              openRawHtmlInNewTab(
+                                "AO Raw — 送信全文",
+                                rawPromptOverlay.rawPrompts!.sent,
+                              )
+                          : undefined
+                      }
+                      onOpenReceived={
+                        rawPromptOverlay.rawPrompts
+                          ? () =>
+                              openRawHtmlInNewTab(
+                                "AO Raw — モデル応答全文",
+                                rawPromptOverlay.rawPrompts!.received,
+                              )
+                          : undefined
+                      }
+                    />
                   </div>
                 </AoP5NineSliceBubble>
               </div>

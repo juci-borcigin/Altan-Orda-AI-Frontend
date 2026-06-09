@@ -1,3 +1,4 @@
+import type { AoMsgAttachment } from "@/lib/ao-attachments";
 import type { ProjectId } from "@/lib/ao-types";
 import { aoClampStoredTitleByUnits } from "@/lib/ao-title-width";
 
@@ -13,6 +14,10 @@ export type MsgTurnUsage = {
   totalTokens: number;
   estimatedUsd: number | null;
   modelId: string;
+  /** 実際に叩いた経路（openrouter / google / anthropic / openai など） */
+  provider?: string;
+  /** API に送った model 名（直結時は vendor プレフィックス無しの場合がある） */
+  apiModel?: string;
 };
 
 /** /api/chat が返す LLM 往復全文（Supabase assistant 先頭行にも保存） */
@@ -47,6 +52,8 @@ export type Msg = {
   side: "user" | "ai";
   speaker: string;
   text: string;
+  /** ユーザー投稿の添付画像（Storage パス。表示は signed URL） */
+  attachments?: AoMsgAttachment[];
   createdAt: number;
   /** true のときバックアップには含めるが議事 UI には出さない */
   hiddenFromUi?: boolean;

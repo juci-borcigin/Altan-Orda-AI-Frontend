@@ -6,13 +6,41 @@ export type RawSentDigest = {
   toolCount: number;
   ragInjected: boolean;
   ragChunkChars: number;
+  /** system 全体（令旨 + 付加 suffix + RAG 注入） */
   systemChars: number;
+  /** system から RAG 部分を除いた字数（殿下が見たい「令旨」寄り） */
+  systemCharsWithoutRag: number;
+  /** tool（Tavily 等）の content 合計字数 */
+  toolChars: number;
+  /** user の content 合計字数（配列は JSON 文字列化） */
+  userChars: number;
+  /** assistant の content 合計字数（要約 assistant を除く） */
+  assistantChars: number;
+  /** `【過去要約】` assistant 行の合計字数 */
+  summaryChars: number;
+  /** `【過去要約】` assistant 行の件数 */
+  summaryMessageCount: number;
   webSearchInPayload: number;
   hasToolCallsInPayload: boolean;
 };
 
-const RAG_HEADING_LEGACY = "## 関連する過去の議論";
-const RAG_CONTEXT_PREFIX = "- コンテキスト：";
+const RAG_MARKERS: ReadonlyArray<{ prefix: string; headLen: number }> = [
+  { prefix: "- コンテキスト：", headLen: "- コンテキスト：".length },
+  { prefix: "## 関連する過去の議論", headLen: "## 関連する過去の議論".length },
+  { prefix: "## 関連する過去の議事", headLen: "## 関連する過去の議事".length },
+  { prefix: "## 典籍（ソース）", headLen: "## 典籍（ソース）".length },
+  { prefix: "## Wiki", headLen: "## Wiki".length },
+];
+
+function ragMarkerInSystem(content: string): { idx: number; headLen: number } | null {
+  let best: { idx: number; headLen: number } | null = null;
+  for (const m of RAG_MARKERS) {
+    const idx = content.indexOf(m.prefix);
+    if (idx < 0) continue;
+    if (!best || idx < best.idx) best = { idx, headLen: m.headLen };
+  }
+  return best;
+}
 
 export function digestRawSent(sent: string): RawSentDigest | null {
   const t = sent.trim();
@@ -26,6 +54,12 @@ export function digestRawSent(sent: string): RawSentDigest | null {
     let ragInjected = false;
     let ragChunkChars = 0;
     let systemChars = 0;
+    let systemCharsWithoutRag = 0;
+    let toolChars = 0;
+    let userChars = 0;
+    let assistantChars = 0;
+    let summaryChars = 0;
+    let summaryMessageCount = 0;
     let webSearchInPayload = 0;
     let hasToolCallsInPayload = false;
 
@@ -37,20 +71,31 @@ export function digestRawSent(sent: string): RawSentDigest | null {
       else if (role === "assistant") assistantCount++;
       else if (role === "tool") toolCount++;
 
-      const content = typeof m.content === "string" ? m.content : "";
+      const content =
+        typeof m.content === "string"
+          ? m.content
+          : m.content != null
+            ? JSON.stringify(m.content)
+            : "";
       if (role === "system") {
         systemChars += content.length;
-        let idx = content.indexOf(RAG_CONTEXT_PREFIX);
-        let headLen = RAG_CONTEXT_PREFIX.length;
-        if (idx < 0) {
-          idx = content.indexOf(RAG_HEADING_LEGACY);
-          headLen = RAG_HEADING_LEGACY.length;
-        }
-        if (idx >= 0) {
+        const marker = ragMarkerInSystem(content);
+        if (marker) {
           ragInjected = true;
-          const chunkLen = content.length - idx - headLen;
+          const chunkLen = content.length - marker.idx - marker.headLen;
           if (chunkLen > ragChunkChars) ragChunkChars = chunkLen;
+          systemCharsWithoutRag += Math.max(0, marker.idx);
+        } else {
+          systemCharsWithoutRag += content.length;
         }
+      }
+      if (role === "tool") toolChars += content.length;
+      if (role === "user") userChars += content.length;
+      if (role === "assistant") {
+        if (content.trimStart().startsWith("【過去要約】")) {
+          summaryChars += content.length;
+          summaryMessageCount += 1;
+        } else assistantChars += content.length;
       }
 
       if (Array.isArray(m.tool_calls)) {
@@ -71,6 +116,12 @@ export function digestRawSent(sent: string): RawSentDigest | null {
       ragInjected,
       ragChunkChars,
       systemChars,
+      systemCharsWithoutRag,
+      toolChars,
+      userChars,
+      assistantChars,
+      summaryChars,
+      summaryMessageCount,
       webSearchInPayload,
       hasToolCallsInPayload,
     };
@@ -118,12 +169,24 @@ function formatChatMessagesArrayForView(arr: unknown[]): string {
       blocks.push([head, calls, content ? `content:\n${content}` : ""].filter(Boolean).join("\n"));
       continue;
     }
-    const content =
+    let content =
       typeof m.content === "string"
         ? m.content
         : m.content != null
           ? JSON.stringify(m.content, null, 2)
           : "";
+    if (Array.isArray(m.content)) {
+      const parts = m.content as Array<Record<string, unknown>>;
+      const texts: string[] = [];
+      let imageCount = 0;
+      for (const part of parts) {
+        if (part?.type === "text" && typeof part.text === "string") texts.push(part.text);
+        if (part?.type === "image_url") imageCount += 1;
+      }
+      const lines = [...texts];
+      if (imageCount > 0) lines.push(`[画像 ${imageCount} 件（image_url）]`);
+      content = lines.join("\n") || JSON.stringify(m.content, null, 2);
+    }
     blocks.push([head, content].join("\n"));
   }
   return blocks.join("\n\n");

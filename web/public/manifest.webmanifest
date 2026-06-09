@@ -1,0 +1,26 @@
+{
+  "name": "Altan Orda",
+  "short_name": "Altan Orda",
+  "description": "Altan Orda — Jochi Ulus UI",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#133D5C",
+  "theme_color": "#133D5C",
+  "lang": "ja",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

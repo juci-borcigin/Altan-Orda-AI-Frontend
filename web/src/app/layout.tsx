@@ -34,6 +34,13 @@ const hakushuReishoNenga = localFont({
 export const metadata: Metadata = {
   title: "Altan Orda",
   description: "Altan Orda — Jochi Ulus UI",
+  manifest: "/manifest.webmanifest",
+  applicationName: "Altan Orda",
+  appleWebApp: {
+    capable: true,
+    title: "Altan Orda",
+    statusBarStyle: "black-translucent",
+  },
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",
@@ -46,6 +53,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   /** ノッチ下まで塗り、env(safe-area-inset-*) を有効化（16 Pro 等） */
   viewportFit: "cover",
+  themeColor: "#133D5C",
 };
 
 export default function RootLayout({

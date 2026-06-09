@@ -35,6 +35,17 @@ import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
 import { chatSseStream } from "@/lib/ao-chat-sse";
 import { postOpenAiChatCompletionStream } from "@/lib/ao-openai-stream";
+import type { AoMsgAttachment } from "@/lib/ao-attachments";
+import { applyCompletionBudgetToPayload } from "@/lib/llm/completion-payload";
+import {
+  buildOutboundChatMessages,
+  completionHeaders,
+  hasAnyLlmCredential,
+  resolveEnvLlmDefaults,
+  resolveLlmRoute,
+  serializeOutboundChatMessages,
+  type OutboundChatMessage,
+} from "@/lib/llm/router";
 import type { MsgChatCompletionMeta } from "@/lib/ao-state";
 
 type InMsg = {
@@ -42,6 +53,7 @@ type InMsg = {
   content: string;
   id?: string;
   speaker?: string;
+  attachments?: AoMsgAttachment[];
 };
 
 type ReqBody = {
@@ -82,7 +94,7 @@ function resolveWebSearchMaxPerRound(): number {
   return 4;
 }
 
-function appendFormatRetrySystem(messages: ChatMessage[]): void {
+function appendFormatRetrySystem(messages: OutboundChatMessage[]): void {
   const last = messages[messages.length - 1];
   if (last?.role === "system" && last.content === FORMAT_RETRY_SYSTEM_PRIMARY) {
     messages.push({ role: "system", content: FORMAT_RETRY_SYSTEM_SECONDARY });
@@ -163,24 +175,35 @@ const WEB_SEARCH_TOOL = {
   },
 };
 
-type ChatMessage =
-  | { role: "system"; content: string }
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
-  | { role: "tool"; tool_call_id: string; content: string };
-
 type ToolCall = {
   id: string;
   type?: string;
   function: { name: string; arguments: string };
 };
 
-function serializeOutboundChatMessages(messages: ChatMessage[]): string {
-  try {
-    return JSON.stringify(messages, null, 2);
-  } catch {
-    return "[serialize error]";
+/**
+ * Phase5 の trimmedEncoded は content のみ。直近 user の attachments を元履歴から復元する。
+ */
+function mergeLastUserAttachments(
+  trimmed: Array<{ role: "user" | "assistant"; content: string }>,
+  source: InMsg[],
+): InMsg[] {
+  const lastSrcUser = [...source].reverse().find((m) => m.role === "user");
+  const attach = lastSrcUser?.attachments;
+  if (!attach?.length) return trimmed as InMsg[];
+
+  let lastUserIdx = -1;
+  for (let i = trimmed.length - 1; i >= 0; i--) {
+    if (trimmed[i]!.role === "user") {
+      lastUserIdx = i;
+      break;
+    }
   }
+  if (lastUserIdx < 0) return trimmed as InMsg[];
+
+  return trimmed.map((m, i) =>
+    i === lastUserIdx ? { ...m, attachments: attach } : m,
+  ) as InMsg[];
 }
 
 function trimHistory(projectId: ProjectId, messages: InMsg[]): InMsg[] {
@@ -268,34 +291,6 @@ function mergeConsecutiveSameSpeakerChunks(chunks: OutChunk[]): OutChunk[] {
     }
   }
   return out;
-}
-
-function resolveLlmConfig(): { baseUrl: string; apiKey: string; model: string } {
-  const baseRaw =
-    process.env.LLM_API_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE_URL?.trim() ||
-    "https://api.openai.com/v1";
-  const baseUrl = baseRaw.replace(/\/$/, "");
-  const apiKey =
-    process.env.LLM_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
-  const model =
-    process.env.LLM_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    "gpt-5.4-mini";
-  return { baseUrl, apiKey, model };
-}
-
-function completionHeaders(apiKey: string, baseUrl: string): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
-  };
-  if (baseUrl.includes("openrouter.ai")) {
-    const referer = process.env.OPENROUTER_SITE_URL?.trim();
-    if (referer) h["HTTP-Referer"] = referer;
-    h["X-Title"] = "Altan Orda AI";
-  }
-  return h;
 }
 
 async function tavilySearch(
@@ -396,10 +391,13 @@ type ChatTurnUsagePayload = {
   totalTokens: number;
   estimatedUsd: number | null;
   modelId: string;
+  provider?: string;
+  apiModel?: string;
 };
 
 async function buildTurnUsagePayload(
   modelId: string,
+  opts: { provider?: string; apiModel?: string } | null,
   promptTokens: number,
   completionTokens: number,
 ): Promise<ChatTurnUsagePayload> {
@@ -409,6 +407,8 @@ async function buildTurnUsagePayload(
     totalTokens: promptTokens + completionTokens,
     estimatedUsd: await estimateCompletionUsdForModel(promptTokens, completionTokens, modelId),
     modelId,
+    ...(opts?.provider ? { provider: opts.provider } : {}),
+    ...(opts?.apiModel ? { apiModel: opts.apiModel } : {}),
   };
 }
 
@@ -653,24 +653,27 @@ export async function POST(req: Request) {
   }
   let maxTokens = resolveMaxTokens(projectId);
 
-  const { baseUrl, apiKey, model } = resolveLlmConfig();
-  if (!apiKey && !mockMode && !dryRunMode) {
+  const envLlm = resolveEnvLlmDefaults();
+  if (!hasAnyLlmCredential() && !mockMode && !dryRunMode) {
     return NextResponse.json(
-      { error: "LLM_API_KEY or OPENAI_API_KEY is not set" },
+      { error: "LLM API key is not set (LLM_API_KEY / OPENAI / GEMINI / ANTHROPIC)" },
       { status: 500 },
     );
   }
 
   const supaForModel = getSupabaseAdmin();
-  let effectiveModel = model;
+  let configuredModelId = envLlm.model;
   if (supaForModel) {
     try {
       const ov = await loadProjectLlmModel(supaForModel, projectId);
-      if (ov?.trim()) effectiveModel = ov.trim();
+      if (ov?.trim()) configuredModelId = ov.trim();
     } catch (e) {
       console.error("[chat] loadProjectLlmModel", e);
     }
   }
+  const llmRoute = resolveLlmRoute(configuredModelId);
+  const { baseUrl, apiKey } = llmRoute;
+  const effectiveModel = configuredModelId;
   const userMsgs = Array.isArray(body.messages) ? body.messages : [];
   const userOnlyPre = userMsgs.filter((m) => m.role === "user");
   const lastUserPre = userOnlyPre[userOnlyPre.length - 1]?.content ?? "";
@@ -704,7 +707,7 @@ export async function POST(req: Request) {
   }
 
   const trimmed = phase5Ctx
-    ? phase5Ctx.trimmedEncoded
+    ? mergeLastUserAttachments(phase5Ctx.trimmedEncoded, userMsgs)
     : trimHistory(projectId, userMsgs);
 
   const userOnly = trimmed.filter((m) => m.role === "user");
@@ -775,8 +778,8 @@ export async function POST(req: Request) {
   let phase5RagMeta = phase5Ctx?.ragMeta;
 
   if (dryRunMode) {
-    const provider = baseUrl.includes("openrouter.ai") ? "openrouter" : "openai_direct";
-    const headers = completionHeaders(apiKey || "DUMMY", baseUrl);
+    const provider = llmRoute.provider;
+    const headers = completionHeaders({ ...llmRoute, apiKey: apiKey || "DUMMY" });
     // 秘密情報は返さない（Authorization は常に伏せる）
     const safeHeaders: Record<string, string> = {};
     for (const [k, v] of Object.entries(headers)) {
@@ -787,18 +790,20 @@ export async function POST(req: Request) {
     const text =
       [
         `{"speaker":"モンケウール","text":"（dry-run）外部LLMは呼ばれていません。スイッチ判定のみ実行しました。"}`,
-        `{"speaker":"モンケウール","text":"provider=${provider}, baseUrl=${baseUrl}"}`,
+        `{"speaker":"モンケウール","text":"provider=${provider}, baseUrl=${baseUrl}, apiModel=${llmRoute.modelId}"}`,
         `{"speaker":"モンケウール","text":"model=${effectiveModel}, max_tokens=${maxTokens}, tavilyEnabled=${tavilyEnabled}"}`,
       ].join("\n") + "\n";
     const rawChunks = parseJsonl(text);
     const chunks = mergeConsecutiveSameSpeakerChunks(
       chunksNamedSpeakerMustLead(filterChunks(rawChunks, projectId), namedSpeaker),
     );
-    const usageDry = await buildTurnUsagePayload(effectiveModel, 0, 0);
-    const dryOutbound: ChatMessage[] = [
-      { role: "system", content: system },
-      ...trimmed.map((m) => ({ role: m.role, content: m.content })),
-    ];
+    const usageDry = await buildTurnUsagePayload(
+      effectiveModel,
+      { provider: llmRoute.provider, apiModel: llmRoute.modelId },
+      0,
+      0,
+    );
+    const dryOutbound = await buildOutboundChatMessages(supa, system, trimmed);
     const rawPromptSentDry = serializeOutboundChatMessages(dryOutbound);
     return chatSseStream(async (emit) => {
       emit("phase", { phase: "final_completion" });
@@ -813,6 +818,7 @@ export async function POST(req: Request) {
           provider,
           baseUrl,
           model: effectiveModel,
+          apiModel: llmRoute.modelId,
           max_tokens: maxTokens,
           headers: safeHeaders,
           toolsEnabled: tavilyEnabled,
@@ -848,11 +854,13 @@ export async function POST(req: Request) {
     const chunks = mergeConsecutiveSameSpeakerChunks(
       chunksNamedSpeakerMustLead(filterChunks(rawChunks, projectId), namedSpeaker),
     );
-    const usageMock = await buildTurnUsagePayload(effectiveModel, 0, 0);
-    const mockOutbound: ChatMessage[] = [
-      { role: "system", content: system },
-      ...trimmed.map((m) => ({ role: m.role, content: m.content })),
-    ];
+    const usageMock = await buildTurnUsagePayload(
+      effectiveModel,
+      { provider: llmRoute.provider, apiModel: llmRoute.modelId },
+      0,
+      0,
+    );
+    const mockOutbound = await buildOutboundChatMessages(supa, system, trimmed);
     const rawPromptSentMock = serializeOutboundChatMessages(mockOutbound);
     return chatSseStream(async (emit) => {
       emit("phase", { phase: "final_completion" });
@@ -865,6 +873,7 @@ export async function POST(req: Request) {
         llm: {
           mode: "mock",
           model: effectiveModel,
+          apiModel: llmRoute.modelId,
           max_tokens: maxTokens,
           toolsEnabled: tavilyEnabled,
         },
@@ -936,10 +945,10 @@ export async function POST(req: Request) {
   let persistMessages = false;
   let lastCompletionJson: CompletionJson | null = null;
 
-  const messages: ChatMessage[] = [{ role: "system", content: system }, ...trimmed];
+  const messages = await buildOutboundChatMessages(supa, system, trimmed);
 
   const url = `${baseUrl}/chat/completions`;
-  const headers = completionHeaders(apiKey, baseUrl);
+  const headers = completionHeaders(llmRoute);
   const tools = tavilyEnabled ? [WEB_SEARCH_TOOL] : undefined;
 
   let finalContent = "";
@@ -969,11 +978,11 @@ export async function POST(req: Request) {
         emit("phase", { phase: "final_completion" });
       }
       const payload: Record<string, unknown> = {
-        model: effectiveModel,
+        model: llmRoute.modelId,
         temperature: 0.7,
-        max_tokens: completionBudget,
         messages,
       };
+      applyCompletionBudgetToPayload(payload, llmRoute, completionBudget);
       if (tools && !forceNoTools) {
         payload.tools = tools;
         payload.tool_choice = "auto";
@@ -1193,6 +1202,7 @@ export async function POST(req: Request) {
         llm: {
           baseUrl,
           model: effectiveModel,
+          apiModel: llmRoute.modelId,
           max_tokens: maxTokens,
           toolsEnabled: Boolean(process.env.TAVILY_API_KEY?.trim()),
         },
@@ -1213,7 +1223,12 @@ export async function POST(req: Request) {
       return;
     }
 
-  const usagePayload = await buildTurnUsagePayload(effectiveModel, usageAgg.prompt, usageAgg.completion);
+  const usagePayload = await buildTurnUsagePayload(
+    effectiveModel,
+    { provider: llmRoute.provider, apiModel: llmRoute.modelId },
+    usageAgg.prompt,
+    usageAgg.completion,
+  );
 
   const trimmedFinal = finalContent.trim();
   const defaultSpeaker =
@@ -1274,7 +1289,7 @@ export async function POST(req: Request) {
   };
 
   console.info(
-    `[chat] model=${effectiveModel} finish_reason=${lastFinishReason ?? "?"}` +
+    `[chat] provider=${llmRoute.provider} model=${effectiveModel} apiModel=${llmRoute.modelId} finish_reason=${lastFinishReason ?? "?"}` +
       ` native_finish_reason=${lastNativeFinishReason ?? "?"}` +
       ` completion_rounds=${completionRoundCount} tool_rounds=${toolRounds}` +
       ` web_search=${webSearchInvocationCount} web_search_skipped_limit=${webSearchSkippedByLimit}` +
@@ -1287,12 +1302,16 @@ export async function POST(req: Request) {
       persistMessages = plan.persistMessages;
       persistedThreadUuid = plan.threadUuid;
       if (persistMessages && persistedThreadUuid) {
+        const lastUserMsg = userMsgs.filter((m) => m.role === "user").slice(-1)[0];
+        const firstAttach = lastUserMsg?.attachments?.[0];
         const { error: ue } = await supa.from("ao_messages").insert({
           thread_id: persistedThreadUuid,
           role: "user",
           text: lastUser,
-          provider: "openrouter",
+          provider: llmRoute.provider,
           model_id: effectiveModel,
+          content_type: firstAttach ? "image" : "text",
+          artifact_url: firstAttach?.storagePath ?? null,
         });
         if (ue) console.error("[chat] persist user message:", ue.message);
         else {
@@ -1308,7 +1327,7 @@ export async function POST(req: Request) {
               role: "assistant" as const,
               text: persistAssistantText,
               persona: defaultSpeaker,
-              provider: "openrouter",
+              provider: llmRoute.provider,
               model_id: effectiveModel,
               raw_response: rawPayload,
               prompt_tokens: usageAgg.prompt,

@@ -1,6 +1,6 @@
 import type { ProjectId } from "./ao-types";
 import { normalizeProjectId } from "./ao-types";
-import { aoUid, type Thread } from "./ao-state";
+import { aoUid, pruneEphemeralEmptyThreads, type AppState, type Thread } from "./ao-state";
 
 /** メイン「論」タブの識別子（UI 用。DB の project_id とは別名） */
 export type TopicUiId = "kurultai" | "koukan" | "shisei" | "heiba" | "shinki" | "gakkyu" | "enkou";
@@ -144,4 +144,71 @@ export function createAoThreadForTopic(topicId: TopicUiId): Thread {
     sourceProvider: "ao",
     ephemeral: true,
   };
+}
+
+/** 空プレースホルダー以外（メッセージあり／Supabase 同期済み／サーバー読込済み） */
+export function isTopicThreadDisplayCandidate(t: Thread): boolean {
+  if (t.ephemeral && t.messages.length === 0) return false;
+  return t.messages.length > 0 || Boolean(t.supabaseThreadId) || t.serverMessagesLoaded === true;
+}
+
+/** インメモリ議事から、当該論の最新 1 件（updated_at 降順） */
+export function latestThreadForTopicInMemory(threads: Thread[], topicId: TopicUiId): Thread | null {
+  const pids = projectIdsForTopic(topicId);
+  if (!pids?.length) return null;
+  const candidates = threads.filter(
+    (t) => threadMatchesTopicProjectIds(t, pids) && isTopicThreadDisplayCandidate(t),
+  );
+  if (candidates.length === 0) return null;
+  return [...candidates].sort(compareThreadsForGiList)[0] ?? null;
+}
+
+/**
+ * 論切替時：当該論の最新議事を current に合わせる。
+ * 無ければ ephemeral 新規（メモリのみ。DB の ao_threads 行は初回送信まで作らない）。
+ */
+export function focusStateOnTopic(
+  state: AppState,
+  topicId: TopicUiId,
+  opts?: { preferLatest?: boolean },
+): AppState {
+  const pids = projectIdsForTopic(topicId);
+  if (!pids?.length) return state;
+
+  const pruned = pruneEphemeralEmptyThreads(state);
+  const threads = pruned.threads.filter((t) => {
+    if (!threadMatchesTopicProjectIds(t, pids)) return true;
+    return isTopicThreadDisplayCandidate(t);
+  });
+
+  const preferLatest = opts?.preferLatest !== false;
+  const latest = preferLatest ? latestThreadForTopicInMemory(threads, topicId) : null;
+  if (latest) {
+    return {
+      ...pruned,
+      threads,
+      currentThreadId: latest.id,
+      currentProjectId: latest.projectId,
+    };
+  }
+
+  const nt = createAoThreadForTopic(topicId);
+  return {
+    ...pruned,
+    threads: [nt, ...threads],
+    currentThreadId: nt.id,
+    currentProjectId: nt.projectId,
+  };
+}
+
+export function isGakkyuTopic(topicId: TopicUiId | null): boolean {
+  return topicId === "gakkyu";
+}
+
+/**
+ * 典籍論タブ切替用：最新議事を自動選択せずブランク（ephemeral）のみ。
+ * threads/list も messages も触らず、一覧オーバーレイからの選択待ち。
+ */
+export function focusStateOnGakkyuBlank(state: AppState): AppState {
+  return focusStateOnTopic(state, "gakkyu", { preferLatest: false });
 }
