@@ -61,18 +61,27 @@
   .ao-mobile-stack-scale {
     zoom: 0.72;
     /*
-     * zoom で見た目だけ縮むと、レイアウト上の高さは 100dvh のままでは画面下端が body 背景で欠ける。
-     * レイアウト高さを 1/zoom 倍してスケール後に viewport を縦に覆う。
+     * zoom で見た目だけ縮む。height も 1/zoom 倍しないと下端に body 背景の帯が出る。
+     * h-[100dvh] だけだと見た目は約 72dvh になり下余白ができる。
      */
+    height: calc(100dvh / 0.72);
     min-height: calc(100dvh / 0.72);
+    max-height: calc(100dvh / 0.72);
   }
 }
 
 @media (min-width: 360px) and (max-width: 767px) {
   .ao-mobile-stack-scale {
     zoom: 0.82;
+    height: calc(100dvh / 0.82);
     min-height: calc(100dvh / 0.82);
+    max-height: calc(100dvh / 0.82);
   }
+}
+
+/* iPhone ノッチ / Dynamic Island 下からヘッダを始める */
+.ao-header-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* 令旨オーバーレイ等：number のスピナーを消して平打ち幅を確保 */

@@ -402,6 +402,8 @@ function mainComposeRowGridStyle(avatarColWPx: number = MAIN_JUCHI_AVATAR_COL_W_
     display: "grid",
     width: "100%",
     minWidth: 0,
+    minHeight: 0,
+    height: "100%",
     alignItems: "stretch",
     gridTemplateColumns: `minmax(0, 1fr) ${avatarColWPx}px`,
     columnGap: MAIN_COMPOSE_AVATAR_GAP_PX,
@@ -816,9 +818,6 @@ const COMPACT_COMPOSE_INPUT_FS = 16;
  * 試験: COMPACT_COMPOSE_VISUAL_FS / COMPACT_COMPOSE_INPUT_FS
  */
 const COMPACT_COMPOSE_INPUT_VISUAL_SCALE = COMPACT_COMPOSE_VISUAL_FS / COMPACT_COMPOSE_INPUT_FS;
-
-/** 狭ビュー：入力吹き出しを下へ少し伸ばす（論列の下端と視覚的に揃える微調整） */
-const COMPACT_COMPOSE_BOTTOM_BLEED_PX = 8;
 
 /** 僚友セル選択時インセット（枠線は aoNokorCellClasses 側で常時固定・ここは影のみ） */
 const AO_PUSH_INSET_NOKOR_ACTIVE =
@@ -1489,8 +1488,6 @@ export default function Home() {
   const [gijiTitleChipHPx, setGijiTitleChipHPx] = useState<number | null>(null);
   const titleChipParchmentRef = useRef<HTMLDivElement | null>(null);
   /** 狭ビュー：入力吹き出しラッパー高（論列下端に合わせる） */
-  const [composeTextareaHPx, setComposeTextareaHPx] = useState<number | null>(null);
-  const compactTextareaWrapRef = useRef<HTMLDivElement | null>(null);
   const mapBgHostRef = useRef<HTMLDivElement | null>(null);
   const [mapBgTileCount, setMapBgTileCount] = useState(1);
   const [viewportH, setViewportH] = useState<number>(0);
@@ -2868,37 +2865,6 @@ export default function Home() {
     };
   }, [viewportCompact, titleEditing, currentThread?.title, selectedTopic, compactGijiTitleFs]);
 
-  useLayoutEffect(() => {
-    const ron = ronListMeasureRef.current;
-    const wrap = compactTextareaWrapRef.current;
-    if (!ron || !wrap) return;
-    const minH = viewportCompact ? compactSpeechBubbleH : MAIN_SPEECH_BUBBLE_H_PX;
-    const sync = () => {
-      const rb = ron.getBoundingClientRect();
-      const wt = wrap.getBoundingClientRect();
-      const bleed = viewportCompact ? COMPACT_COMPOSE_BOTTOM_BLEED_PX : 0;
-      const h = Math.round(rb.bottom - wt.top + bleed);
-      setComposeTextareaHPx(Math.max(minH, h));
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(ron);
-    ro.observe(wrap);
-    window.addEventListener("resize", sync);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", sync);
-    };
-  }, [
-    viewportCompact,
-    compactSpeechBubbleH,
-    gijiTitleChipHPx,
-    ronColWidthPx,
-    titleEditing,
-    ronListPx,
-    anyMainOverlay,
-  ]);
-
   const thinkingDotsText = AO_THINKING_DOT_CYCLE[thinkingDotsPhase];
 
   function attachmentsForUsageChip(side: "ai" | "user", m: Msg, thread: Thread | undefined): AoMsgAttachment[] | undefined {
@@ -3054,11 +3020,13 @@ export default function Home() {
 
   return (
     <div
-      className="relative flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-white text-[var(--ao-white)] ao-mobile-stack-scale"
+      className={`relative flex min-h-0 flex-col overflow-hidden bg-white text-[var(--ao-white)] ao-mobile-stack-scale ${
+        viewportCompact ? "" : "h-[100dvh] max-h-[100dvh]"
+      }`}
     >
       <header
         ref={compactKinHeaderMeasureRef}
-        className={`ao-header-safe-x relative shrink-0 grid grid-cols-[1fr_auto_1fr] items-center ${
+        className={`ao-header-safe-x ao-header-safe-top relative shrink-0 grid grid-cols-[1fr_auto_1fr] items-center ${
           viewportCompact ? "min-h-0 gap-x-1.5 px-2 py-0.5" : "z-10 h-[58px] gap-3 px-4"
         }`}
         style={{
@@ -3257,7 +3225,7 @@ export default function Home() {
               paddingBottom: 0,
             }}
           >
-            <div className="flex min-h-0 flex-1 min-w-0 flex-row items-stretch" style={{ gap: 6 }}>
+            <div className="flex min-h-0 flex-1 min-w-0 flex-row items-stretch self-stretch" style={{ gap: 6 }}>
               {/* 左：論リスト（行方向ストレッチから外し、枠は内容高のみにする） */}
               <div
                 ref={ronListMeasureRef}
@@ -3332,25 +3300,20 @@ export default function Home() {
               </div>
 
               {/* 右：タイトル＋吹き出し（既存の中段をここで続ける） */}
-              <div
-                className={`relative flex min-h-0 min-w-0 flex-1 flex-col self-stretch ${
-                  viewportCompact ? "min-h-0" : ""
-                }`}
-              >
+              <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col self-stretch">
                 {!anyMainOverlay ? (
                 <>
                 {/* タイトル行（右上：年代記／使用量／設定）＋吹き出し（右にユーザー） */}
                 <div
-                  className={`mt-0 flex min-h-0 min-w-0 flex-col ${viewportCompact ? "min-h-0 flex-1 overflow-x-visible overflow-y-visible" : "flex-1 overflow-visible"}`}
+                  className={`mt-0 flex h-full min-h-0 min-w-0 flex-1 flex-col ${viewportCompact ? "overflow-x-visible overflow-y-visible" : "overflow-visible"}`}
                   style={{
                     paddingTop: 0,
                     gap: viewportCompact ? 4 : 6,
                     paddingBottom: 0,
-                    ...(!viewportCompact && ronListPx ? { height: `${Math.round(ronListPx)}px` } : null),
                   }}
                 >
                   {viewportCompact ? (
-                    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-1">
                       <div
                         className="grid w-full min-w-0 shrink-0"
                         style={{
@@ -3458,19 +3421,13 @@ export default function Home() {
                       </div>
                       </div>
                       <div
-                        className="flex min-h-0 w-full min-w-0 flex-1 items-stretch"
-                        style={mainComposeRowGridStyle()}
+                        className="min-h-0 w-full min-w-0 flex-1"
+                        style={{ ...mainComposeRowGridStyle(), flex: "1 1 0%" }}
                       >
-                      <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-visible pr-0">
+                      <div className="isolate flex h-full min-h-0 min-w-0 flex-col overflow-visible pr-0">
                       <div
-                        ref={compactTextareaWrapRef}
-                        className="mr-0 flex min-h-0 min-w-0 w-full flex-1 flex-col"
-                        style={{
-                          minHeight: compactSpeechBubbleH,
-                          maxHeight: composeTextareaHPx ?? undefined,
-                          height: composeTextareaHPx ?? undefined,
-                          flex: composeTextareaHPx != null ? "0 0 auto" : "1 1 0%",
-                        }}
+                        className="mr-0 flex h-full min-h-0 min-w-0 w-full flex-1 flex-col"
+                        style={{ minHeight: compactSpeechBubbleH }}
                       >
                         <AoP5NineSliceBubble
                           variant="user"
@@ -3517,7 +3474,7 @@ export default function Home() {
                     </div>
 
                     <div
-                      className="relative z-20 box-border flex min-w-0 flex-col items-center justify-end gap-0 self-stretch font-serif"
+                      className="relative z-20 box-border flex h-full min-w-0 flex-col items-center justify-end gap-0 self-stretch font-serif"
                       style={{
                         minHeight: compactSpeechBubbleH,
                         marginTop: 0,
@@ -3561,8 +3518,8 @@ export default function Home() {
                     </div>
                     </div>
                   ) : (
-                    <>
-                  <div className="mt-0 flex w-full min-w-0 items-stretch justify-between gap-2 text-left">
+                    <div className="flex h-full min-h-0 w-full flex-1 flex-col gap-1.5">
+                  <div className="mt-0 flex w-full min-w-0 shrink-0 items-stretch justify-between gap-2 text-left">
                     {/* 議事タイトル：枠で囲う */}
                     <div className="min-w-0 flex-1">
                       <AoOrnamentalFrame
@@ -3661,16 +3618,14 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                  <div className="min-h-0 min-w-0 flex-1 pb-0" style={mainComposeRowGridStyle()}>
-                    <div className="isolate flex min-h-0 min-w-0 flex-col overflow-visible pr-0">
+                  <div
+                    className="min-h-0 min-w-0 flex-1 pb-0"
+                    style={{ ...mainComposeRowGridStyle(), flex: "1 1 0%" }}
+                  >
+                    <div className="isolate flex h-full min-h-0 min-w-0 flex-col overflow-visible pr-0">
                       <div
-                        ref={compactTextareaWrapRef}
-                        className="mr-0 min-h-0 min-w-0 w-full"
-                        style={{
-                          flex: composeTextareaHPx != null ? "0 0 auto" : "1 1 0%",
-                          height: composeTextareaHPx ?? undefined,
-                          minHeight: MAIN_SPEECH_BUBBLE_H_PX,
-                        }}
+                        className="mr-0 flex h-full min-h-0 min-w-0 w-full flex-1 flex-col"
+                        style={{ minHeight: MAIN_SPEECH_BUBBLE_H_PX }}
                       >
                         <AoP5NineSliceBubble
                           variant="user"
@@ -3717,7 +3672,7 @@ export default function Home() {
                     </div>
 
                     <div
-                      className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0 overflow-visible font-serif"
+                      className="relative z-20 box-border flex h-full min-w-0 flex-col items-center justify-end gap-0 overflow-visible self-stretch font-serif"
                       style={{
                         minHeight: viewportCompact ? compactSpeechBubbleH : MAIN_SPEECH_BUBBLE_H_PX,
                         marginTop: 0,
@@ -3759,7 +3714,7 @@ export default function Home() {
                       />
                     </div>
                   </div>
-                    </>
+                    </div>
                   )}
                 </div>
                 </>
