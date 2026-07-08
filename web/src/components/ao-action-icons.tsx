@@ -235,6 +235,27 @@ export function IcoTrash({ size = 14, className }: { size?: number; className?: 
   );
 }
 
+/** ピン（明示参照） */
+export function IcoPin({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} strokeWidth={1.75} className={className}>
+      <path d="M12 17v5" />
+      <path d="M9 3h6" />
+      <path d="M10 3v6.5L6 14v2h12v-2l-4-4.5V3" />
+    </IconStroke24>
+  );
+}
+
+/** 投稿取り消し（Revert） */
+export function IcoUndo({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <IconStroke24 size={size} strokeWidth={1.75} className={className}>
+      <path d="M9 7H4v5" />
+      <path d="M4 12a8 8 0 1 0 2-5.3" />
+    </IconStroke24>
+  );
+}
+
 export function IcoCheck({ size = 16, className }: { size?: number; className?: string }) {
   return (
     <svg

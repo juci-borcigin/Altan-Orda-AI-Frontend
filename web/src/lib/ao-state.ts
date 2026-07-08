@@ -82,11 +82,13 @@ export type Thread = {
   ephemeral?: boolean;
   /** サーバーから messages を遅延取得済みか（空スレも true になり得る） */
   serverMessagesLoaded?: boolean;
-  /** 履歴要約キャッシュ（Supabase 外・localStorage と同期） */
+  /** 履歴要約キャッシュ（Supabase `ao_threads.history_compression` と同期） */
   historyCompression?: {
     fromMessageId: string;
     summary: string;
   };
+  /** 明示参照する他議事の Supabase thread uuid 配列 */
+  pinnedThreadIds?: string[];
 };
 
 export type AppState = {

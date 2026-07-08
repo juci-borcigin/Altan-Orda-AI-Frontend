@@ -1,20 +1,38 @@
 import type { ProjectId } from "@/lib/ao-types";
 import { normalizeProjectId } from "@/lib/ao-types";
 import type { AppState, Msg, Thread } from "@/lib/ao-state";
+import {
+  historyCompressionFromDbJson,
+  pinnedThreadIdsFromDbJson,
+} from "@/lib/ao-history-compression-db";
 import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
 import { msFromDb } from "@/lib/ao-supabase-thread-map";
 
-function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Thread {
+function threadMetaFromSummaryRow(prev: Thread | undefined, row: DbThreadRow) {
   const clientId = row.client_thread_id?.trim() || row.id;
   const sid = row.id;
   const updatedAt = msFromDb(row.updated_at);
   const createdAt = prev?.createdAt ?? msFromDb(row.created_at);
-  const sp = typeof row.source_provider === "string" && row.source_provider.trim() ? row.source_provider.trim() : prev?.sourceProvider;
+  const sp =
+    typeof row.source_provider === "string" && row.source_provider.trim()
+      ? row.source_provider.trim()
+      : prev?.sourceProvider;
   const projectId = normalizeProjectId(row.project_id) ?? (prev?.projectId ?? "work");
+  const pinnedThreadIds = pinnedThreadIdsFromDbJson(row.pinned_thread_ids);
+  return { clientId, sid, updatedAt, createdAt, sp, projectId, pinnedThreadIds };
+}
+
+function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Thread {
+  const { clientId, sid, updatedAt, createdAt, sp, projectId, pinnedThreadIds } =
+    threadMetaFromSummaryRow(prev, row);
 
   if (prev) {
     const hasLocalMessages = prev.messages.length > 0 || prev.ephemeral === true;
     const wasHydratedFromServer = prev.serverMessagesLoaded === true;
+    const metaPinned =
+      pinnedThreadIds.length > 0 || prev.pinnedThreadIds?.length
+        ? { pinnedThreadIds: pinnedThreadIds.length ? pinnedThreadIds : prev.pinnedThreadIds }
+        : {};
     if (hasLocalMessages) {
       return {
         ...prev,
@@ -25,9 +43,11 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
         createdAt,
         updatedAt,
         sourceProvider: sp,
+        ...metaPinned,
       };
     }
     if (wasHydratedFromServer) {
+      const hc = historyCompressionFromDbJson(row.history_compression);
       return {
         ...prev,
         id: clientId,
@@ -39,6 +59,8 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
         sourceProvider: sp,
         messages: prev.messages,
         serverMessagesLoaded: true,
+        ...(hc ? { historyCompression: hc } : {}),
+        ...metaPinned,
       };
     }
     return {
@@ -52,6 +74,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
       sourceProvider: sp,
       messages: [],
       serverMessagesLoaded: false,
+      ...metaPinned,
     };
   }
 
@@ -65,6 +88,7 @@ function threadFromSummaryRow(prev: Thread | undefined, row: DbThreadRow): Threa
     messages: [],
     serverMessagesLoaded: false,
     ...(sp ? { sourceProvider: sp } : {}),
+    ...(pinnedThreadIds.length ? { pinnedThreadIds } : {}),
   };
 }
 

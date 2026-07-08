@@ -78,11 +78,13 @@ export async function storeEmbeddingsForMessageTexts(
 
     for (const chunk of chunks) {
       try {
-        const embedding = await openAiEmbed(chunk, key);
+        const title = (row.threadTitle ?? "").trim();
+        const titledChunk = title ? `【議事: ${title}】\n${chunk}` : chunk;
+        const embedding = await openAiEmbed(titledChunk, key);
         const { error } = await supa.from("ao_embeddings").insert({
           source_id: row.id,
           source_type: "message",
-          chunk_text: chunk,
+          chunk_text: titledChunk,
           embedding,
           kind: row.embedKind ?? RAG_DEFAULT_KIND,
           project_id: row.embedProjectId ?? null,

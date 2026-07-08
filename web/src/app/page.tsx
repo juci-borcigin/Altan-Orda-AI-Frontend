@@ -48,6 +48,8 @@ import {
   IcoLogout,
   IcoRoundedPlus,
   IcoTrash,
+  IcoPin,
+  IcoUndo,
 } from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
 import {
@@ -55,7 +57,7 @@ import {
   AoMessageAttachments,
   uploadChatAttachment,
 } from "@/components/ao-compose-attachments";
-import { AO_ATTACHMENT_MAX_COUNT, type AoMsgAttachment } from "@/lib/ao-attachments";
+import { AO_ATTACHMENT_ACCEPT, AO_ATTACHMENT_MAX_COUNT, type AoMsgAttachment } from "@/lib/ao-attachments";
 import { latestClipboardFile } from "@/lib/ao-attachment-client";
 import { AoDeleteConfirmPopup } from "@/components/AoDeleteConfirmPopup";
 import { AoReijitsuOverlay, type AoReijitsuOverlayHandle } from "@/components/AoReijitsuOverlay";
@@ -86,7 +88,14 @@ import {
   pruneEphemeralEmptyThreads,
 } from "@/lib/ao-state";
 import type { DbThreadRow } from "@/lib/ao-supabase-thread-map";
+import { msFromDb } from "@/lib/ao-supabase-thread-map";
+import { historyCompressionFromDbJson, pinnedThreadIdsFromDbJson } from "@/lib/ao-history-compression-db";
 import { mergeMsgsHydrateFromServer, mergeThreadSummariesIntoState } from "@/lib/ao-thread-list-merge";
+import {
+  applyReconciledThreadMessages,
+  collectThreadsNeedingMessageRefetch,
+  type ThreadMessageRefetchTarget,
+} from "@/lib/ao-thread-reconcile";
 import {
   aoClampStoredThreadTitle,
   aoClampTitleDraftInput,
@@ -103,8 +112,16 @@ import {
 import { readChatSseDone } from "@/lib/ao-chat-sse";
 import { estimateUsdFromTokensClient } from "@/lib/ao-usage-estimate-client";
 import { openRawHtmlInNewTab } from "@/lib/ao-raw-overlay";
+import { AoMainComposeToolbar } from "@/components/ao-main-compose-toolbar";
 import { AoMainJuchiActions } from "@/components/ao-main-juchi-actions";
+import { AoProjectTabsPanel } from "@/components/ao-project-tabs-panel";
+import { AoSidebarSettingsRow } from "@/components/ao-sidebar-settings-row";
 import { AoUsageChipPanel } from "@/components/ao-usage-chip";
+import {
+  AO_V2_PC_BODY_ROW_W_PX,
+  AO_V2_PC_LEFT_COLUMN_W_PX,
+  AO_V2_PC_MAIN_COLUMN_W_PX,
+} from "@/lib/ao-v2-layout";
 import { AO_PORTRAIT_LAYOUT_W_PX } from "@/lib/ao-portrait";
 import {
   AoOrnamentalFrame,
@@ -402,9 +419,8 @@ function mainComposeRowGridStyle(avatarColWPx: number = MAIN_JUCHI_AVATAR_COL_W_
     display: "grid",
     width: "100%",
     minWidth: 0,
-    minHeight: 0,
-    height: "100%",
-    alignItems: "stretch",
+    /** start: 邦主列は自然高のまま固定し、吹き出しのみ下へ伸長 */
+    alignItems: "start",
     gridTemplateColumns: `minmax(0, 1fr) ${avatarColWPx}px`,
     columnGap: MAIN_COMPOSE_AVATAR_GAP_PX,
   };
@@ -660,26 +676,45 @@ function aoIsProbablyPhoneLikeDevice(): boolean {
   return short > 0 && short <= 520;
 }
 
-/** ハイドレーション時はサーバと同じ false を強制し、クライアント初回コミット後に実ビューポートへ同期する */
+/**
+ * ハイドレーション中は getAoViewportCompactServerSnapshot() と同じ false を返す。
+ * useSyncExternalStore の getSnapshot 初回値が server と一致しないと hydration mismatch になる。
+ */
+let aoViewportCompactClientReady = false;
+
+function readAoViewportCompactFromWindow(): boolean {
+  try {
+    const byWidth = window.matchMedia(`(max-width: ${AO_MOBILE_MAX_CSS_PX}px)`).matches;
+    if (byWidth) return true;
+    if (aoIsProbablyMobileUa()) return true;
+    return aoIsProbablyPhoneLikeDevice();
+  } catch {
+    if (window.innerWidth <= AO_MOBILE_MAX_CSS_PX) return true;
+    if (aoIsProbablyMobileUa()) return true;
+    return aoIsProbablyPhoneLikeDevice();
+  }
+}
+
+/** ハイドレーション後に実ビューポートへ同期する */
 function subscribeAoViewportCompact(onStoreChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
-  // SSR の serverSnapshot(false) から、マウント直後に実ビューポートへ同期する
-  // （実機では resize が発火せず、永遠に false 固定になるケースを防ぐ）
   const handler = () => onStoreChange();
   const timers: number[] = [];
   const rafs: number[] = [];
 
-  // iOS 等で meta viewport の反映が遅れても追随できるよう、複数回再同期する
-  try {
-    queueMicrotask(handler);
-  } catch {
-    timers.push(window.setTimeout(handler, 0));
-  }
+  const enableClientSnapshot = () => {
+    if (aoViewportCompactClientReady) return;
+    aoViewportCompactClientReady = true;
+    handler();
+  };
+
+  // hydration 完了後に compact 判定を有効化（microtask では早すぎて mismatch になる）
   rafs.push(
     window.requestAnimationFrame(() => {
-      rafs.push(window.requestAnimationFrame(handler));
+      rafs.push(window.requestAnimationFrame(enableClientSnapshot));
     }),
   );
+  timers.push(window.setTimeout(enableClientSnapshot, 0));
   timers.push(window.setTimeout(handler, 60));
   timers.push(window.setTimeout(handler, 240));
 
@@ -728,17 +763,8 @@ function subscribeAoViewportCompact(onStoreChange: () => void): () => void {
 
 function getAoViewportCompactSnapshot(): boolean {
   if (typeof window === "undefined") return false;
-  try {
-    const byWidth = window.matchMedia(`(max-width: ${AO_MOBILE_MAX_CSS_PX}px)`).matches;
-    if (byWidth) return true;
-    // 「PCサイト表示」等で viewport 幅が大きくても、スマホ実機なら compact を優先
-    if (aoIsProbablyMobileUa()) return true;
-    return aoIsProbablyPhoneLikeDevice();
-  } catch {
-    if (window.innerWidth <= AO_MOBILE_MAX_CSS_PX) return true;
-    if (aoIsProbablyMobileUa()) return true;
-    return aoIsProbablyPhoneLikeDevice();
-  }
+  if (!aoViewportCompactClientReady) return getAoViewportCompactServerSnapshot();
+  return readAoViewportCompactFromWindow();
 }
 
 function getAoViewportCompactServerSnapshot(): boolean {
@@ -805,9 +831,14 @@ const JUCHI_COLUMN_CONTENT_H_PX =
   JUCHI_SEND_ROW_H_PX +
   JUCHI_COL_GAP_SUM_PX;
 /**
- * 吹き出し・令旨列の高さ：上端は現状どおり、下端＝送信下端 ⇔ H_juchi − 顔グラ上げ分
+ * 吹き出し最小高＝邦主列（顔グラ上端〜送信下端）。上端は顔グラと同じ Y に揃える。
  */
-const MAIN_SPEECH_BUBBLE_H_PX = JUCHI_COLUMN_CONTENT_H_PX - JUCHI_PORTRAIT_RAISE_ABOVE_BUBBLE_PX;
+const MAIN_SPEECH_BUBBLE_H_PX = JUCHI_COLUMN_CONTENT_H_PX;
+/** 吹き出し contentPadY（上下）の合計 — テキストエリア最小高の算出用 */
+const MAIN_COMPOSE_BUBBLE_PAD_Y_TOTAL_PX = 12;
+function mainComposeTextareaMinHPx(bubbleMinHPx: number): number {
+  return Math.max(18, bubbleMinHPx - MAIN_COMPOSE_BUBBLE_PAD_Y_TOTAL_PX);
+}
 
 /** コンパクト投稿欄の見た目字サイズ（px）。scale 算出の参照 */
 const COMPACT_COMPOSE_VISUAL_FS = 12;
@@ -926,6 +957,14 @@ function aoThinkingSpeakerUi(
 }
 
 let storageWarned = false;
+
+const AO_SUPABASE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isPersistedAoMessageId(id: string): boolean {
+  const base = id.split("#")[0] ?? id;
+  return AO_SUPABASE_UUID_RE.test(base);
+}
 
 function visibleMessages(messages: Msg[]) {
   return messages.filter((m) => !m.hiddenFromUi);
@@ -1170,6 +1209,9 @@ function AoLeftKinSideColumn({
   nameplateFontSizePx = 8,
   mobileDrawerNokorLayout = false,
   viewportCompact = false,
+  v2Sidebar = false,
+  settingsArea,
+  projectArea,
 }: {
   measureRef?: RefObject<HTMLDivElement | null>;
   activeNames: ReadonlySet<string>;
@@ -1178,6 +1220,10 @@ function AoLeftKinSideColumn({
   /** 狭ビュー・ポータル内のみ：右カラム幅を 7文字 tight 名札外寸に合わせる */
   mobileDrawerNokorLayout?: boolean;
   viewportCompact?: boolean;
+  /** V2 PC 左サイドバー：設定・プロジェクトエリアを挿入 */
+  v2Sidebar?: boolean;
+  settingsArea?: ReactNode;
+  projectArea?: ReactNode;
 }) {
   const drawerKin = mobileDrawerNokorLayout;
   const lordCaptionPadStyle = kinSidebarRonLinePadStyle();
@@ -1253,6 +1299,37 @@ function AoLeftKinSideColumn({
               </div>
             </AoOrnamentalFrame>
           </div>
+
+          {v2Sidebar && settingsArea ? (
+            <div className="flex w-full min-w-0 flex-col" style={{ gap: 0 }}>
+              <AoOrnamentalFrame
+                scale={0.5}
+                className={kinOrnamentFrameClass}
+                contentClassName="overflow-visible"
+                contentStyle={{ padding: drawerKin ? "6px" : "3px" }}
+              >
+                <div className="ao-p5-parchment-surface w-full">{settingsArea}</div>
+              </AoOrnamentalFrame>
+            </div>
+          ) : null}
+
+          {v2Sidebar && projectArea ? (
+            <div className="flex w-full min-w-0 flex-col" style={{ gap: 0 }}>
+              <div
+                className="flex h-[32px] w-full min-w-0 items-center justify-center px-1 text-[#3D1C08]"
+                aria-hidden
+              >
+                <AoRubyGold
+                  main="論　列"
+                  rt="ロ　ン"
+                  mainClassName="text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
+                  rtClassName="text-[9px] font-serif text-[#6A3F0A]/80"
+                />
+              </div>
+              <div className="h-0" aria-hidden />
+              {projectArea}
+            </div>
+          ) : null}
 
           <div className="flex w-full min-w-0 flex-col" style={{ gap: 0 }}>
             <div className="flex h-[32px] w-full min-w-0 items-center justify-center px-1 text-[#3D1C08]" aria-hidden>
@@ -1333,6 +1410,9 @@ function AoMainComposeTextarea({
   placeholder,
   fontSizePx,
   visualScale,
+  autoGrow = false,
+  minHeightPx = 24,
+  growDeps = 0,
 }: {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -1345,19 +1425,48 @@ function AoMainComposeTextarea({
   fontSizePx: number;
   /** 1 で縮小なし。コンパクト時のみ 1 未満を渡す */
   visualScale: number;
+  /** true: スクロールせず下方向へ伸長 */
+  autoGrow?: boolean;
+  minHeightPx?: number;
+  /** 添付など吹き出し内の高さ変化で再計測する */
+  growDeps?: number;
 }) {
+  const syncAutoGrowHeight = useCallback(() => {
+    if (!autoGrow) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.overflow = "hidden";
+    el.style.height = "0px";
+    const next = Math.max(minHeightPx, el.scrollHeight);
+    el.style.height = `${next}px`;
+  }, [autoGrow, minHeightPx, textareaRef]);
+
+  useLayoutEffect(() => {
+    syncAutoGrowHeight();
+  }, [value, syncAutoGrowHeight, fontSizePx, visualScale, growDeps]);
+
   const textarea = (
     <textarea
       ref={textareaRef}
       suppressHydrationWarning
       value={value}
       readOnly={readOnly}
-      onChange={onChange}
+      onChange={(e) => {
+        onChange(e);
+        if (autoGrow) requestAnimationFrame(syncAutoGrowHeight);
+      }}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       placeholder={placeholder}
-      className={`box-border min-h-0 w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent font-serif text-[#1a1208] outline-none ring-0 focus:ring-0 ${composeLocked ? "cursor-not-allowed opacity-60" : ""}`}
-      style={{ padding: "0px", fontSize: fontSizePx }}
+      rows={autoGrow ? 1 : undefined}
+      className={`box-border w-full resize-none rounded-none border-0 bg-transparent font-serif text-[#1a1208] outline-none ring-0 focus:ring-0 ${
+        autoGrow ? "block overflow-hidden" : "min-h-0 flex-1 overflow-y-auto"
+      } ${composeLocked ? "cursor-not-allowed opacity-60" : ""}`}
+      style={{
+        padding: "0px",
+        fontSize: fontSizePx,
+        ...(autoGrow ? { minHeight: minHeightPx } : {}),
+      }}
     />
   );
 
@@ -1367,14 +1476,14 @@ function AoMainComposeTextarea({
 
   const invPct = 100 / visualScale;
   return (
-    <div className="h-full min-h-0 w-full overflow-hidden">
+    <div className={`w-full ${autoGrow ? "overflow-visible" : "h-full min-h-0 overflow-hidden"}`}>
       <div
-        className="flex h-full min-h-0 w-full flex-col"
+        className={autoGrow ? "flex w-full flex-col" : "flex h-full min-h-0 w-full flex-col"}
         style={{
           transform: `scale(${visualScale})`,
           transformOrigin: "top left",
           width: `${invPct}%`,
-          height: `${invPct}%`,
+          ...(autoGrow ? {} : { height: `${invPct}%` }),
         }}
       >
         {textarea}
@@ -1479,6 +1588,7 @@ export default function Home() {
   const leftColumnMeasureRef = useRef<HTMLDivElement | null>(null);
   const [leftColumnPx, setLeftColumnPx] = useState<number | null>(null);
   const ronListMeasureRef = useRef<HTMLDivElement | null>(null);
+  const ronListSidebarMeasureRef = useRef<HTMLDivElement | null>(null);
   const [ronListPx, setRonListPx] = useState<number | null>(null);
   /** 論列の横幅（「大 会 盟」実測＋枠内余白・他論ラベルとの最大） */
   const [ronColWidthPx, setRonColWidthPx] = useState<number | null>(null);
@@ -1502,6 +1612,9 @@ export default function Home() {
   /** 設定・使用量を開く直前の論（戻るで復元。開中は論押下なし） */
   const topicBeforeSettingsUsageRef = useRef<TopicUiId | null>(null);
   const composeLockedRef = useRef(composeLocked);
+  const isThinkingRef = useRef(isThinking);
+  const isTypingRef = useRef(isTyping);
+  const reconcileAbortRef = useRef<AbortController | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** ヘッダ＋Frame 帯下端までの px（ドロワーをその下から縦スライドさせる） */
   const compactKinHeaderMeasureRef = useRef<HTMLElement | null>(null);
@@ -1602,6 +1715,73 @@ export default function Home() {
     };
   }, []);
 
+  const reconcileThreadMessages = useCallback(
+    async (
+      targets: ThreadMessageRefetchTarget[],
+      signal?: AbortSignal,
+      opts?: { force?: boolean },
+    ) => {
+      if (!targets.length) return;
+      const curId = currentThreadIdRef.current;
+      const filtered = targets.filter((t) => {
+        if (opts?.force) return true;
+        if (t.clientId !== curId) return true;
+        return !isThinkingRef.current && !isTypingRef.current;
+      });
+      if (!filtered.length) return;
+
+      for (const target of filtered) {
+        if (signal?.aborted) return;
+        try {
+          const r = await fetch(`/api/threads/${encodeURIComponent(target.supabaseThreadId)}/messages`, {
+            signal,
+          });
+          if (!r.ok) continue;
+          const data = (await r.json()) as {
+            messages?: Msg[];
+            updatedAt?: string;
+            historyCompression?: { fromMessageId: string; summary: string } | null;
+            pinnedThreadIds?: string[];
+          };
+          const msgs = Array.isArray(data.messages) ? data.messages : [];
+          const updatedAt = data.updatedAt ? msFromDb(data.updatedAt) : undefined;
+          const hc =
+            data.historyCompression === null
+              ? null
+              : historyCompressionFromDbJson(data.historyCompression) ??
+                (data.historyCompression?.fromMessageId && data.historyCompression?.summary
+                  ? data.historyCompression
+                  : undefined);
+          const pinnedThreadIds = Array.isArray(data.pinnedThreadIds)
+            ? pinnedThreadIdsFromDbJson(data.pinnedThreadIds)
+            : undefined;
+
+          setState((prev) => {
+            const live = prev.threads.find((t) => t.id === target.clientId);
+            if (!live) return prev;
+            if (live.ephemeral) return prev;
+            if (
+              !opts?.force &&
+              live.id === currentThreadIdRef.current &&
+              (isThinkingRef.current || isTypingRef.current)
+            ) {
+              return prev;
+            }
+            return applyReconciledThreadMessages(prev, target.clientId, msgs, {
+              ...(hc !== undefined ? { historyCompression: hc } : {}),
+              ...(pinnedThreadIds !== undefined ? { pinnedThreadIds } : {}),
+              ...(updatedAt !== undefined ? { updatedAt } : {}),
+            });
+          });
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          console.error("[ao] thread messages reconcile", e);
+        }
+      }
+    },
+    [],
+  );
+
   const fetchThreadListWithTopic = useCallback(
     async (bust: boolean, topic: TopicUiId | null, signal?: AbortSignal) => {
       const pids = projectIdsForTopic(topic);
@@ -1618,13 +1798,21 @@ export default function Home() {
           return;
         }
         if (!Array.isArray(data.threads)) return;
-        setState((prev) => mergeThreadSummariesIntoState(prev, data.threads ?? [], pids));
+
+        let refetchTargets: ThreadMessageRefetchTarget[] = [];
+        setState((prev) => {
+          refetchTargets = collectThreadsNeedingMessageRefetch(prev, data.threads ?? []);
+          return mergeThreadSummariesIntoState(prev, data.threads ?? [], pids);
+        });
+        if (refetchTargets.length > 0) {
+          void reconcileThreadMessages(refetchTargets, signal);
+        }
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         console.error("[ao] thread list fetch", e);
       }
     },
-    [],
+    [reconcileThreadMessages],
   );
 
   useEffect(() => {
@@ -1713,17 +1901,43 @@ export default function Home() {
           }));
           return;
         }
-        const data = (await r.json()) as { messages?: Msg[] };
+        const data = (await r.json()) as {
+          messages?: Msg[];
+          updatedAt?: string;
+          historyCompression?: { fromMessageId: string; summary: string } | null;
+          pinnedThreadIds?: string[];
+        };
         const msgs = Array.isArray(data.messages) ? data.messages : [];
         if (cancelled) return;
-        setState((p) => ({
-          ...p,
-          threads: p.threads.map((t) => {
-            if (t.id !== clientId) return t;
-            if (t.messages.length > 0) return { ...t, serverMessagesLoaded: true };
-            return { ...t, messages: msgs, serverMessagesLoaded: true };
-          }),
-        }));
+        const updatedAt = data.updatedAt ? msFromDb(data.updatedAt) : undefined;
+        const hc =
+          data.historyCompression === null
+            ? null
+            : historyCompressionFromDbJson(data.historyCompression) ??
+              (data.historyCompression?.fromMessageId && data.historyCompression?.summary
+                ? data.historyCompression
+                : undefined);
+        const pinnedThreadIds = Array.isArray(data.pinnedThreadIds)
+          ? pinnedThreadIdsFromDbJson(data.pinnedThreadIds)
+          : undefined;
+        setState((p) => {
+          const live = p.threads.find((t) => t.id === clientId);
+          if (!live || live.messages.length > 0) {
+            return {
+              ...p,
+              threads: p.threads.map((t) => {
+                if (t.id !== clientId) return t;
+                if (t.messages.length > 0) return { ...t, serverMessagesLoaded: true };
+                return { ...t, messages: [], serverMessagesLoaded: true };
+              }),
+            };
+          }
+          return applyReconciledThreadMessages(p, clientId, msgs, {
+            ...(hc !== undefined ? { historyCompression: hc } : {}),
+            ...(pinnedThreadIds !== undefined ? { pinnedThreadIds } : {}),
+            ...(updatedAt !== undefined ? { updatedAt } : {}),
+          });
+        });
       } catch {
         if (!cancelled) {
           setState((p) => ({
@@ -1788,6 +2002,16 @@ export default function Home() {
     return `${currentThread.id}:${tail}:${isThinking ? "1" : "0"}:${typingId ?? ""}`;
   }, [currentThread, isThinking, typingId]);
 
+  const lastRevertableUserMsgId = useMemo(() => {
+    if (!currentThread || isThinking || isTyping) return null;
+    const msgs = visibleMessages(currentThread.messages);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]!;
+      if (m.side === "user") return m.id;
+    }
+    return null;
+  }, [currentThread, isThinking, isTyping]);
+
   function scrollChatPaneToBottom() {
     const el = messagesRef.current;
     if (!el) return;
@@ -1831,7 +2055,7 @@ export default function Home() {
   }, [viewportCompact]);
 
   useEffect(() => {
-    const el = ronListMeasureRef.current;
+    const el = viewportCompact ? ronListMeasureRef.current : ronListSidebarMeasureRef.current;
     if (!el) return;
     const sync = () =>
       setRonListPx(Math.max(1, el.offsetHeight || Math.ceil(el.getBoundingClientRect().height)));
@@ -2009,6 +2233,31 @@ export default function Home() {
   useEffect(() => {
     composeLockedRef.current = composeLocked;
   }, [composeLocked]);
+
+  useEffect(() => {
+    isThinkingRef.current = isThinking;
+  }, [isThinking]);
+
+  useEffect(() => {
+    isTypingRef.current = isTyping;
+  }, [isTyping]);
+
+  /** タブ復帰時に議事一覧を再取得し、B案リコンシリエーションを走らせる */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (isGakkyuTopic(selectedTopicRef.current)) return;
+      reconcileAbortRef.current?.abort();
+      const ac = new AbortController();
+      reconcileAbortRef.current = ac;
+      void fetchThreadListWithTopic(true, selectedTopicRef.current, ac.signal);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      reconcileAbortRef.current?.abort();
+    };
+  }, [fetchThreadListWithTopic]);
 
   function scheduleFocusMainPrompt() {
     if (composeLockedRef.current) return;
@@ -2365,6 +2614,120 @@ export default function Home() {
     if (attachInputRef.current) attachInputRef.current.value = "";
   }
 
+  async function togglePinnedThreadForCurrent(refThread: Thread) {
+    const cur = state.threads.find((t) => t.id === state.currentThreadId);
+    if (!cur?.supabaseThreadId || !refThread.supabaseThreadId) return;
+    if (cur.id === refThread.id) return;
+    const sid = refThread.supabaseThreadId;
+    const prevPins = cur.pinnedThreadIds ?? [];
+    const nextPins = prevPins.includes(sid) ? prevPins.filter((x) => x !== sid) : [...prevPins, sid];
+    setState((p) => ({
+      ...p,
+      threads: p.threads.map((t) =>
+        t.id === cur.id ? { ...t, pinnedThreadIds: nextPins } : t,
+      ),
+    }));
+    try {
+      const res = await fetch(`/api/threads/${encodeURIComponent(cur.supabaseThreadId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinnedThreadIds: nextPins }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? `pin failed ${res.status}`);
+      }
+      const data = (await res.json()) as { pinnedThreadIds?: string[]; updatedAt?: string };
+      const saved = Array.isArray(data.pinnedThreadIds)
+        ? pinnedThreadIdsFromDbJson(data.pinnedThreadIds)
+        : nextPins;
+      const updatedAt = data.updatedAt ? msFromDb(data.updatedAt) : Date.now();
+      setState((p) => ({
+        ...p,
+        threads: p.threads.map((t) =>
+          t.id === cur.id ? { ...t, pinnedThreadIds: saved, updatedAt } : t,
+        ),
+      }));
+    } catch (e) {
+      console.error("[ao] pin thread", e);
+      setState((p) => ({
+        ...p,
+        threads: p.threads.map((t) =>
+          t.id === cur.id ? { ...t, pinnedThreadIds: prevPins } : t,
+        ),
+      }));
+    }
+  }
+
+  async function revertUserMessage(messageId: string) {
+    if (isThinking || isTyping) return;
+    const idx = state.threads.findIndex((t) => t.id === state.currentThreadId);
+    if (idx < 0) return;
+    const th = state.threads[idx]!;
+    const msgIdx = th.messages.findIndex((m) => m.id === messageId);
+    if (msgIdx < 0) return;
+    const target = th.messages[msgIdx]!;
+    if (target.side !== "user") return;
+
+    const restoreText = target.text === "(画像)" ? "" : target.text;
+    const truncated = th.messages.slice(0, msgIdx);
+
+    if (th.supabaseThreadId && isPersistedAoMessageId(messageId)) {
+      try {
+        const res = await fetch(
+          `/api/threads/${encodeURIComponent(th.supabaseThreadId)}/messages/revert`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageId: messageId.split("#")[0] }),
+          },
+        );
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error ?? `revert failed ${res.status}`);
+        }
+        const data = (await res.json()) as { updatedAt?: string };
+        const updatedAt = data.updatedAt ? msFromDb(data.updatedAt) : Date.now();
+        setState((p) => {
+          const ti = p.threads.findIndex((t) => t.id === th.id);
+          if (ti < 0) return p;
+          const aa = [...p.threads];
+          aa[ti] = {
+            ...aa[ti]!,
+            messages: truncated,
+            historyCompression: undefined,
+            updatedAt,
+            serverMessagesLoaded: true,
+          };
+          return { ...p, threads: aa };
+        });
+      } catch (e) {
+        console.error("[ao] revert message", e);
+        return;
+      }
+    } else {
+      setState((p) => {
+        const ti = p.threads.findIndex((t) => t.id === th.id);
+        if (ti < 0) return p;
+        const aa = [...p.threads];
+        aa[ti] = {
+          ...aa[ti]!,
+          messages: truncated,
+          historyCompression: undefined,
+        };
+        return { ...p, threads: aa };
+      });
+    }
+
+    setDraft(restoreText);
+    setIsThinking(false);
+    setIsTyping(false);
+    setTypingId(null);
+    setComposeLocked(false);
+    scheduleFocusMainPrompt();
+    void fetchThreadListWithTopic(true, selectedTopicRef.current);
+  }
+
   async function sendUserMessage() {
     const text = draft.trim();
     const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
@@ -2381,6 +2744,7 @@ export default function Home() {
       attachments,
       createdAt: Date.now(),
     };
+    let postChatSyncSid: string | undefined;
     const th = state.threads[idx];
     const snippet = aoTitleSnippetFromFirstUserPost(text);
     const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
@@ -2487,6 +2851,7 @@ export default function Home() {
       }
       const supabaseThreadId =
         typeof data.supabaseThreadId === "string" ? data.supabaseThreadId : undefined;
+      postChatSyncSid = supabaseThreadId ?? nextThread.supabaseThreadId;
       const historyCompressionRaw = data.historyCompression as
         | { fromMessageId?: string; summary?: string }
         | undefined;
@@ -2627,6 +2992,15 @@ export default function Home() {
       setIsThinking(false);
       setThinkingUiPhase(1);
       setIsTyping(false);
+      if (postChatSyncSid) {
+        queueMicrotask(() => {
+          void reconcileThreadMessages(
+            [{ clientId: nextThread.id, supabaseThreadId: postChatSyncSid! }],
+            undefined,
+            { force: true },
+          );
+        });
+      }
       scheduleFocusMainPrompt();
     }
   }
@@ -2820,7 +3194,33 @@ export default function Home() {
   /** 履歴吹き出しは列 flex で親幅いっぱいまで広げる（実効幅は顔グラ列＋ gap で決まる） */
   const chatBubbleMaxWidth: CSSProperties["maxWidth"] = "100%";
 
+  /** V2 PC：左サイドバー 4 エリア + メイン幅維持（スマホは V1 のまま） */
+  const aoV2PcSidebar = !viewportCompact;
+  const v2MainColWPx = AO_V2_PC_MAIN_COLUMN_W_PX;
+  const v2LeftColWPx = AO_V2_PC_LEFT_COLUMN_W_PX;
+  const v2BodyRowWPx = AO_V2_PC_BODY_ROW_W_PX;
+  const v2PcContainerStyle: CSSProperties | undefined = aoV2PcSidebar
+    ? { width: v2BodyRowWPx, maxWidth: v2BodyRowWPx }
+    : undefined;
+  const v2LeftColStyle: CSSProperties | undefined = aoV2PcSidebar
+    ? { width: v2LeftColWPx, minWidth: v2LeftColWPx, maxWidth: v2LeftColWPx, flex: "0 0 auto" }
+    : undefined;
+  const v2MainColStyle: CSSProperties | undefined = aoV2PcSidebar
+    ? { width: v2MainColWPx, minWidth: v2MainColWPx, maxWidth: v2MainColWPx, flex: "0 0 auto" }
+    : undefined;
+
+  const projectTabsPanelProps = {
+    kuriltaiLabelMeterRef,
+    selectedTopic,
+    onTabClick: onMainRonTabClick,
+    viewportCompact,
+    topicFontSizePx: compactRonTabTopicFs,
+    frameInsetPx: ronListFrameInsetPx,
+    parchmentPad: ronListParchmentPadStr,
+  } as const;
+
   useLayoutEffect(() => {
+    if (!viewportCompact) return;
     const labelEl = kuriltaiLabelMeterRef.current;
     const probe = ronTopicLabelsProbeRef.current;
     if (!labelEl) return;
@@ -3163,24 +3563,42 @@ export default function Home() {
             className={`min-h-0 box-border flex flex-col ${
               viewportCompact
                 ? "h-full min-h-0 w-full max-w-full flex-1 px-1"
-                : "mx-auto flex h-full min-h-0 w-[1200px] max-w-[1200px] flex-1 flex-col"
+                : "mx-auto flex h-full min-h-0 flex-1 flex-col"
             }`}
-            style={{ paddingTop: MAIN_OUTER_TOP_GAP_PX }}
+            style={{ paddingTop: MAIN_OUTER_TOP_GAP_PX, ...v2PcContainerStyle }}
           >
             <div
               className={`w-full min-h-0 ${
                 viewportCompact
                   ? "flex min-h-0 flex-1 flex-col gap-3"
-                  : "flex min-h-0 flex-1 flex-row items-stretch gap-3 overflow-x-auto overflow-y-visible"
+                  : `flex min-h-0 flex-1 flex-row items-stretch ${aoV2PcSidebar ? "gap-0" : "gap-3"} overflow-x-auto overflow-y-visible`
               }`}
             >
             {/* 左カラム：メイン部と同等の角／枠で囲う（狭ビューポートではスワイプドロワーでも表示） */}
             {!viewportCompact ? (
-              <div className="min-h-0 shrink-0 overflow-y-auto overflow-x-visible">
+              <div
+                className="min-h-0 shrink-0 overflow-y-auto overflow-x-visible"
+                style={v2LeftColStyle}
+              >
                 <AoLeftKinSideColumn
                   measureRef={leftColumnMeasureRef}
                   activeNames={activeNokorNames}
                   viewportCompact={viewportCompact}
+                  v2Sidebar={aoV2PcSidebar}
+                  settingsArea={
+                    <AoSidebarSettingsRow
+                      iconSize={compactGijiChipIconPxBig}
+                      onOpenChronicle={openChronicleOverlay}
+                      onOpenUsage={openUsageOverlay}
+                      onOpenSettings={openSettingsOverlay}
+                    />
+                  }
+                  projectArea={
+                    <AoProjectTabsPanel
+                      {...projectTabsPanelProps}
+                      measureRef={ronListSidebarMeasureRef}
+                    />
+                  }
                 />
               </div>
             ) : null}
@@ -3189,7 +3607,7 @@ export default function Home() {
               style={{
                 gap: MAIN_COLUMN_STACK_GAP_PX,
                 minWidth: 0,
-                ...(viewportCompact ? {} : { flex: "3 1 0%" }),
+                ...v2MainColStyle,
               }}
             >
             <AoOrnamentalFrame
@@ -3225,81 +3643,18 @@ export default function Home() {
               paddingBottom: 0,
             }}
           >
-            <div className="flex min-h-0 flex-1 min-w-0 flex-row items-stretch self-stretch" style={{ gap: 6 }}>
-              {/* 左：論リスト（行方向ストレッチから外し、枠は内容高のみにする） */}
-              <div
-                ref={ronListMeasureRef}
-                className="isolate flex shrink-0 grow-0 basis-auto flex-col self-start overflow-visible"
-                style={{
-                  width: ronColWidthPx ?? (viewportCompact ? 62 : 72),
-                  alignSelf: "flex-start",
-                }}
-              >
-                {/* 論タブ全景（大会盟〜遠交論）：1 枠・項目間は詰め、親 flex-1 の縦継承で伸びない */}
-                <AoOrnamentalFrame
-                  scale={0.5}
-                  rootDisplay="inline-flex"
-                  contentInsetPx={ronListFrameInsetPx}
-                  className="max-h-max w-full shrink-0 overflow-visible align-top"
-                  contentClassName="flex max-h-max shrink-0 flex-col justify-start gap-0 overflow-visible"
-                  contentStyle={{ padding: ronListParchmentPadStr }}
-                >
-                  <div className="ao-p5-parchment-surface flex max-h-max w-full flex-col justify-start divide-y divide-solid divide-[#3D1C08]/[0.14] px-0 py-0">
-                    {AO_TOPICS.map((tp) => {
-                      const on = selectedTopic === tp.id;
-                      const isKuriltai = tp.id === "kurultai";
-                      const pressed = on
-                        ? "translate-x-px translate-y-px shadow-[inset_0_2px_8px_rgba(0,0,0,0.18)]"
-                        : "hover:bg-black/5";
-                      if (isKuriltai) {
-                        return (
-                          <button
-                            key={tp.id}
-                            type="button"
-                            onClick={() => onMainRonTabClick(tp.id)}
-                            aria-pressed={on}
-                            className={`flex ${viewportCompact ? "min-h-[26px]" : "min-h-[30px]"} w-full items-center justify-center rounded-none border-0 bg-transparent px-0.5 py-0 text-[#3D1C08] transition-none ${pressed}`}
-                          >
-                            <div
-                              ref={kuriltaiLabelMeterRef}
-                              className="inline-flex max-w-none shrink-0 whitespace-nowrap"
-                            >
-                              <AoRubyGold
-                                main="大 会 盟"
-                                rt="クリルタイ"
-                                mainClassName={
-                                  viewportCompact
-                                    ? "text-[11px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
-                                    : "text-[14px] font-semibold font-serif tracking-[0.12em] text-[#3D1C08]"
-                                }
-                                rtClassName={
-                                  viewportCompact
-                                    ? "text-[7px] font-serif text-[#6A3F0A]/80"
-                                    : "text-[9px] font-serif text-[#6A3F0A]/80"
-                                }
-                              />
-                            </div>
-                          </button>
-                        );
-                      }
-                      return (
-                        <button
-                          key={tp.id}
-                          type="button"
-                          onClick={() => onMainRonTabClick(tp.id)}
-                          aria-pressed={on}
-                          className={`min-h-0 w-full rounded-none border-0 bg-transparent px-1 py-[2px] text-center font-semibold leading-[1.2] text-[#3D1C08] transition-none ${pressed}`}
-                          style={{ fontSize: compactRonTabTopicFs }}
-                        >
-                          {tp.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </AoOrnamentalFrame>
-              </div>
-
-              {/* 右：タイトル＋吹き出し（既存の中段をここで続ける） */}
+            <div
+              className={`flex min-h-0 flex-1 min-w-0 self-stretch ${aoV2PcSidebar ? "flex-col" : "flex-row items-stretch"}`}
+              style={{ gap: aoV2PcSidebar ? 0 : 6 }}
+            >
+              {!aoV2PcSidebar ? (
+                <AoProjectTabsPanel
+                  {...projectTabsPanelProps}
+                  measureRef={ronListMeasureRef}
+                  columnWidthPx={ronColWidthPx}
+                />
+              ) : null}
+              {/* タイトル＋吹き出し */}
               <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col self-stretch">
                 {!anyMainOverlay ? (
                 <>
@@ -3313,16 +3668,9 @@ export default function Home() {
                   }}
                 >
                   {viewportCompact ? (
-                    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-1">
-                      <div
-                        className="grid w-full min-w-0 shrink-0"
-                        style={{
-                          gridTemplateColumns: "minmax(0, 1fr) auto",
-                          columnGap: MAIN_COMPOSE_AVATAR_GAP_PX,
-                          alignItems: "center",
-                        }}
-                      >
-                      <div className="min-w-0">
+                    <div className="flex w-full min-w-0 shrink-0 flex-col gap-1">
+                      <div className="flex w-full min-w-0 shrink-0 items-center gap-1">
+                      <div className="min-w-0 flex-1">
                       <AoOrnamentalFrame
                         scale={0.5}
                         contentInsetPx={GIJI_CHIP_ORNAMENT_INSET_PX}
@@ -3382,6 +3730,17 @@ export default function Home() {
                         </div>
                       </AoOrnamentalFrame>
                       </div>
+                      <AoMainComposeToolbar
+                        attachInputRef={attachInputRef}
+                        composeLocked={composeLocked}
+                        pendingAttachmentCount={pendingAttachments.length}
+                        onAttachSelected={(files) => void onAttachFilesSelected(files)}
+                        onOpenContext={() => openContextOverlay()}
+                        iconSize={compactGijiChipIconPxBig}
+                        iconBtnClass={AO_MAIN_ICON_BTN_CLASS}
+                        compactPadding={viewportCompact}
+                        accept={AO_ATTACHMENT_ACCEPT}
+                      />
                       <div
                         className="flex min-w-0 shrink-0 flex-col justify-center"
                         style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}
@@ -3420,22 +3779,16 @@ export default function Home() {
                         </div>
                       </div>
                       </div>
-                      <div
-                        className="min-h-0 w-full min-w-0 flex-1"
-                        style={{ ...mainComposeRowGridStyle(), flex: "1 1 0%" }}
-                      >
-                      <div className="isolate flex h-full min-h-0 min-w-0 flex-col overflow-visible pr-0">
-                      <div
-                        className="mr-0 flex h-full min-h-0 min-w-0 w-full flex-1 flex-col"
-                        style={{ minHeight: compactSpeechBubbleH }}
-                      >
+                      <div className="w-full min-w-0 shrink-0" style={mainComposeRowGridStyle()}>
+                      <div className="isolate flex min-w-0 flex-col overflow-visible pr-0">
                         <AoP5NineSliceBubble
                           variant="user"
                           frameScale={0.5}
-                          fillHeight
-                          className="flex h-full min-h-0 w-full flex-1 overflow-hidden"
+                          fillHeight={false}
+                          className="block w-full overflow-visible"
                           contentPadX={8}
                           contentPadY={6}
+                          minHeightPx={compactSpeechBubbleH}
                           style={{
                             filter: "none",
                             minHeight: compactSpeechBubbleH,
@@ -3468,18 +3821,13 @@ export default function Home() {
                             }
                             fontSizePx={compactMainTextareaFs}
                             visualScale={compactMainTextareaVisualScale}
+                            autoGrow
+                            minHeightPx={mainComposeTextareaMinHPx(compactSpeechBubbleH)}
+                            growDeps={pendingAttachments.length}
                           />
                         </AoP5NineSliceBubble>
                       </div>
-                    </div>
-
-                    <div
-                      className="relative z-20 box-border flex h-full min-w-0 flex-col items-center justify-end gap-0 self-stretch font-serif"
-                      style={{
-                        minHeight: compactSpeechBubbleH,
-                        marginTop: 0,
-                      }}
-                    >
+                    <div className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0.5 self-start font-serif">
                       <div className="flex w-full justify-center">
                         <AoP5FaceFrameMid
                           src="/personas/juci.png"
@@ -3503,23 +3851,18 @@ export default function Home() {
                         />
                       </div>
                       <AoMainJuchiActions
-                        attachInputRef={attachInputRef}
                         composeLocked={composeLocked}
-                        pendingAttachmentCount={pendingAttachments.length}
-                        onAttachSelected={(files) => void onAttachFilesSelected(files)}
                         onSend={() => void sendUserMessage()}
-                        onOpenContext={() => openContextOverlay()}
                         iconSize={compactGijiChipIconPxBig}
                         sendBtnClass={AO_MAIN_SEND_BTN_CLASS}
-                        iconBtnClass={AO_MAIN_ICON_BTN_CLASS}
                         compactPadding={viewportCompact}
                       />
                     </div>
                     </div>
                     </div>
                   ) : (
-                    <div className="flex h-full min-h-0 w-full flex-1 flex-col gap-1.5">
-                  <div className="mt-0 flex w-full min-w-0 shrink-0 items-stretch justify-between gap-2 text-left">
+                    <div className="flex w-full min-w-0 shrink-0 flex-col gap-1.5">
+                  <div className="mt-0 flex w-full min-w-0 shrink-0 items-stretch gap-1.5 text-left">
                     {/* 議事タイトル：枠で囲う */}
                     <div className="min-w-0 flex-1">
                       <AoOrnamentalFrame
@@ -3582,102 +3925,108 @@ export default function Home() {
                       </AoOrnamentalFrame>
                     </div>
 
-                    {/* 議事帯右上：年代記・使用量・設定（装飾枠なし） */}
-                    <div className="flex shrink-0 flex-col justify-center self-stretch" style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}>
-                      <div className="flex items-center justify-end gap-0.5">
-                        <button
-                          type="button"
-                          className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                          aria-label="年代記"
-                          onClick={() => openChronicleOverlay()}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoBook size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                          aria-label="AI API 使用量を表示"
-                          onClick={() => openUsageOverlay()}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoCoinBag size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                          aria-label="設定を開く"
-                          onClick={() => openSettingsOverlay()}
-                        >
-                          <span className="ao-p5-kurultai-ink-icon">
-                            <IcoGear size={compactGijiChipIconPxBig} />
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="min-h-0 min-w-0 flex-1 pb-0"
-                    style={{ ...mainComposeRowGridStyle(), flex: "1 1 0%" }}
-                  >
-                    <div className="isolate flex h-full min-h-0 min-w-0 flex-col overflow-visible pr-0">
+                    <AoMainComposeToolbar
+                      attachInputRef={attachInputRef}
+                      composeLocked={composeLocked}
+                      pendingAttachmentCount={pendingAttachments.length}
+                      onAttachSelected={(files) => void onAttachFilesSelected(files)}
+                      onOpenContext={() => openContextOverlay()}
+                      iconSize={compactGijiChipIconPxBig}
+                      iconBtnClass={AO_MAIN_ICON_BTN_CLASS}
+                      compactPadding={viewportCompact}
+                      accept={AO_ATTACHMENT_ACCEPT}
+                    />
+
+                    {!aoV2PcSidebar ? (
                       <div
-                        className="mr-0 flex h-full min-h-0 min-w-0 w-full flex-1 flex-col"
-                        style={{ minHeight: MAIN_SPEECH_BUBBLE_H_PX }}
+                        className="flex shrink-0 flex-col justify-center self-stretch"
+                        style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}
                       >
-                        <AoP5NineSliceBubble
-                          variant="user"
-                          frameScale={0.5}
-                          fillHeight
-                          className="block h-full min-h-0 w-full overflow-hidden"
-                          contentPadX={8}
-                          contentPadY={6}
-                          style={{
-                            filter: "none",
-                            minHeight: MAIN_SPEECH_BUBBLE_H_PX,
-                          }}
-                        >
-                          <AoComposeAttachments
-                            pending={pendingAttachments}
-                            onRemove={(path) =>
-                              setPendingAttachments((prev) => prev.filter((a) => a.storagePath !== path))
-                            }
-                            className="mb-1 px-1"
-                          />
-                          <AoMainComposeTextarea
-                            textareaRef={promptTextareaRef}
-                            value={draft}
-                            readOnly={composeLocked}
-                            composeLocked={composeLocked}
-                            onChange={(e) => setDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (composeLocked) return;
-                              if (e.nativeEvent.isComposing) return;
-                              if (e.key === "Enter" && e.metaKey) {
-                                e.preventDefault();
-                                void sendUserMessage();
-                              }
-                            }}
-                            onPaste={(e) => void onComposePaste(e)}
-                            placeholder={
-                              composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined
-                            }
-                            fontSizePx={compactMainTextareaFs}
-                            visualScale={compactMainTextareaVisualScale}
-                          />
-                        </AoP5NineSliceBubble>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button
+                            type="button"
+                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
+                            aria-label="年代記"
+                            onClick={() => openChronicleOverlay()}
+                          >
+                            <span className="ao-p5-kurultai-ink-icon">
+                              <IcoBook size={compactGijiChipIconPxBig} />
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
+                            aria-label="AI API 使用量を表示"
+                            onClick={() => openUsageOverlay()}
+                          >
+                            <span className="ao-p5-kurultai-ink-icon">
+                              <IcoCoinBag size={compactGijiChipIconPxBig} />
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
+                            aria-label="設定を開く"
+                            onClick={() => openSettingsOverlay()}
+                          >
+                            <span className="ao-p5-kurultai-ink-icon">
+                              <IcoGear size={compactGijiChipIconPxBig} />
+                            </span>
+                          </button>
+                        </div>
                       </div>
+                    ) : null}
+                  </div>
+                  <div className="w-full min-w-0 shrink-0 pb-0" style={mainComposeRowGridStyle()}>
+                    <div className="isolate flex min-w-0 flex-col overflow-visible pr-0">
+                      <AoP5NineSliceBubble
+                        variant="user"
+                        frameScale={0.5}
+                        fillHeight={false}
+                        className="block w-full overflow-visible"
+                        contentPadX={8}
+                        contentPadY={6}
+                        minHeightPx={MAIN_SPEECH_BUBBLE_H_PX}
+                        style={{
+                          filter: "none",
+                          minHeight: MAIN_SPEECH_BUBBLE_H_PX,
+                        }}
+                      >
+                        <AoComposeAttachments
+                          pending={pendingAttachments}
+                          onRemove={(path) =>
+                            setPendingAttachments((prev) => prev.filter((a) => a.storagePath !== path))
+                          }
+                          className="mb-1 px-1"
+                        />
+                        <AoMainComposeTextarea
+                          textareaRef={promptTextareaRef}
+                          value={draft}
+                          readOnly={composeLocked}
+                          composeLocked={composeLocked}
+                          onChange={(e) => setDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (composeLocked) return;
+                            if (e.nativeEvent.isComposing) return;
+                            if (e.key === "Enter" && e.metaKey) {
+                              e.preventDefault();
+                              void sendUserMessage();
+                            }
+                          }}
+                          onPaste={(e) => void onComposePaste(e)}
+                          placeholder={
+                            composeLocked ? "過去ログ（年代記）表示中は入力できません" : undefined
+                          }
+                          fontSizePx={compactMainTextareaFs}
+                          visualScale={compactMainTextareaVisualScale}
+                          autoGrow
+                          minHeightPx={mainComposeTextareaMinHPx(MAIN_SPEECH_BUBBLE_H_PX)}
+                          growDeps={pendingAttachments.length}
+                        />
+                      </AoP5NineSliceBubble>
                     </div>
 
-                    <div
-                      className="relative z-20 box-border flex h-full min-w-0 flex-col items-center justify-end gap-0 overflow-visible self-stretch font-serif"
-                      style={{
-                        minHeight: viewportCompact ? compactSpeechBubbleH : MAIN_SPEECH_BUBBLE_H_PX,
-                        marginTop: 0,
-                      }}
-                    >
+                    <div className="relative z-20 box-border flex min-w-0 flex-col items-center gap-0.5 self-start overflow-visible font-serif">
                       <div className="flex w-full justify-center">
                         <AoP5FaceFrameMid
                           src="/personas/juci.png"
@@ -3701,15 +4050,10 @@ export default function Home() {
                         />
                       </div>
                       <AoMainJuchiActions
-                        attachInputRef={attachInputRef}
                         composeLocked={composeLocked}
-                        pendingAttachmentCount={pendingAttachments.length}
-                        onAttachSelected={(files) => void onAttachFilesSelected(files)}
                         onSend={() => void sendUserMessage()}
-                        onOpenContext={() => openContextOverlay()}
                         iconSize={compactGijiChipIconPxBig}
                         sendBtnClass={AO_MAIN_SEND_BTN_CLASS}
-                        iconBtnClass={AO_MAIN_ICON_BTN_CLASS}
                         compactPadding={viewportCompact}
                       />
                     </div>
@@ -4040,7 +4384,32 @@ export default function Home() {
                                     className="group/row grid w-full grid-cols-[28px_1fr_auto_auto] items-center gap-0 border-b px-2 py-0.5 text-left text-[11px] hover:bg-[#143d5e]/60"
                                     style={{ borderColor: "#3D1C08" }}
                                   >
-                                    <div className="flex items-center justify-center">
+                                    <div className="flex items-center justify-center gap-0.5">
+                                      {currentThread?.supabaseThreadId &&
+                                      t.supabaseThreadId &&
+                                      t.id !== currentThread.id ? (
+                                        <button
+                                          type="button"
+                                          className={AO_AGENDA_NAV_BTN_CLASS}
+                                          aria-label={`議事「${aoThreadTitleForList(t)}」を参照にピン`}
+                                          aria-pressed={Boolean(
+                                            currentThread.pinnedThreadIds?.includes(t.supabaseThreadId),
+                                          )}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void togglePinnedThreadForCurrent(t);
+                                          }}
+                                        >
+                                          <IcoPin
+                                            size={12}
+                                            className={
+                                              currentThread.pinnedThreadIds?.includes(t.supabaseThreadId)
+                                                ? "text-[#DBB961]"
+                                                : undefined
+                                            }
+                                          />
+                                        </button>
+                                      ) : null}
                                       {isAoNativeThread(t) ? (
                                         <button
                                           type="button"
@@ -4093,7 +4462,33 @@ export default function Home() {
                                       }}
                                     >
                                       <td className="w-[28px] px-0.5 py-0.5">
-                                        <button
+                                        <div className="flex items-center justify-center gap-0.5">
+                                          {currentThread?.supabaseThreadId &&
+                                          t.supabaseThreadId &&
+                                          t.id !== currentThread.id ? (
+                                            <button
+                                              type="button"
+                                              className={AO_AGENDA_NAV_BTN_CLASS}
+                                              aria-label={`議事「${aoThreadTitleForList(t)}」を参照にピン`}
+                                              aria-pressed={Boolean(
+                                                currentThread.pinnedThreadIds?.includes(t.supabaseThreadId),
+                                              )}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                void togglePinnedThreadForCurrent(t);
+                                              }}
+                                            >
+                                              <IcoPin
+                                                size={12}
+                                                className={
+                                                  currentThread.pinnedThreadIds?.includes(t.supabaseThreadId)
+                                                    ? "text-[#DBB961]"
+                                                    : undefined
+                                                }
+                                              />
+                                            </button>
+                                          ) : null}
+                                          <button
                                           type="button"
                                           className={AO_AGENDA_NAV_BTN_CLASS}
                                           aria-label={`議事「${aoThreadTitleForList(t)}」を削除`}
@@ -4105,6 +4500,7 @@ export default function Home() {
                                         >
                                           <IcoTrash size={12} />
                                         </button>
+                                        </div>
                                       </td>
                                       <td className="max-w-0 px-1.5 py-0.5">
                                         <span className="block truncate">{aoThreadTitleForList(t)}</span>
@@ -4307,6 +4703,21 @@ export default function Home() {
                           className="max-w-full text-[13px] leading-relaxed text-[#1a1208]"
                           style={userBubbleStyle}
                         >
+                          {lastRevertableUserMsgId === m.id && !composeLocked ? (
+                            <div className="mb-1 flex justify-end">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-0.5 rounded-sm border-0 bg-transparent px-1 py-0.5 text-[10px] text-[#6A3F0A]/90 hover:text-[#3D1C08]"
+                                aria-label="この投稿を取り消して編集欄へ戻す"
+                                onClick={() => {
+                                  void revertUserMessage(m.id);
+                                }}
+                              >
+                                <IcoUndo size={12} />
+                                戻す
+                              </button>
+                            </div>
+                          ) : null}
                           {typingId === m.id ? (
                             <span>{msgTextForUi(currentThread, m)}</span>
                           ) : (
@@ -4397,9 +4808,6 @@ export default function Home() {
             </div>
             </section>
             </div>
-            {!viewportCompact ? (
-              <div className="min-h-0 min-w-0 basis-0" style={{ flex: "2 1 0%" }} aria-hidden />
-            ) : null}
             </div>
 
           </div>

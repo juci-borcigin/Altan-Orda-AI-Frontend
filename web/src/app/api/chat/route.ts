@@ -30,6 +30,7 @@ import {
   searchRagChunks,
   type RagSearchResult,
 } from "@/lib/rag-context";
+import { historyCompressionToDbJson, pinnedThreadIdsFromDbJson } from "@/lib/ao-history-compression-db";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
@@ -680,6 +681,17 @@ export async function POST(req: Request) {
   const isFirstUserTurnPre = userOnlyPre.length === 1;
   const casualModePre = lastUserPre.includes("雑談");
 
+  let pinnedThreadIds: string[] = [];
+  const supabaseThreadIdForPins = body.supabaseThreadId?.trim() || null;
+  if (supaForModel && supabaseThreadIdForPins) {
+    const { data: pinRow } = await supaForModel
+      .from("ao_threads")
+      .select("pinned_thread_ids")
+      .eq("id", supabaseThreadIdForPins)
+      .maybeSingle();
+    pinnedThreadIds = pinnedThreadIdsFromDbJson(pinRow?.pinned_thread_ids);
+  }
+
   const phase5Required = Boolean(supaForModel) && isPhase5EligibleProject(projectId);
   let phase5Ctx: Awaited<ReturnType<typeof tryBuildPhase5ChatSystem>> = null;
   if (phase5Required) {
@@ -694,6 +706,7 @@ export async function POST(req: Request) {
         openAiKey: process.env.OPENAI_API_KEY?.trim(),
         supabaseThreadId: body.supabaseThreadId,
         historyCompression: body.historyCompression ?? null,
+        pinnedThreadIds,
       });
     } catch (e) {
       console.error("[chat] tryBuildPhase5ChatSystem", e);
@@ -1343,10 +1356,13 @@ export async function POST(req: Request) {
             .insert(rows)
             .select("id, text");
           if (ae) console.error("[chat] persist assistant messages:", ae.message);
-          await supa
-            .from("ao_threads")
-            .update({ updated_at: new Date().toISOString() })
-            .eq("id", persistedThreadUuid);
+          const threadPatch: Record<string, unknown> = {
+            updated_at: new Date().toISOString(),
+          };
+          if (phase5Ctx?.historyCompression) {
+            threadPatch.history_compression = historyCompressionToDbJson(phase5Ctx.historyCompression);
+          }
+          await supa.from("ao_threads").update(threadPatch).eq("id", persistedThreadUuid);
 
           const oai = process.env.OPENAI_API_KEY?.trim();
           // 巷間論（chat）は Supabase へ保存するが、ベクトル化／RAG 対象にはしない

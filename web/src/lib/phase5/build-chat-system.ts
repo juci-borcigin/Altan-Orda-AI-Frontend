@@ -8,6 +8,7 @@ import {
   type ThreadHistoryCompression,
 } from "@/lib/ao-history-compress";
 import { summarizeHistoryWithLlm } from "@/lib/ao-summary-llm";
+import { buildPinnedThreadsInjectionBlock } from "@/lib/ao-pinned-threads-context";
 import { RAG_DEFAULT_KIND, searchRagChunks } from "@/lib/rag-context";
 import { Phase5DbConfigError } from "./phase5-db-errors";
 import {
@@ -45,6 +46,8 @@ export async function tryBuildPhase5ChatSystem(opts: {
   openAiKey: string | undefined;
   supabaseThreadId?: string | null;
   historyCompression?: ThreadHistoryCompression | null;
+  /** ao_threads.pinned_thread_ids（サーバー側で読む想定） */
+  pinnedThreadIds?: string[];
 }): Promise<ChatSystemBuildResult | null> {
   if (!opts.supa) return null;
   if (!isPhase5EligibleProject(opts.projectId)) return null;
@@ -76,6 +79,16 @@ export async function tryBuildPhase5ChatSystem(opts: {
     injected: false,
     threshold: bundle.runtime.rag_match_threshold,
   };
+
+  let pinnedBlock = "";
+  const pinnedIds = opts.pinnedThreadIds ?? [];
+  if (pinnedIds.length > 0) {
+    try {
+      pinnedBlock = (await buildPinnedThreadsInjectionBlock(opts.supa, pinnedIds)).trim();
+    } catch (e) {
+      console.error("[chat] pinned threads context", e);
+    }
+  }
 
   if (opts.openAiKey?.trim()) {
     const rag = await searchRagChunks(
@@ -136,13 +149,14 @@ export async function tryBuildPhase5ChatSystem(opts: {
   );
 
   const userTextGeneral = encodeUserTextForLlm(opts.lastUser, bundle.glossary);
+  const preThread = pinnedBlock ? `## 殿下が明示参照した議事\n${pinnedBlock}` : "";
   const system = buildPhase5SystemPrompt({
     bundle,
     userTextGeneral,
     ragBlock,
     modeBlock: modeParts.join("\n\n"),
     includeProfile,
-    preThread: "",
+    preThread,
     webSearchEnabled,
   });
 

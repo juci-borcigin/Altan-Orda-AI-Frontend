@@ -74,7 +74,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await supa
     .from("ao_threads")
-    .select("id, client_thread_id, title, project_id, created_at, updated_at, source_provider")
+    .select("id, client_thread_id, title, project_id, created_at, updated_at, source_provider, history_compression, pinned_thread_ids")
     .in("project_id", dbProjectIds)
     .order("updated_at", { ascending: false })
     .range(offset, offset + limit - 1);

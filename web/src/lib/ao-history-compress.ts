@@ -1,7 +1,7 @@
 import { looksTaggedAssistantText } from "@/lib/ao-assistant-turn";
 
 /**
- * チャット履歴のトークン閾値要約（キャッシュはクライアント Thread に保持、Supabase には保存しない）
+ * チャット履歴のトークン閾値要約（キャッシュは Thread + Supabase `ao_threads.history_compression`）
  */
 
 export type HistoryMessage = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
-import { AO_LLM_MODEL_PRESETS } from "@/lib/ao-llm-presets";
+import { AO_LLM_MODEL_PRESETS, AO_LLM_MODEL_PRESETS_TEXT_EXPERIMENTAL, AO_LLM_MODEL_PRESETS_VISION } from "@/lib/ao-llm-presets";
 import {
   buildReijitsuBodyLines,
   llmModelDisplayShort,
@@ -305,11 +305,20 @@ export const AoReijitsuOverlay = forwardRef<AoReijitsuOverlayHandle, Props>(func
             style={{ backgroundColor: AO_EDIT_SURFACE, color: AO_EDIT_INK, borderColor: AO_EDIT_BORDER }}
           >
             <option value="">環境既定（LLM_MODEL / OPENAI_MODEL）</option>
-            {AO_LLM_MODEL_PRESETS.filter((p) => p.value !== "").map((p) => (
-              <option key={p.label + p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
+            <optgroup label="画像添付対応">
+              {AO_LLM_MODEL_PRESETS_VISION.map((p) => (
+                <option key={p.label + p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="試験・テキストのみ（添付不可）">
+              {AO_LLM_MODEL_PRESETS_TEXT_EXPERIMENTAL.map((p) => (
+                <option key={p.label + p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </optgroup>
             {showCustom ? <option value="__custom__">その他</option> : null}
           </select>
         </SectionRow>

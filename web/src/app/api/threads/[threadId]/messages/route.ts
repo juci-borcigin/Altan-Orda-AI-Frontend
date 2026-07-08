@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { buildMessagesFromDbRows, type DbMessageRow } from "@/lib/ao-supabase-thread-map";
+import {
+  historyCompressionFromDbJson,
+  pinnedThreadIdsFromDbJson,
+} from "@/lib/ao-history-compression-db";
 
 /** UUID（緩い検証。パストラバーサル防止用） */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,7 +29,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
 
   const { data: tr, error: e1 } = await supa
     .from("ao_threads")
-    .select("id, source_provider")
+    .select("id, source_provider, updated_at, history_compression, pinned_thread_ids")
     .eq("id", tid)
     .maybeSingle();
   if (e1) {
@@ -57,6 +61,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
 
   const sp = typeof tr.source_provider === "string" ? tr.source_provider : null;
   const messages = buildMessagesFromDbRows((msgRows ?? []) as DbMessageRow[], sp);
+  const historyCompression = historyCompressionFromDbJson(tr.history_compression) ?? null;
+  const pinnedThreadIds = pinnedThreadIdsFromDbJson(tr.pinned_thread_ids);
 
-  return NextResponse.json({ messages });
+  return NextResponse.json({
+    messages,
+    updatedAt: tr.updated_at,
+    historyCompression,
+    pinnedThreadIds,
+  });
 }

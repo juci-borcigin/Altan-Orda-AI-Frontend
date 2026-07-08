@@ -17,6 +17,8 @@ export type DbThreadRow = {
   created_at: string;
   updated_at: string;
   source_provider: string | null;
+  history_compression?: unknown;
+  pinned_thread_ids?: unknown;
 };
 
 export type DbMessageRow = {
