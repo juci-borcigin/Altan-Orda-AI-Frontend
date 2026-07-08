@@ -40,16 +40,12 @@ import {
   IcoAgendaPageNext,
   IcoAgendaPagePrev,
   IcoArrowLeft,
-  IcoBook,
   IcoCheck,
-  IcoCoinBag,
-  IcoGear,
   IcoLogin,
   IcoLogout,
   IcoRoundedPlus,
   IcoTrash,
   IcoPin,
-  IcoUndo,
 } from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
 import {
@@ -109,7 +105,16 @@ import {
   normalizeCompletionMetaFromApi,
   normalizeRawPromptsFromApi,
 } from "@/lib/ao-chat-usage-normalize";
-import { readChatSseDone } from "@/lib/ao-chat-sse";
+import {
+  AO_CHAT_CLIENT_SSE_TIMEOUT_MS,
+  readChatSseDone,
+  type ChatSsePhase,
+} from "@/lib/ao-chat-sse";
+import {
+  appendAoChatClientLog,
+  reportAoChatClientLog,
+  type AoChatClientLogEntry,
+} from "@/lib/ao-chat-client-log";
 import { estimateUsdFromTokensClient } from "@/lib/ao-usage-estimate-client";
 import { openRawHtmlInNewTab } from "@/lib/ao-raw-overlay";
 import { AoMainComposeToolbar } from "@/components/ao-main-compose-toolbar";
@@ -139,6 +144,7 @@ import { previewAssistantStreamChunks } from "@/lib/phase5/phase5-chat-output";
 import type { ProjectId } from "@/lib/ao-types";
 
 const STORAGE_KEY = "ao_state_v1";
+let storageWarned = false;
 /** 議事帯ツールバー（年代記・使用量・設定・令旨）：従来 10/14px の約 120% */
 const AO_MAIN_TOOLBAR_ICON_SCALE = 1.2;
 /** メイン左上アイコン：枠なし・クリック時はわずかに縮小 */
@@ -625,9 +631,9 @@ const MAIN_TOP_FIXED_H_COMPACT_PX = Math.round(MAIN_TOP_FIXED_H_PX * 0.68);
  */
 const AO_MOBILE_MAX_CSS_PX = 767;
 /**
- * 狭ビュー邦主・僚友ドロワー：ヘッダ下かつ画面中央帯での横スワイプのみ検知（縦スクロールと分離しやすくする）。
- * 閉：右スワイプで左からスライドイン／開：左スワイプで左端へ隠す。
- * 左右端はブラウザの戻る等と競合しやすいため除外する。
+ * 狭ビュー邦主・僚友ドロワー：ヘッダ下での横スワイプを検知。
+ * 閉→開：左端または中央帯で右スワイプ／開→閉：左スワイプ。
+ * 右端のみブラウザの戻る等と競合しやすいため除外する。
  */
 /** 開／閉とみなす最小の横スライド量（px）。縦位移動より横を優先する */
 const AO_COMPACT_KIN_HORIZONTAL_SWIPE_MIN_DX = 48;
@@ -635,6 +641,8 @@ const AO_COMPACT_KIN_HORIZONTAL_SWIPE_MIN_DX = 48;
 const AO_COMPACT_KIN_HORIZONTAL_DOMINANCE_RATIO = 1.12;
 /** 画面左右それぞれこの割合ぶんを除外し、中央帯でのみジェスチャを受け付ける */
 const AO_COMPACT_KIN_H_SWIPE_EDGE_EXCLUDE_RATIO = 0.18;
+/** 左端からこの割合以内で右スワイプ開始 → ドロワーを開く（「左から右へ」） */
+const AO_COMPACT_KIN_H_SWIPE_LEFT_OPEN_ZONE_RATIO = 0.28;
 /** Raw はドロワーより前（トークン表示を優先） */
 const AO_Z_RAW_BACKDROP = 2_147_483_643;
 const AO_Z_RAW_PANEL = 2_147_483_644;
@@ -781,6 +789,42 @@ function aoKinDrawerSwipeTargetDisallowsEdgeSwipe(target: EventTarget | null): b
 function aoKinTouchStartXInCenterSwipeBand(clientX: number, vw: number): boolean {
   const edge = vw * AO_COMPACT_KIN_H_SWIPE_EDGE_EXCLUDE_RATIO;
   return clientX >= edge && clientX <= vw - edge;
+}
+
+/** 閉じたドロワーを開く：左端ゾーン or 中央帯でタッチ開始 */
+function aoKinTouchStartCanOpenDrawer(clientX: number, vw: number): boolean {
+  if (clientX <= vw * AO_COMPACT_KIN_H_SWIPE_LEFT_OPEN_ZONE_RATIO) return true;
+  return aoKinTouchStartXInCenterSwipeBand(clientX, vw);
+}
+
+/** 開いたドロワーを閉じる：右端（ブラウザ戻る）以外ならタッチ開始可 */
+function aoKinTouchStartCanCloseDrawer(clientX: number, vw: number): boolean {
+  const rightEdge = vw * AO_COMPACT_KIN_H_SWIPE_EDGE_EXCLUDE_RATIO;
+  return clientX <= vw - rightEdge;
+}
+
+function aoChatErrorMessageForDisplay(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/credit balance is too low/i.test(msg) && /anthropic/i.test(msg)) {
+    return "Anthropic API のクレジット残高が不足しています。Anthropic の Plans & Billing でチャージするか、環境変数 AO_LLM_FORCE_OPENROUTER=1 で OpenRouter 経由に切り替えてください。";
+  }
+  if (/chat SSE ended without done/i.test(msg)) {
+    return "サーバーからの応答が途中で切れました。履歴が長い場合は編集で巻き戻すか、しばらく待ってから再送してください。";
+  }
+  return msg;
+}
+
+function aoThinkingStatusForPhase(phase: ChatSsePhase): string | null {
+  switch (phase) {
+    case "preparing":
+      return "準備中…";
+    case "compressing_history":
+      return "履歴を整理中…";
+    case "heartbeat":
+      return "応答待ち…";
+    default:
+      return null;
+  }
 }
 
 function aoKinCenterSwipeOpensDrawer(dx: number, dy: number): boolean {
@@ -956,7 +1000,11 @@ function aoThinkingSpeakerUi(
   });
 }
 
-let storageWarned = false;
+const AO_POPUP_REWIND_EDIT_FALLBACK =
+  "**投稿を巻き戻しますか？**\nこの投稿以降の応答は削除され、編集した内容から会話を再開します。";
+const AO_POPUP_REWIND_DELETE_FALLBACK =
+  "**投稿を削除しますか？**\nこの投稿と、それ以降の応答が削除されます。";
+
 
 const AO_SUPABASE_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1553,6 +1601,16 @@ export default function Home() {
   const [ronListOverlayOpen, setRonListOverlayOpen] = useState(false);
   /** 年代記・論議事一覧：削除確認ポップアップ対象（ローカル thread id） */
   const [deleteConfirmThreadId, setDeleteConfirmThreadId] = useState<string | null>(null);
+  const [rewindConfirm, setRewindConfirm] = useState<{
+    messageId: string;
+    newText: string;
+    deleteOnly: boolean;
+  } | null>(null);
+  const [editingUserMsgId, setEditingUserMsgId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatClientLogs, setChatClientLogs] = useState<AoChatClientLogEntry[]>([]);
+  const [thinkingStatusLabel, setThinkingStatusLabel] = useState<string | null>(null);
   const [deleteLogPopupTemplate, setDeleteLogPopupTemplate] = useState(AO_POPUP_DELETE_LOG_FALLBACK);
   const [draft, setDraft] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<AoMsgAttachment[]>([]);
@@ -1611,6 +1669,7 @@ export default function Home() {
   const topicBeforeTopicOverlayRef = useRef<TopicUiId | null>(null);
   /** 設定・使用量を開く直前の論（戻るで復元。開中は論押下なし） */
   const topicBeforeSettingsUsageRef = useRef<TopicUiId | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
   const composeLockedRef = useRef(composeLocked);
   const isThinkingRef = useRef(isThinking);
   const isTypingRef = useRef(isTyping);
@@ -2001,16 +2060,6 @@ export default function Home() {
     const tail = msgs.map((m) => `${m.id}:${m.text.length}`).join(";");
     return `${currentThread.id}:${tail}:${isThinking ? "1" : "0"}:${typingId ?? ""}`;
   }, [currentThread, isThinking, typingId]);
-
-  const lastRevertableUserMsgId = useMemo(() => {
-    if (!currentThread || isThinking || isTyping) return null;
-    const msgs = visibleMessages(currentThread.messages);
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]!;
-      if (m.side === "user") return m.id;
-    }
-    return null;
-  }, [currentThread, isThinking, isTyping]);
 
   function scrollChatPaneToBottom() {
     const el = messagesRef.current;
@@ -2614,6 +2663,12 @@ export default function Home() {
     if (attachInputRef.current) attachInputRef.current.value = "";
   }
 
+  function reportChatFailure(message: string, cause?: unknown, detail?: string) {
+    reportAoChatClientLog("error", message, detail, cause);
+    setChatClientLogs((prev) => appendAoChatClientLog(prev, "error", message, detail));
+    setChatError(message);
+  }
+
   async function togglePinnedThreadForCurrent(refThread: Thread) {
     const cur = state.threads.find((t) => t.id === state.currentThreadId);
     if (!cur?.supabaseThreadId || !refThread.supabaseThreadId) return;
@@ -2659,107 +2714,181 @@ export default function Home() {
     }
   }
 
-  async function revertUserMessage(messageId: string) {
-    if (isThinking || isTyping) return;
-    const idx = state.threads.findIndex((t) => t.id === state.currentThreadId);
-    if (idx < 0) return;
-    const th = state.threads[idx]!;
-    const msgIdx = th.messages.findIndex((m) => m.id === messageId);
+  function abortActiveChat() {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setIsThinking(false);
+    setIsTyping(false);
+    setTypingId(null);
+    setThinkingUiPhase(1);
+  }
+
+  function canEditUserMessage(m: Msg): boolean {
+    if (m.side !== "user") return false;
+    if (composeLocked || isThinking || isTyping) return false;
+    if (m.attachments?.length) return false;
+    if (m.text === "(画像)") return false;
+    return true;
+  }
+
+  function startEditUserMessage(m: Msg) {
+    if (!canEditUserMessage(m)) return;
+    setEditingUserMsgId(m.id);
+    setEditDraft(m.text);
+  }
+
+  function cancelEditUserMessage() {
+    setEditingUserMsgId(null);
+    setEditDraft("");
+  }
+
+  function requestRewindFromEdit(messageId: string, newText: string, deleteOnly: boolean) {
+    setRewindConfirm({ messageId, newText, deleteOnly });
+  }
+
+  async function confirmRewindEdit() {
+    const conf = rewindConfirm;
+    if (!conf) return;
+    setRewindConfirm(null);
+    abortActiveChat();
+
+    const th = state.threads.find((t) => t.id === state.currentThreadId);
+    if (!th) return;
+    const msgIdx = th.messages.findIndex((m) => m.id === conf.messageId);
     if (msgIdx < 0) return;
-    const target = th.messages[msgIdx]!;
-    if (target.side !== "user") return;
 
-    const restoreText = target.text === "(画像)" ? "" : target.text;
-    const truncated = th.messages.slice(0, msgIdx);
+    const pivotId = conf.messageId.split("#")[0]!;
+    let updatedAt = Date.now();
 
-    if (th.supabaseThreadId && isPersistedAoMessageId(messageId)) {
+    if (th.supabaseThreadId && isPersistedAoMessageId(conf.messageId)) {
       try {
         const res = await fetch(
-          `/api/threads/${encodeURIComponent(th.supabaseThreadId)}/messages/revert`,
+          `/api/threads/${encodeURIComponent(th.supabaseThreadId)}/messages/edit`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messageId: messageId.split("#")[0] }),
+            body: JSON.stringify({ messageId: pivotId, newText: conf.newText }),
           },
         );
         if (!res.ok) {
           const err = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(err.error ?? `revert failed ${res.status}`);
+          throw new Error(err.error ?? `edit failed ${res.status}`);
         }
         const data = (await res.json()) as { updatedAt?: string };
-        const updatedAt = data.updatedAt ? msFromDb(data.updatedAt) : Date.now();
-        setState((p) => {
-          const ti = p.threads.findIndex((t) => t.id === th.id);
-          if (ti < 0) return p;
-          const aa = [...p.threads];
-          aa[ti] = {
-            ...aa[ti]!,
-            messages: truncated,
-            historyCompression: undefined,
-            updatedAt,
-            serverMessagesLoaded: true,
-          };
-          return { ...p, threads: aa };
-        });
+        if (data.updatedAt) updatedAt = msFromDb(data.updatedAt);
       } catch (e) {
-        console.error("[ao] revert message", e);
+        const msg = aoChatErrorMessageForDisplay(e);
+        reportChatFailure(msg, e);
         return;
       }
-    } else {
-      setState((p) => {
-        const ti = p.threads.findIndex((t) => t.id === th.id);
-        if (ti < 0) return p;
-        const aa = [...p.threads];
-        aa[ti] = {
-          ...aa[ti]!,
-          messages: truncated,
-          historyCompression: undefined,
-        };
-        return { ...p, threads: aa };
-      });
     }
 
-    setDraft(restoreText);
-    setIsThinking(false);
-    setIsTyping(false);
-    setTypingId(null);
+    const nextMessages = conf.deleteOnly
+      ? th.messages.slice(0, msgIdx)
+      : th.messages.slice(0, msgIdx + 1).map((m, i) =>
+          i === msgIdx ? { ...m, text: conf.newText } : m,
+        );
+
+    setState((p) => {
+      const ti = p.threads.findIndex((t) => t.id === th.id);
+      if (ti < 0) return p;
+      const aa = [...p.threads];
+      aa[ti] = {
+        ...aa[ti]!,
+        messages: nextMessages,
+        historyCompression: undefined,
+        updatedAt,
+        serverMessagesLoaded: true,
+      };
+      return { ...p, threads: aa };
+    });
+
+    const updatedThread: Thread = {
+      ...th,
+      messages: nextMessages,
+      historyCompression: undefined,
+      updatedAt,
+      serverMessagesLoaded: true,
+    };
+
+    setEditingUserMsgId(null);
+    setEditDraft("");
     setComposeLocked(false);
-    scheduleFocusMainPrompt();
+    setChatError(null);
     void fetchThreadListWithTopic(true, selectedTopicRef.current);
+
+    if (!conf.deleteOnly && conf.newText.trim()) {
+      queueMicrotask(() => {
+        void sendUserMessage({ resendOnly: true, threadSnapshot: updatedThread });
+      });
+    } else {
+      scheduleFocusMainPrompt();
+    }
   }
 
-  async function sendUserMessage() {
-    const text = draft.trim();
-    const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
-    if ((!text && !attachments?.length) || !currentThread || isThinking || isTyping || composeLocked) return;
-    setDraft("");
-    setPendingAttachments([]);
-    const idx = state.threads.findIndex((t) => t.id === state.currentThreadId);
+  async function sendUserMessage(opts?: { resendOnly?: boolean; threadSnapshot?: Thread }) {
+    const resendOnly = opts?.resendOnly === true;
+    const text = resendOnly ? "" : draft.trim();
+    const attachments = resendOnly ? undefined : pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
+    if (!resendOnly && (!text && !attachments?.length)) return;
+    if (isThinking || isTyping || composeLocked) return;
+
+    const baseThread =
+      opts?.threadSnapshot ??
+      state.threads.find((t) => t.id === state.currentThreadId) ??
+      currentThread;
+    if (!baseThread) return;
+
+    if (!resendOnly) {
+      setDraft("");
+      setPendingAttachments([]);
+    }
+    setChatError(null);
+    setThinkingStatusLabel(null);
+
+    const idx = state.threads.findIndex((t) => t.id === baseThread.id);
     if (idx < 0) return;
-    const userMsg: Msg = {
-      id: aoUid("m"),
-      side: "user",
-      speaker: "ジュチ",
-      text: text || "(画像)",
-      attachments,
-      createdAt: Date.now(),
-    };
+
+    const th = baseThread;
+    let userMsg: Msg | null = null;
+    let nextThread: Thread;
+
+    if (resendOnly) {
+      const msgs = visibleMessages(th.messages);
+      const last = msgs[msgs.length - 1];
+      if (!last || last.side !== "user") return;
+      userMsg = last;
+      nextThread = { ...th, updatedAt: Date.now() };
+    } else {
+      userMsg = {
+        id: aoUid("m"),
+        side: "user",
+        speaker: "ジュチ",
+        text: text || "(画像)",
+        attachments,
+        createdAt: Date.now(),
+      };
+      const snippet = aoTitleSnippetFromFirstUserPost(text);
+      const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
+      const { ephemeral: _dropEphemeral, ...thPersist } = th;
+      nextThread = {
+        ...thPersist,
+        title: th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
+        messages: [...th.messages, userMsg],
+        updatedAt: Date.now(),
+      };
+      const arr = [...state.threads];
+      arr[idx] = nextThread;
+      setState({ ...state, threads: arr });
+    }
+
     let postChatSyncSid: string | undefined;
-    const th = state.threads[idx];
-    const snippet = aoTitleSnippetFromFirstUserPost(text);
-    const resolvedTitle = aoClampStoredThreadTitle(th.title.trim() || snippet || "議事");
-    const { ephemeral: _dropEphemeral, ...thPersist } = th;
-    const nextThread: Thread = {
-      ...thPersist,
-      title: th.title.trim() ? aoClampStoredThreadTitle(th.title.trim()) : resolvedTitle,
-      messages: [...th.messages, userMsg],
-      updatedAt: Date.now(),
-    };
-    const arr = [...state.threads];
-    arr[idx] = nextThread;
-    setState({ ...state, threads: arr });
+    const resolvedTitle = aoClampStoredThreadTitle(nextThread.title.trim() || "議事");
     setThinkingUiPhase(1);
     setIsThinking(true);
+    chatAbortRef.current?.abort();
+    const chatAbort = new AbortController();
+    chatAbortRef.current = chatAbort;
     const streamSpeakerDefault = getPrimarySpeakerForProject(nextThread.projectId);
     let streamMsgIds: string[] = [];
     let sawStreamDelta = false;
@@ -2791,6 +2920,7 @@ export default function Home() {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
         },
+        signal: chatAbort.signal,
         body: JSON.stringify({
           projectId: nextThread.projectId,
           messages: history,
@@ -2801,10 +2931,13 @@ export default function Home() {
         }),
       });
       const data = await readChatSseDone(res, {
+        timeoutMs: AO_CHAT_CLIENT_SSE_TIMEOUT_MS,
+        signal: chatAbort.signal,
         onPhase: (phase) => {
-          if (phase === "final_completion" && currentThreadIdRef.current === nextThread.id) {
-            setThinkingUiPhase(2);
-          }
+          if (currentThreadIdRef.current !== nextThread.id) return;
+          const status = aoThinkingStatusForPhase(phase);
+          if (status) setThinkingStatusLabel(status);
+          if (phase === "final_completion") setThinkingUiPhase(2);
         },
         onDelta: ({ content }) => {
           if (currentThreadIdRef.current !== nextThread.id) return;
@@ -2986,11 +3119,27 @@ export default function Home() {
       }
       setThreadListAfterChatNonce((n) => n + 1);
     } catch (e) {
-      console.error(e);
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      const msg = aoChatErrorMessageForDisplay(e);
+      reportChatFailure(msg, e);
+      if (!resendOnly && userMsg) {
+        setState((prev) => {
+          const ti = prev.threads.findIndex((t) => t.id === nextThread.id);
+          if (ti < 0) return prev;
+          const msgs = prev.threads[ti]!.messages.filter((m) => m.id !== userMsg!.id);
+          const aa = [...prev.threads];
+          aa[ti] = { ...aa[ti]!, messages: msgs };
+          return { ...prev, threads: aa };
+        });
+      }
     } finally {
+      if (chatAbortRef.current === chatAbort) {
+        chatAbortRef.current = null;
+      }
       setTypingId(null);
       setIsThinking(false);
       setThinkingUiPhase(1);
+      setThinkingStatusLabel(null);
       setIsTyping(false);
       if (postChatSyncSid) {
         queueMicrotask(() => {
@@ -3026,6 +3175,14 @@ export default function Home() {
     return aoPopupMarkdownForBubble(body);
   }, [deleteConfirmThread, deleteLogPopupTemplate, selectedTopic]);
 
+  const rewindConfirmPopupMarkdown = useMemo(() => {
+    if (!rewindConfirm) return null;
+    const body = rewindConfirm.deleteOnly
+      ? AO_POPUP_REWIND_DELETE_FALLBACK
+      : AO_POPUP_REWIND_EDIT_FALLBACK;
+    return aoPopupMarkdownForBubble(body);
+  }, [rewindConfirm]);
+
   const deleteConfirmKorguzKin = useMemo(() => {
     const p = NOKOR.find((n) => n.name === "コルグズ");
     if (!p) return null;
@@ -3056,6 +3213,10 @@ export default function Home() {
       </div>
     );
   }, []);
+
+  const showRewindConfirmPopup = Boolean(
+    rewindConfirm && rewindConfirmPopupMarkdown && deleteConfirmKorguzKin,
+  );
 
   const showDeleteConfirmPopup = Boolean(
     deleteConfirmThread &&
@@ -3115,7 +3276,10 @@ export default function Home() {
       const t = e.touches[0];
       if (!t) return;
       const vw = typeof window !== "undefined" ? window.innerWidth : 0;
-      if (!vw || !aoKinTouchStartXInCenterSwipeBand(t.clientX, vw)) return;
+      const canStart = leftKinDrawerOpen
+        ? aoKinTouchStartCanCloseDrawer(t.clientX, vw)
+        : aoKinTouchStartCanOpenDrawer(t.clientX, vw);
+      if (!vw || !canStart) return;
       const top = aoKinCompactKinSwipeContentTopPx(compactKinHeaderMeasureRef.current, compactKinFrameStripMeasureRef.current);
       if (top <= 0 || t.clientY <= top) return;
       start = {
@@ -3410,6 +3574,30 @@ export default function Home() {
                 nameplateFontSizePx={7}
                 activeNames={activeNokorNames}
                 viewportCompact
+                v2Sidebar
+                settingsArea={
+                  <AoSidebarSettingsRow
+                    iconSize={compactGijiChipIconPxBig}
+                    onOpenChronicle={() => {
+                      setLeftKinDrawerOpen(false);
+                      openChronicleOverlay();
+                    }}
+                    onOpenUsage={() => {
+                      setLeftKinDrawerOpen(false);
+                      openUsageOverlay();
+                    }}
+                    onOpenSettings={() => {
+                      setLeftKinDrawerOpen(false);
+                      openSettingsOverlay();
+                    }}
+                  />
+                }
+                projectArea={
+                  <AoProjectTabsPanel
+                    {...projectTabsPanelProps}
+                    measureRef={ronListMeasureRef}
+                  />
+                }
               />
             </div>
           </aside>
@@ -3647,7 +3835,7 @@ export default function Home() {
               className={`flex min-h-0 flex-1 min-w-0 self-stretch ${aoV2PcSidebar ? "flex-col" : "flex-row items-stretch"}`}
               style={{ gap: aoV2PcSidebar ? 0 : 6 }}
             >
-              {!aoV2PcSidebar ? (
+              {!viewportCompact ? (
                 <AoProjectTabsPanel
                   {...projectTabsPanelProps}
                   measureRef={ronListMeasureRef}
@@ -3741,43 +3929,6 @@ export default function Home() {
                         compactPadding={viewportCompact}
                         accept={AO_ATTACHMENT_ACCEPT}
                       />
-                      <div
-                        className="flex min-w-0 shrink-0 flex-col justify-center"
-                        style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}
-                      >
-                        <div className="flex w-full items-center justify-center gap-0.5">
-                          <button
-                            type="button"
-                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                            aria-label="年代記"
-                            onClick={() => openChronicleOverlay()}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoBook size={compactGijiChipIconPxBig} />
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                            aria-label="AI API 使用量を表示"
-                            onClick={() => openUsageOverlay()}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoCoinBag size={compactGijiChipIconPxBig} />
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                            aria-label="設定を開く"
-                            onClick={() => openSettingsOverlay()}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoGear size={compactGijiChipIconPxBig} />
-                            </span>
-                          </button>
-                        </div>
-                      </div>
                       </div>
                       <div className="w-full min-w-0 shrink-0" style={mainComposeRowGridStyle()}>
                       <div className="isolate flex min-w-0 flex-col overflow-visible pr-0">
@@ -3937,45 +4088,6 @@ export default function Home() {
                       accept={AO_ATTACHMENT_ACCEPT}
                     />
 
-                    {!aoV2PcSidebar ? (
-                      <div
-                        className="flex shrink-0 flex-col justify-center self-stretch"
-                        style={{ minHeight: gijiTitleChipHPx ?? compactRonTitleChipH }}
-                      >
-                        <div className="flex items-center justify-end gap-0.5">
-                          <button
-                            type="button"
-                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                            aria-label="年代記"
-                            onClick={() => openChronicleOverlay()}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoBook size={compactGijiChipIconPxBig} />
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                            aria-label="AI API 使用量を表示"
-                            onClick={() => openUsageOverlay()}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoCoinBag size={compactGijiChipIconPxBig} />
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`${AO_MAIN_HEADER_ICON_BTN_CLASS} ${viewportCompact ? "p-1.5" : ""}`}
-                            aria-label="設定を開く"
-                            onClick={() => openSettingsOverlay()}
-                          >
-                            <span className="ao-p5-kurultai-ink-icon">
-                              <IcoGear size={compactGijiChipIconPxBig} />
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                   <div className="w-full min-w-0 shrink-0 pb-0" style={mainComposeRowGridStyle()}>
                     <div className="isolate flex min-w-0 flex-col overflow-visible pr-0">
@@ -4588,6 +4700,47 @@ export default function Home() {
               }}
             >
               <div className="flex min-h-full flex-col justify-start gap-3">
+                {(chatError || chatClientLogs.length > 0) ? (
+                  <div
+                    role="alert"
+                    className="rounded-sm border border-red-800/40 bg-red-950/10 px-3 py-2 text-[12px] leading-relaxed text-red-900"
+                  >
+                    {chatError ? (
+                      <>
+                        <div className="font-semibold">応答に失敗しました</div>
+                        <div className="mt-0.5 break-words">{chatError}</div>
+                      </>
+                    ) : null}
+                    {chatClientLogs.length > 0 ? (
+                      <details className={chatError ? "mt-2" : ""} open={!chatError}>
+                        <summary className="cursor-pointer text-[11px] font-semibold text-red-900/90">
+                          チャットログ（直近 {chatClientLogs.length} 件）
+                        </summary>
+                        <ul className="mt-1 max-h-32 list-none space-y-1 overflow-y-auto p-0 text-[10px] leading-snug text-red-950/90">
+                          {chatClientLogs.map((row, i) => (
+                            <li key={`${row.at}-${i}`} className="break-words border-t border-red-900/10 pt-1 first:border-0 first:pt-0">
+                              <span className="tabular-nums opacity-70">
+                                {new Date(row.at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                              </span>{" "}
+                              [{row.level}] {row.message}
+                              {row.detail ? ` — ${row.detail}` : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="mt-1 border-0 bg-transparent p-0 text-[11px] text-red-800 underline"
+                      onClick={() => {
+                        setChatError(null);
+                        setChatClientLogs([]);
+                      }}
+                    >
+                      閉じる
+                    </button>
+                  </div>
+                ) : null}
                 {chatTimelineRowsForRender(
                   currentThread?.messages ?? [],
                   Boolean(isTyping || typingId),
@@ -4703,30 +4856,70 @@ export default function Home() {
                           className="max-w-full text-[13px] leading-relaxed text-[#1a1208]"
                           style={userBubbleStyle}
                         >
-                          {lastRevertableUserMsgId === m.id && !composeLocked ? (
-                            <div className="mb-1 flex justify-end">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-0.5 rounded-sm border-0 bg-transparent px-1 py-0.5 text-[10px] text-[#6A3F0A]/90 hover:text-[#3D1C08]"
-                                aria-label="この投稿を取り消して編集欄へ戻す"
-                                onClick={() => {
-                                  void revertUserMessage(m.id);
-                                }}
-                              >
-                                <IcoUndo size={12} />
-                                戻す
-                              </button>
+                          {editingUserMsgId === m.id ? (
+                            <div className="flex w-full flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <textarea
+                                value={editDraft}
+                                onChange={(e) => setEditDraft(e.target.value)}
+                                className="min-h-[72px] w-full resize-y rounded-sm border border-[#3D1C08]/25 bg-white/95 p-1.5 font-serif text-[13px] leading-relaxed text-[#1a1208] outline-none focus:ring-1 focus:ring-[#DBB961]/50"
+                                aria-label="投稿を編集"
+                              />
+                              <div className="flex flex-wrap justify-end gap-2 text-[10px] text-[#6A3F0A]">
+                                <button
+                                  type="button"
+                                  className="border-0 bg-transparent px-1 py-0.5 underline-offset-2 hover:underline"
+                                  onClick={() => cancelEditUserMessage()}
+                                >
+                                  取消
+                                </button>
+                                <button
+                                  type="button"
+                                  className="border-0 bg-transparent px-1 py-0.5 text-red-900/90 underline-offset-2 hover:underline"
+                                  onClick={() => requestRewindFromEdit(m.id, "", true)}
+                                >
+                                  削除
+                                </button>
+                                <button
+                                  type="button"
+                                  className="border-0 bg-transparent px-1 py-0.5 font-semibold text-[#3D1C08] underline-offset-2 hover:underline"
+                                  onClick={() => {
+                                    const t = editDraft.trim();
+                                    if (!t) {
+                                      requestRewindFromEdit(m.id, "", true);
+                                      return;
+                                    }
+                                    requestRewindFromEdit(m.id, t, false);
+                                  }}
+                                >
+                                  確定
+                                </button>
+                              </div>
                             </div>
-                          ) : null}
-                          {typingId === m.id ? (
+                          ) : typingId === m.id ? (
                             <span>{msgTextForUi(currentThread, m)}</span>
                           ) : (
-                            <>
+                            <div
+                              className={
+                                canEditUserMessage(m)
+                                  ? "cursor-pointer rounded-sm hover:outline hover:outline-1 hover:outline-[#DBB961]/40"
+                                  : undefined
+                              }
+                              role={canEditUserMessage(m) ? "button" : undefined}
+                              tabIndex={canEditUserMessage(m) ? 0 : undefined}
+                              onClick={() => startEditUserMessage(m)}
+                              onKeyDown={(e) => {
+                                if (!canEditUserMessage(m)) return;
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  startEditUserMessage(m);
+                                }
+                              }}
+                            >
                               <AoMessageMarkdown text={msgTextForUi(currentThread, m)} />
                               {m.attachments?.length ? (
                                 <AoMessageAttachments attachments={m.attachments} />
                               ) : null}
-                            </>
+                            </div>
                           )}
                         </AoP5NineSliceBubble>
                       </div>
@@ -4788,7 +4981,18 @@ export default function Home() {
                                 className="ao-thinking-dots-text font-serif tabular-nums whitespace-pre-wrap"
                                 style={{ color: AO_CHAT_AI_BUBBLE_FG, minHeight: "1.25em", minWidth: "2ch" }}
                               >
-                                {thinkingUiPhase === 1 ? (
+                                {thinkingStatusLabel ? (
+                                  <>
+                                    {thinkingStatusLabel}
+                                    {"\n"}
+                                    {thinkingUiPhase === 1 ? thinkingDotsText : (
+                                      <>
+                                        ....{"\n"}
+                                        {thinkingDotsText}
+                                      </>
+                                    )}
+                                  </>
+                                ) : thinkingUiPhase === 1 ? (
                                   thinkingDotsText
                                 ) : (
                                   <>
@@ -4806,6 +5010,16 @@ export default function Home() {
                 ) : null}
               </div>
             </div>
+            {showRewindConfirmPopup && rewindConfirmPopupMarkdown && deleteConfirmKorguzKin ? (
+              <AoDeleteConfirmPopup
+                kinColumn={deleteConfirmKorguzKin}
+                messageMarkdown={rewindConfirmPopupMarkdown}
+                frameInsetPx={ronListFrameInsetPx}
+                parchmentPadStr={ronListParchmentPadStr}
+                onCancel={() => setRewindConfirm(null)}
+                onConfirm={() => void confirmRewindEdit()}
+              />
+            ) : null}
             </section>
             </div>
             </div>

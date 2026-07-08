@@ -1,8 +1,15 @@
 /** `/api/chat` のフェーズ通知 SSE（トークン Stream 前段） */
 
-export type ChatSsePhase = "final_completion";
+export type ChatSsePhase =
+  | "preparing"
+  | "compressing_history"
+  | "heartbeat"
+  | "final_completion";
 
 export type ChatSseEmit = (event: "phase" | "delta" | "done" | "error", data: unknown) => void;
+
+/** クライアントが `/api/chat` SSE を待つ上限（ms）。Vercel maxDuration 300s + 余裕 */
+export const AO_CHAT_CLIENT_SSE_TIMEOUT_MS = 320_000;
 
 export function encodeChatSseEvent(event: string, data: unknown): Uint8Array {
   return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -58,6 +65,9 @@ export type ReadChatSseOptions = {
   onPhase?: (phase: ChatSsePhase) => void;
   /** 最終 completion の本文増分（サーバーが `delta` イベントを送るとき） */
   onDelta?: (payload: { content: string }) => void;
+  /** SSE 読み取り全体のタイムアウト（未指定なら無制限） */
+  timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 /**
@@ -76,8 +86,13 @@ export async function readChatSseDone(
   if (!res.ok) {
     const errBody = await res.text();
     try {
-      return JSON.parse(errBody) as Record<string, unknown>;
-    } catch {
+      const parsed = JSON.parse(errBody) as Record<string, unknown>;
+      const parts = [parsed.detail, parsed.error].filter(
+        (x): x is string => typeof x === "string" && x.length > 0,
+      );
+      throw new Error(parts.join(" — ").trim() || errBody.slice(0, 500) || "chat error");
+    } catch (e) {
+      if (e instanceof Error && !(e instanceof SyntaxError)) throw e;
       throw new Error(errBody.slice(0, 500) || "chat error");
     }
   }
@@ -89,29 +104,68 @@ export async function readChatSseDone(
   let buf = "";
   let donePayload: Record<string, unknown> | null = null;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const { events, rest } = parseSseBlocks(buf);
-    buf = rest;
-    for (const ev of events) {
-      if (ev.event === "phase") {
-        const p = JSON.parse(ev.data) as { phase?: string };
-        if (p.phase === "final_completion") opts?.onPhase?.("final_completion");
-      } else if (ev.event === "delta") {
-        const d = JSON.parse(ev.data) as { content?: string };
-        if (typeof d.content === "string") opts?.onDelta?.({ content: d.content });
-      } else if (ev.event === "done") {
-        donePayload = JSON.parse(ev.data) as Record<string, unknown>;
-      } else if (ev.event === "error") {
-        const err = JSON.parse(ev.data) as { detail?: string; error?: string };
-        const parts = [err.detail, err.error].filter((x): x is string => typeof x === "string" && x.length > 0);
-        throw new Error(parts.join(" — ").trim() || "chat error");
+  const timeoutMs = opts?.timeoutMs;
+  let timedOut = false;
+  const timeoutId =
+    timeoutMs && timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          void reader.cancel("chat_sse_timeout");
+        }, timeoutMs)
+      : null;
+
+  const onExternalAbort = () => {
+    void reader.cancel("chat_sse_aborted");
+  };
+  opts?.signal?.addEventListener("abort", onExternalAbort, { once: true });
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (timedOut) {
+        throw new Error(
+          `サーバー応答がタイムアウトしました（${Math.round((timeoutMs ?? 0) / 1000)}秒）。履歴の要約や検索に時間がかかっている可能性があります。`,
+        );
+      }
+      buf += dec.decode(value, { stream: true });
+      const { events, rest } = parseSseBlocks(buf);
+      buf = rest;
+      for (const ev of events) {
+        if (ev.event === "phase") {
+          const p = JSON.parse(ev.data) as { phase?: string };
+          if (
+            p.phase === "final_completion" ||
+            p.phase === "preparing" ||
+            p.phase === "compressing_history" ||
+            p.phase === "heartbeat"
+          ) {
+            opts?.onPhase?.(p.phase);
+          }
+        } else if (ev.event === "delta") {
+          const d = JSON.parse(ev.data) as { content?: string };
+          if (typeof d.content === "string") opts?.onDelta?.({ content: d.content });
+        } else if (ev.event === "done") {
+          donePayload = JSON.parse(ev.data) as Record<string, unknown>;
+        } else if (ev.event === "error") {
+          const err = JSON.parse(ev.data) as { detail?: string; error?: string };
+          const parts = [err.detail, err.error].filter((x): x is string => typeof x === "string" && x.length > 0);
+          throw new Error(parts.join(" — ").trim() || "chat error");
+        }
       }
     }
+  } finally {
+    if (timeoutId != null) clearTimeout(timeoutId);
+    opts?.signal?.removeEventListener("abort", onExternalAbort);
   }
 
-  if (!donePayload) throw new Error("chat SSE ended without done event");
+  if (!donePayload) {
+    if (timedOut) {
+      throw new Error(
+        `サーバー応答がタイムアウトしました（${Math.round((timeoutMs ?? 0) / 1000)}秒）。履歴の要約や検索に時間がかかっている可能性があります。`,
+      );
+    }
+    throw new Error("chat SSE ended without done event");
+  }
   return donePayload;
 }

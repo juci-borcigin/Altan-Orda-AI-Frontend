@@ -25,6 +25,15 @@ export type CompressHistoryResult = {
   didSummarize: boolean;
 };
 
+/** 1 リクエストあたりの LLM 要約ラウンド上限（超過分はターン削除のみ） */
+export const AO_HISTORY_MAX_SUMMARIZE_ROUNDS_PER_REQUEST = 2;
+
+/** 送信前ハードキャップ（推定トークン）。閾値より少し低めに抑える */
+export function aoHistoryHardCapTokens(thresholdTokens: number): number {
+  const t = thresholdTokens > 0 ? thresholdTokens : 22_000;
+  return Math.min(Math.floor(t * 0.92), 24_000);
+}
+
 /** 粗い推定（日本語混じり: 約 4 文字 / トークン） */
 export function estimateHistoryTokens(messages: Array<{ content: string }>): number {
   let chars = 0;
@@ -69,13 +78,57 @@ function turnToTranscript(turn: Turn): string {
     .join("\n\n");
 }
 
+/** キャッシュの fromMessageId をメッセージ列上で解決（uuid / uuid#chunk 対応） */
+export function findMessageIndexForCache(
+  messages: HistoryMessage[],
+  fromMessageId: string,
+): number {
+  const id = fromMessageId.trim();
+  if (!id) return -1;
+  const exact = messages.findIndex((m) => m.id === id);
+  if (exact >= 0) return exact;
+  const base = id.split("#")[0] ?? id;
+  return messages.findIndex((m) => {
+    const mid = m.id ?? "";
+    return mid === base || mid.startsWith(`${base}#`);
+  });
+}
+
+/**
+ * 要約ヘッダを残しつつ古いターンから落として maxTokens 以内に収める。
+ */
+export function hardCapHistoryMessages(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  maxTokens: number,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  if (maxTokens <= 0 || messages.length === 0) return messages;
+  const out = [...messages];
+  const isSummaryHead = (i: number) =>
+    i === 0 && (out[i]?.content ?? "").startsWith("【過去要約】");
+
+  while (out.length > 1 && estimateHistoryTokens(out) > maxTokens) {
+    if (isSummaryHead(0) && out.length > 2) {
+      out.splice(1, 1);
+      continue;
+    }
+    if (isSummaryHead(0) && out.length === 2) {
+      out.shift();
+      continue;
+    }
+    out.shift();
+  }
+  return out;
+}
+
 export async function compressHistoryForChat(opts: {
   messages: HistoryMessage[];
   thresholdTokens: number;
   cache: ThreadHistoryCompression | null | undefined;
   summarize: (payload: { existingSummary: string; newTurnsText: string }) => Promise<string>;
+  maxSummarizeRounds?: number;
 }): Promise<CompressHistoryResult> {
   const threshold = opts.thresholdTokens;
+  const maxSummarizeRounds = opts.maxSummarizeRounds ?? AO_HISTORY_MAX_SUMMARIZE_ROUNDS_PER_REQUEST;
   const strip = (list: HistoryMessage[]) =>
     list.map((m) => ({ role: m.role, content: m.content }));
 
@@ -85,16 +138,34 @@ export async function compressHistoryForChat(opts: {
 
   let summary = opts.cache?.summary?.trim() ?? "";
   let sliceStart = 0;
-  if (opts.cache?.fromMessageId) {
-    const idx = opts.messages.findIndex((m) => m.id === opts.cache!.fromMessageId);
-    if (idx >= 0) sliceStart = idx;
-    else summary = "";
+  const cacheFromId = opts.cache?.fromMessageId?.trim() ?? "";
+
+  if (cacheFromId) {
+    const idx = findMessageIndexForCache(opts.messages, cacheFromId);
+    if (idx >= 0) {
+      sliceStart = idx;
+    } else if (summary) {
+      // Cursor 寄せ: ID 不一致でも要約は維持し、直近ターンのみ全文送信
+      const tailTurns = groupTurns(opts.messages);
+      const keepTurns = Math.max(4, Math.min(12, Math.ceil(threshold / 4000)));
+      const dropTurns = Math.max(0, tailTurns.length - keepTurns);
+      if (dropTurns > 0 && tailTurns.length > 0) {
+        const firstKept = tailTurns[dropTurns]?.messages[0];
+        if (firstKept?.id) {
+          const startIdx = findMessageIndexForCache(opts.messages, firstKept.id);
+          if (startIdx >= 0) sliceStart = startIdx;
+        }
+      }
+    } else {
+      summary = "";
+    }
   }
 
   const recent = opts.messages.slice(sliceStart);
   const turns = groupTurns(recent);
   const folded: string[] = [];
   let didSummarize = false;
+  let summarizeRounds = 0;
 
   const tokenEstimate = () =>
     estimateHistoryTokens([
@@ -104,8 +175,13 @@ export async function compressHistoryForChat(opts: {
 
   while (turns.length > 1 && tokenEstimate() > threshold) {
     const oldest = turns.shift()!;
-    folded.push(turnToTranscript(oldest));
-    didSummarize = true;
+    if (summarizeRounds < maxSummarizeRounds) {
+      folded.push(turnToTranscript(oldest));
+      didSummarize = true;
+      summarizeRounds += 1;
+    } else {
+      didSummarize = true;
+    }
   }
 
   if (folded.length > 0) {
@@ -121,7 +197,7 @@ export async function compressHistoryForChat(opts: {
   const flat = turns.flatMap((t) => t.messages);
   const fromMessageId =
     flat.find((m) => m.id)?.id ??
-    opts.cache?.fromMessageId ??
+    (cacheFromId && findMessageIndexForCache(opts.messages, cacheFromId) >= 0 ? cacheFromId : "") ??
     opts.messages.find((m) => m.id)?.id ??
     "";
 
@@ -140,7 +216,7 @@ export async function compressHistoryForChat(opts: {
 
   return {
     messages: strip([head, ...flat]),
-    cache: fromMessageId ? { fromMessageId, summary } : null,
+    cache: fromMessageId ? { fromMessageId, summary } : { fromMessageId: cacheFromId || fromMessageId, summary },
     didSummarize,
   };
 }

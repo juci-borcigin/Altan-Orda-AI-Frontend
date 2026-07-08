@@ -3,7 +3,9 @@ import { detectNamedSpeaker } from "@/lib/ao-prompts";
 import type { ProjectId } from "@/lib/ao-types";
 import { collapseAssistantHistoryForLlm } from "@/lib/ao-assistant-turn";
 import {
+  aoHistoryHardCapTokens,
   compressHistoryForChat,
+  hardCapHistoryMessages,
   type HistoryMessage,
   type ThreadHistoryCompression,
 } from "@/lib/ao-history-compress";
@@ -136,9 +138,12 @@ export async function tryBuildPhase5ChatSystem(opts: {
       summarizeHistoryWithLlm(existingSummary, newTurnsText),
   });
 
+  const hardCap = aoHistoryHardCapTokens(bundle.runtime.history_compress_token_threshold);
+  const cappedMessages = hardCapHistoryMessages(compressed.messages, hardCap);
+
   const trimmedEncoded = trimHistoryForRuntime(
     opts.projectId,
-    compressed.messages.map((m) => ({
+    cappedMessages.map((m) => ({
       role: m.role,
       content:
         m.role === "user"

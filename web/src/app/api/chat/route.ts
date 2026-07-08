@@ -637,6 +637,9 @@ function phase5DbConfigResponse(e: unknown): NextResponse {
   return NextResponse.json({ error: "phase5_db_config", detail }, { status: 503 });
 }
 
+/** 要約＋本番 LLM（長スレッド対策） */
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   const mockMode = isMockMode();
   const dryRunMode = isDryRunMode();
@@ -693,31 +696,39 @@ export async function POST(req: Request) {
   }
 
   const phase5Required = Boolean(supaForModel) && isPhase5EligibleProject(projectId);
-  let phase5Ctx: Awaited<ReturnType<typeof tryBuildPhase5ChatSystem>> = null;
-  if (phase5Required) {
-    try {
-      phase5Ctx = await tryBuildPhase5ChatSystem({
-        supa: supaForModel!,
-        projectId,
-        messages: userMsgs,
-        lastUser: lastUserPre,
-        isFirstUserTurn: isFirstUserTurnPre,
-        casualMode: casualModePre,
-        openAiKey: process.env.OPENAI_API_KEY?.trim(),
-        supabaseThreadId: body.supabaseThreadId,
-        historyCompression: body.historyCompression ?? null,
-        pinnedThreadIds,
-      });
-    } catch (e) {
-      console.error("[chat] tryBuildPhase5ChatSystem", e);
-      return phase5DbConfigResponse(e);
+
+  return chatSseStream(async (emit) => {
+    emit("phase", { phase: "preparing" });
+    let phase5Ctx: Awaited<ReturnType<typeof tryBuildPhase5ChatSystem>> = null;
+    if (phase5Required) {
+      emit("phase", { phase: "compressing_history" });
+      try {
+        phase5Ctx = await tryBuildPhase5ChatSystem({
+          supa: supaForModel!,
+          projectId,
+          messages: userMsgs,
+          lastUser: lastUserPre,
+          isFirstUserTurn: isFirstUserTurnPre,
+          casualMode: casualModePre,
+          openAiKey: process.env.OPENAI_API_KEY?.trim(),
+          supabaseThreadId: body.supabaseThreadId,
+          historyCompression: body.historyCompression ?? null,
+          pinnedThreadIds,
+        });
+      } catch (e) {
+        console.error("[chat] tryBuildPhase5ChatSystem", e);
+        const detail = e instanceof Error ? e.message : String(e);
+        emit("error", { error: "phase5_db_config", detail: detail.slice(0, 2000) });
+        return;
+      }
+      if (!phase5Ctx) {
+        emit("error", {
+          error: "phase5_db_config",
+          detail: `ao_projects が未設定です（論: ${projectId}）`,
+        });
+        return;
+      }
     }
-    if (!phase5Ctx) {
-      return phase5DbConfigResponse(
-        new Phase5DbConfigError(`ao_projects が未設定です（論: ${projectId}）`),
-      );
-    }
-  }
 
   const trimmed = phase5Ctx
     ? mergeLastUserAttachments(phase5Ctx.trimmedEncoded, userMsgs)
@@ -818,9 +829,8 @@ export async function POST(req: Request) {
     );
     const dryOutbound = await buildOutboundChatMessages(supa, system, trimmed);
     const rawPromptSentDry = serializeOutboundChatMessages(dryOutbound);
-    return chatSseStream(async (emit) => {
-      emit("phase", { phase: "final_completion" });
-      emit("done", {
+    emit("phase", { phase: "final_completion" });
+    emit("done", {
         chunks,
         rawContent: text,
         usage: usageDry,
@@ -851,8 +861,8 @@ export async function POST(req: Request) {
               },
             }
           : {}),
-      });
     });
+    return;
   }
 
   if (mockMode) {
@@ -875,9 +885,8 @@ export async function POST(req: Request) {
     );
     const mockOutbound = await buildOutboundChatMessages(supa, system, trimmed);
     const rawPromptSentMock = serializeOutboundChatMessages(mockOutbound);
-    return chatSseStream(async (emit) => {
-      emit("phase", { phase: "final_completion" });
-      emit("done", {
+    emit("phase", { phase: "final_completion" });
+    emit("done", {
         chunks,
         rawContent: text,
         usage: usageMock,
@@ -905,8 +914,8 @@ export async function POST(req: Request) {
               },
             }
           : {}),
-      });
     });
+    return;
   }
 
   let ragMeta: RagSearchResult & { injected: boolean; threshold: number } = phase5RagMeta ?? {
@@ -981,7 +990,9 @@ export async function POST(req: Request) {
   );
   let finalCompletionPhaseSent = false;
 
-  return chatSseStream(async (emit) => {
+  const heartbeat = setInterval(() => emit("phase", { phase: "heartbeat" }), 20_000);
+
+  try {
     try {
       while (true) {
       completionRoundCount += 1;
@@ -1236,7 +1247,7 @@ export async function POST(req: Request) {
       return;
     }
 
-  const usagePayload = await buildTurnUsagePayload(
+    const usagePayload = await buildTurnUsagePayload(
     effectiveModel,
     { provider: llmRoute.provider, apiModel: llmRoute.modelId },
     usageAgg.prompt,
@@ -1427,5 +1438,8 @@ export async function POST(req: Request) {
           }
         : {}),
     });
+  } finally {
+    clearInterval(heartbeat);
+  }
   });
 }
