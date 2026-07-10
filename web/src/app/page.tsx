@@ -3835,7 +3835,7 @@ export default function Home() {
               className={`flex min-h-0 flex-1 min-w-0 self-stretch ${aoV2PcSidebar ? "flex-col" : "flex-row items-stretch"}`}
               style={{ gap: aoV2PcSidebar ? 0 : 6 }}
             >
-              {!viewportCompact ? (
+              {!viewportCompact && !aoV2PcSidebar ? (
                 <AoProjectTabsPanel
                   {...projectTabsPanelProps}
                   measureRef={ronListMeasureRef}

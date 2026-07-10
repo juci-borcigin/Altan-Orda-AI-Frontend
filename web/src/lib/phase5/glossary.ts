@@ -8,7 +8,11 @@ export function sortGlossaryEntries(entries: GlossaryEntry[]): GlossaryEntry[] {
   });
 }
 
-export function applyGlossary(text: string, entries: GlossaryEntry[], direction: "ao_to_general" | "general_to_ao"): string {
+export function applyGlossary(
+  text: string,
+  entries: GlossaryEntry[],
+  direction: "ao_to_general" | "general_to_ao",
+): string {
   const sorted = sortGlossaryEntries(entries);
   let out = text;
   if (direction === "ao_to_general") {
