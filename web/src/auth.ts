@@ -8,6 +8,26 @@ export const oauthConfigured =
   Boolean(process.env.GOOGLE_CLIENT_ID?.trim()) &&
   Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim());
 
+function samplePublicEnabled(): boolean {
+  const v = (process.env.AO_SAMPLE_PUBLIC ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/**
+ * Sample 閲覧を OAuth / Basic 外に出す（AO_SAMPLE_PUBLIC=1）。
+ * - `/sample` ページ・静的成果物
+ * - `/api/sample/*` の GET のみ（POST は認証＋ route 内ガード）
+ */
+function isSamplePublicPath(pathname: string, method?: string): boolean {
+  if (!samplePublicEnabled()) return false;
+  if (pathname === "/sample" || pathname.startsWith("/sample/")) return true;
+  if (pathname.startsWith("/api/sample/")) {
+    const m = (method ?? "GET").toUpperCase();
+    return m === "GET" || m === "HEAD";
+  }
+  return false;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   // middleware が常に Auth を通すため、ローカルではフォールバックを用意する（本番では必ず AUTH_SECRET を設定すること）
@@ -28,6 +48,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (pathname === "/favicon.ico") return true;
 
       if (!oauthConfigured) {
+        if (isSamplePublicPath(pathname, request.method)) return true;
         return basicAuthGate(request);
       }
 
@@ -35,6 +56,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (pathname.startsWith("/api/ao-login")) return true;
       if (pathname.startsWith("/api/ao-logout")) return true;
       if (pathname.startsWith("/sign-in")) return true;
+
+      // Preview スマホ閲覧用: AO_SAMPLE_PUBLIC=1 で /sample と読取 GET のみ公開
+      if (isSamplePublicPath(pathname, request.method)) return true;
 
       return Boolean(auth?.user);
     },

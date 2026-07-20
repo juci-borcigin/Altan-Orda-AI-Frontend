@@ -2,3 +2,9 @@
 
 # Cursor MCP（トークン等を含むためコミットしない）
 .cursor/mcp.json
+
+.DS_Store
+**/.DS_Store
+
+# Sample オフライン用 zip（中身は session1-visual-lab/ と重複）
+web/public/sample/session1-visual-lab-offline.zip

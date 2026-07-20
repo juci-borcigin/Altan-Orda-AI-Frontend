@@ -1,0 +1,480 @@
+{
+  "updated_at": "2026-07-19T08:40:43.590Z",
+  "course_id": "bfea8c94-40d9-4c39-8f68-627a4927a648",
+  "session_no": 1,
+  "size": "2048x1152",
+  "notes": "第1回全文。Luna/Terraはテスト2のプロンプトを使用。Sonnetは再生成せず既存mid画像を比較用に併記。講師チャットなし。",
+  "totals": {
+    "generated_count": 32,
+    "cost_usd": 0.864,
+    "latency_ms": 1354470
+  },
+  "sections": [
+    {
+      "section_no": 1,
+      "heading": "はじめに",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec1_low.png",
+          "prompt": "A traveler standing at the entrance of a vast microscopic landscape containing atoms, electrons, and glowing light, 16:9 composition with the guide in the foreground and a transition from everyday objects to a luminous atomic world in the distance, cinematic educational B-roll, warm realistic lighting, detailed scientific textures, short labels: 日常の世界 / 量子の世界",
+          "markdown": "## はじめに\n\nこんにちは。量子力学入門へようこそ。この講座は、目に見えないほど小さな世界の規則をたどる旅です。私たちは普段、物は小さくしても、ボールや砂粒と同じように動くと考えます。しかし原子、電子、光の世界では、その直感だけでは説明しにくい現象が現れます。今回は、量子力学が何を説明するために生まれたのかを知り、量子を「粒子」と「波」という二つの見方から眺めます。奇妙に感じても、まずは実験で確かめられた事実として受け止めていきましょう。",
+          "heading": "はじめに",
+          "cost_usd": 0.006,
+          "latency_ms": 32219,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec1_mid.png",
+          "prompt": "A traveler standing at the entrance of a vast microscopic landscape containing atoms, electrons, and glowing light, 16:9 composition with the guide in the foreground and a transition from everyday objects to a luminous atomic world in the distance, cinematic educational B-roll, warm realistic lighting, detailed scientific textures, short labels: 日常の世界 / 量子の世界",
+          "markdown": "## はじめに\n\nこんにちは。量子力学入門へようこそ。この講座は、目に見えないほど小さな世界の規則をたどる旅です。私たちは普段、物は小さくしても、ボールや砂粒と同じように動くと考えます。しかし原子、電子、光の世界では、その直感だけでは説明しにくい現象が現れます。今回は、量子力学が何を説明するために生まれたのかを知り、量子を「粒子」と「波」という二つの見方から眺めます。奇妙に感じても、まずは実験で確かめられた事実として受け止めていきましょう。",
+          "heading": "はじめに",
+          "cost_usd": 0.048,
+          "latency_ms": 54658,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec1_low.png",
+          "prompt": "A journey from everyday objects into the invisible quantum world, a soccer ball and grains of sand in the foreground transforming toward a glowing atom, electron traces, and beams of light in the distance; 16:9 composition with a clear left-to-right scale transition; cinematic educational B-roll, realistic scientific visualization rather than clip art; warm everyday lighting fading into cool blue laboratory glow, tactile materials and luminous particles; short Japanese labels: 「日常」 「原子」 「電子」 「光」",
+          "markdown": "## はじめに\n\nこんにちは。この講座では、原子や電子、光のように、目では直接見えないほど小さな世界の規則をたどります。私たちは普段、ボールを投げれば軌道を描き、砂粒を落とせば一つの場所に着く、と考えます。しかし物をどんどん小さくしていくと、その常識だけでは説明できない現象が現れます。\n\n第1回の目標は二つです。量子力学がなぜ必要になったのかを知ること。そして小さな世界では「粒子」と「波」という二つの見方が、どちらも重要になることをつかむことです。奇妙な話として覚えるのではなく、実験が私たちに何を示したのかを出発点にしましょう。",
+          "heading": "はじめに",
+          "cost_usd": 0.006,
+          "latency_ms": 26463,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec1_mid.png",
+          "prompt": "A journey from everyday objects into the invisible quantum world, a soccer ball and grains of sand in the foreground transforming toward a glowing atom, electron traces, and beams of light in the distance; 16:9 composition with a clear left-to-right scale transition; cinematic educational B-roll, realistic scientific visualization rather than clip art; warm everyday lighting fading into cool blue laboratory glow, tactile materials and luminous particles; short Japanese labels: 「日常」 「原子」 「電子」 「光」",
+          "markdown": "## はじめに\n\nこんにちは。この講座では、原子や電子、光のように、目では直接見えないほど小さな世界の規則をたどります。私たちは普段、ボールを投げれば軌道を描き、砂粒を落とせば一つの場所に着く、と考えます。しかし物をどんどん小さくしていくと、その常識だけでは説明できない現象が現れます。\n\n第1回の目標は二つです。量子力学がなぜ必要になったのかを知ること。そして小さな世界では「粒子」と「波」という二つの見方が、どちらも重要になることをつかむことです。奇妙な話として覚えるのではなく、実験が私たちに何を示したのかを出発点にしましょう。",
+          "heading": "はじめに",
+          "cost_usd": 0.048,
+          "latency_ms": 44642,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "sonnet_mid": {
+          "image_url": "/sample/session1-visual-lab/sonnet_s1_sec1_mid.png",
+          "prompt": "A wide horizontal explanatory diagram in clean line-art style. On the left side, a simple illustration of a cannonball trajectory arc labeled 'Newton' with an apple falling from a tree nearby. On the right side, a magnet with field lines and a light ray traveling in a straight line, labeled 'Maxwell'. Both sides connected by a large bracket at the top labeled 'Classical Physics'. Minimalist, textbook illustration style, no Japanese characters, white background.",
+          "markdown": "## 古典物理学とは何か\n\nようこそ、量子力学の世界へ！まずは「量子」の話に入る前に、私たちが長い間信じてきた物理学の話から始めましょう。\n\n「古典物理学」とは、ざっくり言うと **ニュートン力学** と **電磁気学** の二本柱からなる物理学の体系です。\n\nニュートン力学は17世紀にアイザック・ニュートンが築いたもので、「力を加えれば物は動く」「重力があるからリンゴは落ちる」といった、私たちが毎日目にする運動をすべて説明できます。投げたボールの軌道も、惑星が太陽の周りを回る動きも、計算でぴたりと当てられるのです。\n\n一方、電磁気学は19世紀にジェームズ・クラーク・マクスウェルが完成させた理論で、電気・磁気・光をひとつの枠組みで説明します。光が直進したり、電波が空間を伝わったりする現象も、この理論の守備範囲です。\n\nこの二つが揃った19世紀末、多くの科学者は「物理学はほぼ完成した」と感じていました。日常のあらゆる現象が説明でき、予測も驚くほど正確だったからです。\n\nしかし——その自信は、まもなく大きく揺らぐことになります。",
+          "heading": "古典物理学とは何か",
+          "cost_usd": 0.015426,
+          "latency_ms": 16654,
+          "quality": "historical_mid",
+          "model_id": "gpt-image-2",
+          "source": "reused"
+        }
+      }
+    },
+    {
+      "section_no": 2,
+      "heading": "日常の直感が通じる世界と通じにくい世界",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec2_low.png",
+          "prompt": "A visual comparison of a rolling ball, a pile of sand, a beam of light, and an electron scale, 16:9 split-scene composition moving from familiar macroscopic objects on the left to an atomic laboratory on the right, cinematic educational B-roll, natural daylight blending into cool blue scientific light, realistic materials and depth, short labels: ボール / 砂粒 / 光 / 電子",
+          "markdown": "## 日常の直感が通じる世界と通じにくい世界\n\nボールを転がすと、どちらへ進むか、どこで止まるかをかなり見通せます。砂粒も、数が多くなれば山や流れとして扱えます。こうした身近な物体には、「物はある場所にあり、決まった道を進む」という考え方がよく合います。\n\nところが、光や電子のように非常に小さな対象を調べると、同じ考えだけでは足りません。電子は小さな球がそのまま縮んだもの、光は細かな粒が並んだもの、と単純に考えると、実験結果と合わない場面が出てきます。量子力学は日常の物理を否定する学問ではありません。日常の物理が得意な範囲を保ちながら、原子より小さな世界まで説明できる、より広い見方なのです。",
+          "heading": "日常の直感が通じる世界と通じにくい世界",
+          "cost_usd": 0.006,
+          "latency_ms": 30869,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec2_mid.png",
+          "prompt": "A visual comparison of a rolling ball, a pile of sand, a beam of light, and an electron scale, 16:9 split-scene composition moving from familiar macroscopic objects on the left to an atomic laboratory on the right, cinematic educational B-roll, natural daylight blending into cool blue scientific light, realistic materials and depth, short labels: ボール / 砂粒 / 光 / 電子",
+          "markdown": "## 日常の直感が通じる世界と通じにくい世界\n\nボールを転がすと、どちらへ進むか、どこで止まるかをかなり見通せます。砂粒も、数が多くなれば山や流れとして扱えます。こうした身近な物体には、「物はある場所にあり、決まった道を進む」という考え方がよく合います。\n\nところが、光や電子のように非常に小さな対象を調べると、同じ考えだけでは足りません。電子は小さな球がそのまま縮んだもの、光は細かな粒が並んだもの、と単純に考えると、実験結果と合わない場面が出てきます。量子力学は日常の物理を否定する学問ではありません。日常の物理が得意な範囲を保ちながら、原子より小さな世界まで説明できる、より広い見方なのです。",
+          "heading": "日常の直感が通じる世界と通じにくい世界",
+          "cost_usd": 0.048,
+          "latency_ms": 46543,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec2_low.png",
+          "prompt": "Comparison of a bouncing baseball, a grain of sand, a magnified atom, a glowing electron detector hit, and a spreading light beam arranged by shrinking scale; 16:9 composition with objects stepping from large left foreground to microscopic right background; cinematic educational B-roll, realistic macro-to-nano visual storytelling; natural sunlight on the ball and sand transitioning to crisp blue laboratory illumination, detailed textures; short Japanese labels: 「日常の物理」 「量子の世界」",
+          "markdown": "## 日常の直感が通じる世界と通じにくい世界\n\n日常の物理は、とてもよく働きます。ボールなら、強く投げれば遠くへ行き、壁に当たれば跳ね返ります。車や建物、惑星の動きも、こうした考え方でかなり正確に扱えます。これは間違いではありません。\n\nけれども、砂粒よりはるかに小さい原子、その中を支える電子、そして光を扱うと事情が変わります。電子は小さなボールのように「今ここにあり、次にここへ行く」とだけ考えると、実験結果と合わないことがあります。光も、まっすぐ進む光線のようでいて、広がったり重なったりします。\n\n量子力学は日常の物理を壊す学問ではありません。日常の物理が得意な大きな世界に加え、極めて小さな世界で実験に合う、より細かな規則を学ぶ学問です。",
+          "heading": "日常の直感が通じる世界と通じにくい世界",
+          "cost_usd": 0.006,
+          "latency_ms": 26029,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec2_mid.png",
+          "prompt": "Comparison of a bouncing baseball, a grain of sand, a magnified atom, a glowing electron detector hit, and a spreading light beam arranged by shrinking scale; 16:9 composition with objects stepping from large left foreground to microscopic right background; cinematic educational B-roll, realistic macro-to-nano visual storytelling; natural sunlight on the ball and sand transitioning to crisp blue laboratory illumination, detailed textures; short Japanese labels: 「日常の物理」 「量子の世界」",
+          "markdown": "## 日常の直感が通じる世界と通じにくい世界\n\n日常の物理は、とてもよく働きます。ボールなら、強く投げれば遠くへ行き、壁に当たれば跳ね返ります。車や建物、惑星の動きも、こうした考え方でかなり正確に扱えます。これは間違いではありません。\n\nけれども、砂粒よりはるかに小さい原子、その中を支える電子、そして光を扱うと事情が変わります。電子は小さなボールのように「今ここにあり、次にここへ行く」とだけ考えると、実験結果と合わないことがあります。光も、まっすぐ進む光線のようでいて、広がったり重なったりします。\n\n量子力学は日常の物理を壊す学問ではありません。日常の物理が得意な大きな世界に加え、極めて小さな世界で実験に合う、より細かな規則を学ぶ学問です。",
+          "heading": "日常の直感が通じる世界と通じにくい世界",
+          "cost_usd": 0.048,
+          "latency_ms": 53703,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "sonnet_mid": {
+          "image_url": "/sample/session1-visual-lab/sonnet_s1_sec2_mid.png",
+          "prompt": "A horizontal explanatory diagram showing three classic physics successes side by side: left panel shows planets orbiting the sun with orbital path lines labeled 'gravity'; center panel shows a light ray reflecting off a mirror surface labeled 'optics'; right panel shows a wave pattern radiating from a source labeled 'electromagnetic wave'. Clean line-art style, light background, simple arrows and curves, no Japanese or Chinese characters, short English labels only.",
+          "markdown": "## 古典物理学の驚くべき成功\n\nまず、古典物理学がどれほど強力だったかを実感してみましょう。\n\n17世紀、ニュートンは「万有引力の法則」を発見しました。リンゴが木から落ちるのも、月が地球の周りを回るのも、惑星が太陽の周りを回るのも、すべて同じ一つの法則で説明できる——これは当時の人々にとって、まさに衝撃的な発見でした。この法則を使えば、惑星の位置を何百年先まで正確に計算できます。実際、1846年には「まだ見つかっていない惑星がこの方向にあるはずだ」と計算だけで予測し、海王星を発見することに成功しました [出典:astronomy_history]。\n\n光についても同様です。光が直進すること、鏡で反射すること、水中で曲がること（屈折）——これらはすべて古典的な「波の理論」で見事に説明されました。さらに19世紀、マクスウェルは電気と磁気を統一した理論を作り上げ、「電磁波」の存在を予言します。その速さを計算すると、なんと光の速さとぴったり一致したのです [出典:maxwell_electromagnetism]。光そのものが電磁波だったというわけです。\n\nこのように古典物理学は、惑星の運動から光の性質まで、スケールをまたいで現実を正確に記述しました。「自然界のルールはすべて解明された」——19世紀末の科学者たちがそう感じたのも、無理のないことでした。\n\nしかし、その自信はまもなく大きく揺らぐことになります。",
+          "heading": "古典物理学の驚くべき成功",
+          "cost_usd": 0.015426,
+          "latency_ms": 16654,
+          "quality": "historical_mid",
+          "model_id": "gpt-image-2",
+          "source": "reused"
+        }
+      }
+    },
+    {
+      "section_no": 3,
+      "heading": "原子の中では何が起きているのか",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec3_low.png",
+          "prompt": "An artistic but scientifically accurate cutaway of an atom with a dense nucleus and a luminous electron probability region, 16:9 centered composition surrounded by everyday objects such as glass, metal, and colored light, cinematic educational B-roll, controlled laboratory lighting, translucent realistic textures, short labels: 原子核 / 電子 / 光の色",
+          "markdown": "## 原子の中では何が起きているのか\n\n私たちの体、机、空気、スマートフォンは、原子という小さな単位からできています。原子の中心には原子核があり、その周りに電子が関わっています。ただし、電子を小さな惑星が決まった円の道を回るように描くのは、最初のイメージとしては便利でも、正確な姿ではありません。\n\n原子がどのように安定して存在するのか、なぜ物質によって違う色の光を出すのか、金属が電気を通し、ガラスが通しにくいのはなぜか。こうした性質の根には、原子や電子の振る舞いがあります。量子力学は、目に見える物質の特徴を、その内側にある小さな世界の規則から説明するために重要なのです。",
+          "heading": "原子の中では何が起きているのか",
+          "cost_usd": 0.006,
+          "latency_ms": 31688,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec3_mid.png",
+          "prompt": "An artistic but scientifically accurate cutaway of an atom with a dense nucleus and a luminous electron probability region, 16:9 centered composition surrounded by everyday objects such as glass, metal, and colored light, cinematic educational B-roll, controlled laboratory lighting, translucent realistic textures, short labels: 原子核 / 電子 / 光の色",
+          "markdown": "## 原子の中では何が起きているのか\n\n私たちの体、机、空気、スマートフォンは、原子という小さな単位からできています。原子の中心には原子核があり、その周りに電子が関わっています。ただし、電子を小さな惑星が決まった円の道を回るように描くのは、最初のイメージとしては便利でも、正確な姿ではありません。\n\n原子がどのように安定して存在するのか、なぜ物質によって違う色の光を出すのか、金属が電気を通し、ガラスが通しにくいのはなぜか。こうした性質の根には、原子や電子の振る舞いがあります。量子力学は、目に見える物質の特徴を、その内側にある小さな世界の規則から説明するために重要なのです。",
+          "heading": "原子の中では何が起きているのか",
+          "cost_usd": 0.048,
+          "latency_ms": 45489,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec3_low.png",
+          "prompt": "A realistic atom-scale scene connected to everyday technology: luminous atom at center, electron probability-like glow around it, with LED light, smartphone display, and semiconductor chip softly emerging in the background; 16:9 composition centered on the atom with practical applications around the edges; cinematic educational B-roll, high-end scientific visualization; deep navy laboratory ambience, vivid spectral colors, glass and silicon textures; short Japanese labels: 「原子」 「電子」 「LED」 「半導体」",
+          "markdown": "## 原子の中では何が起きているのか\n\n机、空気、水、私たちの体まで、物質は原子という小さな単位からできています。原子の中心には重いまとまりがあり、その周囲に電子があります。ただし電子を、太陽の周りを回る小さな惑星だとそのまま想像すると、後で困ります。電子のふるまいには、日常の小球とは違う規則があるからです。\n\nこの小さな規則は、遠い話ではありません。原子が安定して存在できること、物質が電気を通したり通しにくかったりすること、炎やネオン管が特定の色に光ることにも関わっています。スマートフォンの画面、LED照明、半導体の働きも、量子の規則を利用しています。\n\n量子力学は「見えないものの空想」ではなく、私たちの身の回りの色、材料、機器の性質を支える説明なのです。",
+          "heading": "原子の中では何が起きているのか",
+          "cost_usd": 0.006,
+          "latency_ms": 26648,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec3_mid.png",
+          "prompt": "A realistic atom-scale scene connected to everyday technology: luminous atom at center, electron probability-like glow around it, with LED light, smartphone display, and semiconductor chip softly emerging in the background; 16:9 composition centered on the atom with practical applications around the edges; cinematic educational B-roll, high-end scientific visualization; deep navy laboratory ambience, vivid spectral colors, glass and silicon textures; short Japanese labels: 「原子」 「電子」 「LED」 「半導体」",
+          "markdown": "## 原子の中では何が起きているのか\n\n机、空気、水、私たちの体まで、物質は原子という小さな単位からできています。原子の中心には重いまとまりがあり、その周囲に電子があります。ただし電子を、太陽の周りを回る小さな惑星だとそのまま想像すると、後で困ります。電子のふるまいには、日常の小球とは違う規則があるからです。\n\nこの小さな規則は、遠い話ではありません。原子が安定して存在できること、物質が電気を通したり通しにくかったりすること、炎やネオン管が特定の色に光ることにも関わっています。スマートフォンの画面、LED照明、半導体の働きも、量子の規則を利用しています。\n\n量子力学は「見えないものの空想」ではなく、私たちの身の回りの色、材料、機器の性質を支える説明なのです。",
+          "heading": "原子の中では何が起きているのか",
+          "cost_usd": 0.048,
+          "latency_ms": 43419,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "sonnet_mid": {
+          "image_url": "/sample/session1-visual-lab/sonnet_s1_sec3_mid.png",
+          "prompt": "A horizontal scientific diagram showing blackbody radiation curves. Two smooth bell-shaped curves on a graph: x-axis labeled 'wavelength' with short to long arrows, y-axis labeled 'intensity'. One curve labeled 'classical theory' rises steeply toward short wavelengths and shoots upward off the chart (diverging line going to infinity). Another curve labeled 'experiment' forms a proper peak in the middle and gently falls on both sides. The two curves match on the long-wavelength side but diverge sharply on the short-wavelength side. Clean line-art style, white background, no Japanese characters.",
+          "markdown": "## 黒体放射の謎：古典物理学の最初の敗北\n\n鉄を炉で熱すると、最初は暗い赤、やがてオレンジ、さらに高温になると白っぽく輝きます。これは誰もが見たことのある現象ですが、19世紀の物理学者たちはこの「光の色と明るさの変化」を正確に説明しようとして、大きな壁にぶつかりました。\n\n加熱された物体が出す光の分布を調べると、ある特定の色（波長）のあたりで明るさがピークになり、それより短い波長（紫や紫外線の方向）では急激に暗くなります。ところが古典物理学の計算では、波長が短くなるほど明るさが**無限大**に向かって増え続けるという、現実とまったく合わない答えが出てしまいました。これは「紫外破綻（しがいはたん）」と呼ばれ、古典物理学にとって深刻な矛盾でした。\n\nこの謎を解いたのが、ドイツの物理学者マックス・プランクです（1900年）。彼は「光のエネルギーは連続的な量ではなく、ある最小単位の整数倍しか取れない」という、当時としては大胆すぎる仮説を立てました。この最小単位が**量子（くわんとう）**です。\n\nプランクの計算は実験データと見事に一致しました。しかし彼自身、この「エネルギーの粒」という考え方が何を意味するのか、すぐには理解できなかったと言われています。古典物理学の「滑らかで連続した世界」に、初めて「とびとびの値」という亀裂が入った瞬間でした。",
+          "heading": "黒体放射の謎：古典物理学の最初の敗北",
+          "cost_usd": 0.015426,
+          "latency_ms": 16654,
+          "quality": "historical_mid",
+          "model_id": "gpt-image-2",
+          "source": "reused"
+        }
+      }
+    },
+    {
+      "section_no": 4,
+      "heading": "粒子として見える量子",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec4_low.png",
+          "prompt": "A dark detector screen receiving individual glowing hits from a single-electron or single-photon source, 16:9 composition with isolated bright dots appearing one at a time, cinematic educational B-roll, high-contrast laboratory lighting, crisp glass and metal textures, short labels: 一回の検出 / 点の記録",
+          "markdown": "## 粒子として見える量子\n\n量子の一面は、粒子らしさです。たとえば電子を検出器に当てると、画面全体がぼんやり光るのではなく、ある一点に小さな印が現れます。光も、非常に弱くして一つずつ検出できる条件にすると、検出器には一回ごとに一つの点として記録されます。\n\nこれは「量子が必ず小さな硬い球である」という意味ではありません。しかし測定の結果は、ここに届いた、あそこには届かなかった、と数えられる形で現れます。量子を単なる広がった霧として考えるだけでは、この一点ずつの記録を説明できません。量子には、確かに粒子のように現れる側面があります。",
+          "heading": "粒子として見える量子",
+          "cost_usd": 0.006,
+          "latency_ms": 24921,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec4_mid.png",
+          "prompt": "A dark detector screen receiving individual glowing hits from a single-electron or single-photon source, 16:9 composition with isolated bright dots appearing one at a time, cinematic educational B-roll, high-contrast laboratory lighting, crisp glass and metal textures, short labels: 一回の検出 / 点の記録",
+          "markdown": "## 粒子として見える量子\n\n量子の一面は、粒子らしさです。たとえば電子を検出器に当てると、画面全体がぼんやり光るのではなく、ある一点に小さな印が現れます。光も、非常に弱くして一つずつ検出できる条件にすると、検出器には一回ごとに一つの点として記録されます。\n\nこれは「量子が必ず小さな硬い球である」という意味ではありません。しかし測定の結果は、ここに届いた、あそこには届かなかった、と数えられる形で現れます。量子を単なる広がった霧として考えるだけでは、この一点ずつの記録を説明できません。量子には、確かに粒子のように現れる側面があります。",
+          "heading": "粒子として見える量子",
+          "cost_usd": 0.048,
+          "latency_ms": 41035,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec4_low.png",
+          "prompt": "Close-up of a dark particle detector screen receiving isolated bright impacts one at a time, with a subtle rain-on-window analogy reflected nearby; 16:9 composition focused on several distinct glowing dots across the detector; cinematic educational B-roll, realistic laboratory apparatus and photographic detail; dark room, sharp cyan detector flashes, moist glass texture in the analogy; short Japanese labels: 「1回の検出」 「点」",
+          "markdown": "## 粒子として見える量子\n\n電子や光には、粒子らしい顔があります。たとえば電子を検出する装置に向けると、装置の画面には「ここで受け取った」という一点の印が現れます。光も、非常に弱くして一つずつ検出すると、一回ごとに小さな点として記録されます。\n\nこれは雨粒を数える感覚に少し似ています。窓に当たった雨粒は、一滴ずつ別々のしみを残します。同じように、量子も一度の検出では、エネルギーがばらばらに少量ずつ届くのではなく、一件の出来事として記録されます。\n\nだから量子を「空間に薄く広がった、ただのぼんやりした雲」とだけ考えるのは不十分です。実験装置は毎回、点として反応します。どこに点が出るかを何度も調べるとき、次の波らしさが見えてきます。",
+          "heading": "粒子として見える量子",
+          "cost_usd": 0.006,
+          "latency_ms": 26985,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec4_mid.png",
+          "prompt": "Close-up of a dark particle detector screen receiving isolated bright impacts one at a time, with a subtle rain-on-window analogy reflected nearby; 16:9 composition focused on several distinct glowing dots across the detector; cinematic educational B-roll, realistic laboratory apparatus and photographic detail; dark room, sharp cyan detector flashes, moist glass texture in the analogy; short Japanese labels: 「1回の検出」 「点」",
+          "markdown": "## 粒子として見える量子\n\n電子や光には、粒子らしい顔があります。たとえば電子を検出する装置に向けると、装置の画面には「ここで受け取った」という一点の印が現れます。光も、非常に弱くして一つずつ検出すると、一回ごとに小さな点として記録されます。\n\nこれは雨粒を数える感覚に少し似ています。窓に当たった雨粒は、一滴ずつ別々のしみを残します。同じように、量子も一度の検出では、エネルギーがばらばらに少量ずつ届くのではなく、一件の出来事として記録されます。\n\nだから量子を「空間に薄く広がった、ただのぼんやりした雲」とだけ考えるのは不十分です。実験装置は毎回、点として反応します。どこに点が出るかを何度も調べるとき、次の波らしさが見えてきます。",
+          "heading": "粒子として見える量子",
+          "cost_usd": 0.048,
+          "latency_ms": 59951,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "sonnet_mid": {
+          "image_url": "/sample/session1-visual-lab/sonnet_s1_sec4_mid.png",
+          "prompt": "A clear explanatory diagram in flat line-art style, wide horizontal composition. On the left, a light source emitting two types of light beams: one labeled 'RED' (low energy, shown as long wavy arrow) and one labeled 'BLUE' (high energy, shown as short wavy arrow). In the center, a metal surface shown as a gray rectangular block. On the right side: the RED beam hits the metal but no electrons come out (shown by a crossed-out electron symbol). The BLUE beam hits the metal and electrons (small circles with minus sign) fly out to the right with motion lines. Below the metal, a small diagram shows a single photon circle hitting one electron circle, illustrating the one-to-one particle interaction concept. Clean white background, simple geometric shapes, no Japanese characters.",
+          "markdown": "## 光電効果：光は粒か波か\n\n古典物理学の「説明できない現象」の中でも、特に衝撃的だったのが**光電効果**です。\n\n金属に光を当てると、金属の表面から電子が飛び出してきます。これ自体は「光がエネルギーを運んで電子を弾き飛ばす」と考えれば、なんとなく納得できそうですよね。ところが、実験してみると不思議なことが起きました。\n\n**光を強くしても、色（波長）が違うと電子は出てこない。**\n\n波としての光を考えると、光を強くすれば波のエネルギーが大きくなり、電子はどんどん飛び出すはずです。しかし実際には、いくら光を強くしても、ある色より赤い光では電子がまったく出てきませんでした。逆に、弱くても青や紫の光を当てると、すぐに電子が飛び出します。\n\nこの謎を解いたのがアインシュタインです [出典:Einstein1905]。彼は「光はエネルギーの塊（粒）の集まりだ」と考えました。この粒を**光子（フォトン）**と呼びます。光子1個が持つエネルギーは、光の色（振動数）によって決まります。青い光の光子は1個あたりのエネルギーが大きく、赤い光の光子は小さい。電子を飛び出させるには「1個の光子のエネルギー」が一定の値を超える必要があり、光をいくら増やしても（光子の数を増やしても）、1個あたりが小さければ電子は出てこないのです。\n\nこの発見は「光は波である」という常識を根底から揺るがしました。光は波でもあり、粒でもある——この二重性こそが、量子の世界への扉を開く鍵となります。",
+          "heading": "光電効果：光は粒か波か",
+          "cost_usd": 0.015426,
+          "latency_ms": 16654,
+          "quality": "historical_mid",
+          "model_id": "gpt-image-2",
+          "source": "reused"
+        }
+      }
+    },
+    {
+      "section_no": 5,
+      "heading": "波として広がる量子",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec5_low.png",
+          "prompt": "Concentric water ripples merging with a field of individual detector dots that gradually forms bright and dark bands, 16:9 flowing composition from real water to a quantum experiment screen, cinematic educational B-roll, soft directional light, detailed reflections and layered textures, short labels: 広がり / 重なり / 波の模様",
+          "markdown": "## 波として広がる量子\n\n一方、波には粒とは違う特徴があります。水面に落ちた一滴から波紋が広がり、二つの波紋が出会うと、強め合ったり弱め合ったりします。音も空間に広がり、壁や別の音と重なります。波は「ここに一つ、そこに一つ」と数えるより、広がりや重なりで考えると理解しやすいものです。\n\n量子でも、結果をたくさん集めると、波を思わせる明るい部分と暗い部分の模様が現れることがあります。ところが、一回ごとの検出は点です。つまり量子は、結果としては粒のように届くのに、全体の分布には波のような特徴を示す場合があります。「粒子か波か」と一つに決めるだけでは、両方の事実を説明しにくいのです。",
+          "heading": "波として広がる量子",
+          "cost_usd": 0.006,
+          "latency_ms": 34595,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec5_mid.png",
+          "prompt": "Concentric water ripples merging with a field of individual detector dots that gradually forms bright and dark bands, 16:9 flowing composition from real water to a quantum experiment screen, cinematic educational B-roll, soft directional light, detailed reflections and layered textures, short labels: 広がり / 重なり / 波の模様",
+          "markdown": "## 波として広がる量子\n\n一方、波には粒とは違う特徴があります。水面に落ちた一滴から波紋が広がり、二つの波紋が出会うと、強め合ったり弱め合ったりします。音も空間に広がり、壁や別の音と重なります。波は「ここに一つ、そこに一つ」と数えるより、広がりや重なりで考えると理解しやすいものです。\n\n量子でも、結果をたくさん集めると、波を思わせる明るい部分と暗い部分の模様が現れることがあります。ところが、一回ごとの検出は点です。つまり量子は、結果としては粒のように届くのに、全体の分布には波のような特徴を示す場合があります。「粒子か波か」と一つに決めるだけでは、両方の事実を説明しにくいのです。",
+          "heading": "波として広がる量子",
+          "cost_usd": 0.048,
+          "latency_ms": 77426,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec5_low.png",
+          "prompt": "Rippling water waves from two drops merging into alternating bright and calm bands, transitioning in the same scene to many glowing detector dots forming similar stripes; 16:9 composition with water on the left and detector pattern on the right; cinematic educational B-roll, realistic fluid motion and scientific visual continuity; cool reflective water highlights, dark laboratory background, luminous dot texture; short Japanese labels: 「波の重なり」 「点の分布」",
+          "markdown": "## 波として広がる量子\n\n一方、波には粒とは違う性質があります。池に石を落とすと、水面の輪が広がります。二つの場所から波が出会うと、山と山が重なって大きくなる場所もあれば、山と谷が打ち消し合って静かになる場所もあります。音の響きにも、似た重なりがあります。\n\n量子では、一回の検出は点です。それなのに、同じ条件で何百回、何千回と記録を重ねると、点が集まりやすい場所と、ほとんど現れない場所が、しま模様のように現れることがあります。この偏りは、波が重なったときの模様によく似ています。\n\n大事なのは、「量子は粒子なのか、波なのか」という二者択一を急がないことです。検出では粒子らしく、たくさんの結果の分布では波らしく見える。この両方を説明できる見方が必要になります。",
+          "heading": "波として広がる量子",
+          "cost_usd": 0.006,
+          "latency_ms": 88154,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec5_mid.png",
+          "prompt": "Rippling water waves from two drops merging into alternating bright and calm bands, transitioning in the same scene to many glowing detector dots forming similar stripes; 16:9 composition with water on the left and detector pattern on the right; cinematic educational B-roll, realistic fluid motion and scientific visual continuity; cool reflective water highlights, dark laboratory background, luminous dot texture; short Japanese labels: 「波の重なり」 「点の分布」",
+          "markdown": "## 波として広がる量子\n\n一方、波には粒とは違う性質があります。池に石を落とすと、水面の輪が広がります。二つの場所から波が出会うと、山と山が重なって大きくなる場所もあれば、山と谷が打ち消し合って静かになる場所もあります。音の響きにも、似た重なりがあります。\n\n量子では、一回の検出は点です。それなのに、同じ条件で何百回、何千回と記録を重ねると、点が集まりやすい場所と、ほとんど現れない場所が、しま模様のように現れることがあります。この偏りは、波が重なったときの模様によく似ています。\n\n大事なのは、「量子は粒子なのか、波なのか」という二者択一を急がないことです。検出では粒子らしく、たくさんの結果の分布では波らしく見える。この両方を説明できる見方が必要になります。",
+          "heading": "波として広がる量子",
+          "cost_usd": 0.048,
+          "latency_ms": 48117,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "sonnet_mid": {
+          "image_url": "/sample/session1-visual-lab/sonnet_s1_sec5_mid.png",
+          "prompt": "A clear explanatory diagram in clean line-art style, wide horizontal composition. On the left, a small dense nucleus labeled 'nucleus' at center, with a tiny dot labeled 'electron' spiraling inward in a collapsing spiral path, with a downward arrow and a small lightning bolt symbol indicating energy loss — representing the classical physics prediction of atomic collapse. On the right, the same nucleus at center with an electron shown in a stable circular orbit, labeled 'stable orbit', with a question mark above it. A bold vertical dividing line separates the two scenarios. Minimal text, English labels only, white background, simple educational illustration style.",
+          "markdown": "## 原子構造の謎\n\n古典物理学が「熱放射」でつまずいたのと同じ頃、原子の内部構造でも深刻な問題が浮かび上がっていました。\n\n1911年、ラザフォードの実験によって、原子の中心には小さくて重い「原子核」があり、その周りを軽い「電子」が回っていることが分かりました [出典:不確実—実験の詳細な数値は要確認]。太陽の周りを地球が回るような、ミニチュアの太陽系のようなイメージです。\n\nところが、ここで古典物理学が大きな矛盾にぶつかります。\n\n古典物理学によれば、円を描いて動く電子は「電磁波」を出しながらエネルギーを失い続けるはずです。エネルギーを失った電子はどんどん内側へ引き寄せられ、計算上はわずか**100億分の1秒**ほどで原子核に落ち込んでしまうことになります。\n\nでも現実には、原子は安定して存在しています。私たちの体も、空気も、地球も、原子でできているのに、崩壊などしていません。\n\nこの「なぜ電子は落ちないのか」という問いに、古典物理学はまったく答えられませんでした。原子が安定して存在するという、ごく当たり前の事実すら説明できなかったのです。この謎を解く鍵もまた、量子の考え方の中に隠されていました。",
+          "heading": "原子構造の謎",
+          "cost_usd": 0.015426,
+          "latency_ms": 16654,
+          "quality": "historical_mid",
+          "model_id": "gpt-image-2",
+          "source": "reused"
+        }
+      }
+    },
+    {
+      "section_no": 6,
+      "heading": "二重スリットが投げかける問い",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec6_low.png",
+          "prompt": "A classic double-slit experiment with a source, barrier containing two narrow slits, and a detector screen showing individual dots accumulating into interference bands, 16:9 side-view scientific composition, cinematic educational B-roll, dark room with precise blue and amber instrument lights, realistic metal and glass textures, short labels: 光源・電子源 / 二重スリット / 検出画面",
+          "markdown": "## 二重スリットが投げかける問い\n\n量子の不思議を代表するのが、二重スリットの実験です。仕切りに細いすき間を二つ開け、その向こうに検出画面を置きます。電子や光を一個ずつ、間隔を空けて送り出してみましょう。画面には毎回、一つの点が記録されます。点は一度に一つだけなので、粒子が届いたように見えます。\n\nところが、実験を長く続けて点をたくさん集めると、画面には明るい帯と暗い帯が交互に並ぶ縞模様が現れます。これは、二つの道を通った波が重なったときに生じる模様に似ています。一個ずつ届くものが、全体では波らしい分布を作るのです。\n\nここで大切なのは、すぐに「量子は途中で小さな波になり、最後に粒へ変身する」と決めつけないことです。何が起きているかを正確に語るには、どの場所で見つかる可能性が高いか、そして観測が結果にどう関わるかを考える必要があります。この問いは、次回以降に確率と観測を学ぶ入口になります。",
+          "heading": "二重スリットが投げかける問い",
+          "cost_usd": 0.006,
+          "latency_ms": 34162,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec6_mid.png",
+          "prompt": "A classic double-slit experiment with a source, barrier containing two narrow slits, and a detector screen showing individual dots accumulating into interference bands, 16:9 side-view scientific composition, cinematic educational B-roll, dark room with precise blue and amber instrument lights, realistic metal and glass textures, short labels: 光源・電子源 / 二重スリット / 検出画面",
+          "markdown": "## 二重スリットが投げかける問い\n\n量子の不思議を代表するのが、二重スリットの実験です。仕切りに細いすき間を二つ開け、その向こうに検出画面を置きます。電子や光を一個ずつ、間隔を空けて送り出してみましょう。画面には毎回、一つの点が記録されます。点は一度に一つだけなので、粒子が届いたように見えます。\n\nところが、実験を長く続けて点をたくさん集めると、画面には明るい帯と暗い帯が交互に並ぶ縞模様が現れます。これは、二つの道を通った波が重なったときに生じる模様に似ています。一個ずつ届くものが、全体では波らしい分布を作るのです。\n\nここで大切なのは、すぐに「量子は途中で小さな波になり、最後に粒へ変身する」と決めつけないことです。何が起きているかを正確に語るには、どの場所で見つかる可能性が高いか、そして観測が結果にどう関わるかを考える必要があります。この問いは、次回以降に確率と観測を学ぶ入口になります。",
+          "heading": "二重スリットが投げかける問い",
+          "cost_usd": 0.048,
+          "latency_ms": 45857,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec6_low.png",
+          "prompt": "A two-slit experiment in a realistic dark laboratory: source on the left, metal barrier with two narrow slits at center, individual glowing impacts building into alternating vertical bands on a screen at right; 16:9 composition clearly showing the full experimental path; cinematic educational B-roll, premium scientific visualization, no line-art style; dramatic controlled blue light, brushed metal texture, crisp luminous detector marks; short Japanese labels: 「二つのすき間」 「1個ずつの点」 「縞模様」",
+          "markdown": "## 二重スリットが投げかける問い\n\nこの二つの顔を最も印象的に示すのが、二重スリットの実験です。仕切り板に、髪の毛ほどの細いすき間を二本あけ、その向こうに画面を置きます。電子や光を弱くして、一個ずつ通すとしましょう。\n\n画面に届くたび、記録されるのは一つの点です。最初の数個なら、ただ散らばった点に見えます。ところが同じ実験を辛抱強く繰り返すと、点の集まり方には規則が現れます。明るい帯と、点が少ない帯が交互に並ぶ、波の重なりに似た縞模様です。\n\nここで問いが生まれます。一個ずつ点として届くなら、なぜ集計すると波の模様になるのでしょう。二つのすき間のどちらを通ったかを確かめようとすると、結果はどう変わるのでしょう。これは手品でも、装置の気まぐれでもありません。次回は光の実験も手がかりに、この問いへ進みます。",
+          "heading": "二重スリットが投げかける問い",
+          "cost_usd": 0.006,
+          "latency_ms": 28259,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec6_mid.png",
+          "prompt": "A two-slit experiment in a realistic dark laboratory: source on the left, metal barrier with two narrow slits at center, individual glowing impacts building into alternating vertical bands on a screen at right; 16:9 composition clearly showing the full experimental path; cinematic educational B-roll, premium scientific visualization, no line-art style; dramatic controlled blue light, brushed metal texture, crisp luminous detector marks; short Japanese labels: 「二つのすき間」 「1個ずつの点」 「縞模様」",
+          "markdown": "## 二重スリットが投げかける問い\n\nこの二つの顔を最も印象的に示すのが、二重スリットの実験です。仕切り板に、髪の毛ほどの細いすき間を二本あけ、その向こうに画面を置きます。電子や光を弱くして、一個ずつ通すとしましょう。\n\n画面に届くたび、記録されるのは一つの点です。最初の数個なら、ただ散らばった点に見えます。ところが同じ実験を辛抱強く繰り返すと、点の集まり方には規則が現れます。明るい帯と、点が少ない帯が交互に並ぶ、波の重なりに似た縞模様です。\n\nここで問いが生まれます。一個ずつ点として届くなら、なぜ集計すると波の模様になるのでしょう。二つのすき間のどちらを通ったかを確かめようとすると、結果はどう変わるのでしょう。これは手品でも、装置の気まぐれでもありません。次回は光の実験も手がかりに、この問いへ進みます。",
+          "heading": "二重スリットが投げかける問い",
+          "cost_usd": 0.048,
+          "latency_ms": 48452,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "sonnet_mid": {
+          "image_url": null,
+          "prompt": "A conceptual diagram in clean line-art style, wide horizontal composition. On the left side, a large classical world represented by a smooth arc trajectory of a ball, a bridge silhouette, and a light ray arrow — all neat and predictable. On the right side, a small mysterious quantum world shown as a glowing atom with electron cloud, question marks, and wavy uncertain paths. In the center, a tall open door with light streaming through it, symbolizing the transition from classical to quantum physics. Labels: 'Classical' on the left, 'Quantum' on the right, 'New Door' on the door. Minimal color, blueprint or textbook illustration style, no Japanese characters.",
+          "markdown": "## 新しい物理学への扉\n\nここまで見てきたように、古典物理学は私たちの日常スケールでは驚くほどよく機能します。橋の設計も、飛行機の飛行も、電気回路の計算も、すべて古典物理学の枠組みで正確に予測できます。\n\nしかし、原子や電子という極めて小さな世界に踏み込んだとたん、古典物理学は「お手上げ」になってしまいました。電子が原子核の周りをぐるぐる回り続けられる理由が説明できない。光が金属に当たったとき飛び出す電子のエネルギーが説明できない。熱した物体が放つ光の色が説明できない——こうした「説明できない現象」が積み重なっていったのです。\n\nこの壁を乗り越えるために生まれたのが、**量子力学**です。量子力学は「自然界には最小の単位（量子）がある」という、それまでの常識をひっくり返す考え方を土台にしています。\n\n量子の世界では、粒子が同時に複数の場所に存在したり、観測するまで状態が決まらなかったりと、日常感覚では「そんなバカな！」と思いたくなる現象が次々と登場します。しかしそれらはすべて、実験で繰り返し確かめられた「本物の自然の姿」なのです。\n\n次回はいよいよ、量子力学への扉を開いた最初の鍵——**光の不思議な二面性**——に迫ります。",
+          "heading": "新しい物理学への扉",
+          "cost_usd": 0.015426,
+          "latency_ms": 16654,
+          "quality": "historical_mid",
+          "model_id": "gpt-image-2",
+          "source": "reused"
+        }
+      }
+    },
+    {
+      "section_no": 7,
+      "heading": "量子力学は当てずっぽうではない",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec7_low.png",
+          "prompt": "Researchers comparing repeated quantum experiment records with predicted patterns on transparent screens, 16:9 laboratory composition featuring data charts, detector images, and careful observation rather than fantasy, cinematic educational B-roll, balanced white and blue lighting, tactile paper and instrument textures, short labels: 実験 / 予測 / 検証",
+          "markdown": "## 量子力学は当てずっぽうではない\n\n量子力学は、奇妙な話を面白く作るための想像ではありません。光電効果、原子が出す光、電子や光の二重スリット実験など、何度も繰り返された観測結果を説明し、次の実験で何が起きるかを予測するための規則です。予測が実験と合うかどうかが、理論の信頼性を支えています。\n\nもちろん、私たちの常識と違うため、最初は納得しにくいでしょう。そのとき大切なのは、日常のイメージを無理に当てはめることではなく、「実際には何が記録されたのか」を確認する姿勢です。量子力学では、直感よりも実験事実を出発点にします。驚きは、理解を妨げる壁ではなく、新しい見方への合図なのです。",
+          "heading": "量子力学は当てずっぽうではない",
+          "cost_usd": 0.006,
+          "latency_ms": 34729,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec7_mid.png",
+          "prompt": "Researchers comparing repeated quantum experiment records with predicted patterns on transparent screens, 16:9 laboratory composition featuring data charts, detector images, and careful observation rather than fantasy, cinematic educational B-roll, balanced white and blue lighting, tactile paper and instrument textures, short labels: 実験 / 予測 / 検証",
+          "markdown": "## 量子力学は当てずっぽうではない\n\n量子力学は、奇妙な話を面白く作るための想像ではありません。光電効果、原子が出す光、電子や光の二重スリット実験など、何度も繰り返された観測結果を説明し、次の実験で何が起きるかを予測するための規則です。予測が実験と合うかどうかが、理論の信頼性を支えています。\n\nもちろん、私たちの常識と違うため、最初は納得しにくいでしょう。そのとき大切なのは、日常のイメージを無理に当てはめることではなく、「実際には何が記録されたのか」を確認する姿勢です。量子力学では、直感よりも実験事実を出発点にします。驚きは、理解を妨げる壁ではなく、新しい見方への合図なのです。",
+          "heading": "量子力学は当てずっぽうではない",
+          "cost_usd": 0.048,
+          "latency_ms": 51415,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec7_low.png",
+          "prompt": "A scientist in a modern laboratory comparing a projected predicted pattern with a real detector image, both showing matching quantum interference bands; 16:9 composition with researcher in side profile and large data display as the focal point; cinematic educational B-roll, realistic documentary science atmosphere; cool monitor glow, precise instrument metal textures, subtle warm rim light; short Japanese labels: 「予測」 「実験」 「一致」",
+          "markdown": "## 量子力学は当てずっぽうではない\n\n量子力学を聞くと、「不思議だから何でもありなのでは」と感じるかもしれません。しかし正反対です。量子力学は、実験で得られた結果を何度も確かめ、その結果を予測するために磨かれてきた規則です。\n\nたとえば、どの位置に点が多く現れるか、どんな色の光が出るか、材料が電気をどう扱うかについて、量子力学は確かめられる予測を出します。予測と観察が合わなければ、説明のほうを見直します。この姿勢は、日常の科学と変わりません。\n\n直感に反することと、根拠がないことは別です。分からないと感じたら、まず「実験では何が観察されたのか」を確かめる。量子の世界では、その順序が特に大切です。",
+          "heading": "量子力学は当てずっぽうではない",
+          "cost_usd": 0.006,
+          "latency_ms": 33298,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec7_mid.png",
+          "prompt": "A scientist in a modern laboratory comparing a projected predicted pattern with a real detector image, both showing matching quantum interference bands; 16:9 composition with researcher in side profile and large data display as the focal point; cinematic educational B-roll, realistic documentary science atmosphere; cool monitor glow, precise instrument metal textures, subtle warm rim light; short Japanese labels: 「予測」 「実験」 「一致」",
+          "markdown": "## 量子力学は当てずっぽうではない\n\n量子力学を聞くと、「不思議だから何でもありなのでは」と感じるかもしれません。しかし正反対です。量子力学は、実験で得られた結果を何度も確かめ、その結果を予測するために磨かれてきた規則です。\n\nたとえば、どの位置に点が多く現れるか、どんな色の光が出るか、材料が電気をどう扱うかについて、量子力学は確かめられる予測を出します。予測と観察が合わなければ、説明のほうを見直します。この姿勢は、日常の科学と変わりません。\n\n直感に反することと、根拠がないことは別です。分からないと感じたら、まず「実験では何が観察されたのか」を確かめる。量子の世界では、その順序が特に大切です。",
+          "heading": "量子力学は当てずっぽうではない",
+          "cost_usd": 0.048,
+          "latency_ms": 51437,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        }
+      }
+    },
+    {
+      "section_no": 8,
+      "heading": "まとめ",
+      "cells": {
+        "luna_low": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec8_low.png",
+          "prompt": "A closing visual combining an atom, a single detector dot, and a double-slit interference pattern along a clear learning path toward the next lesson, 16:9 panoramic composition, cinematic educational B-roll, hopeful illuminated laboratory atmosphere, polished scientific textures, short labels: 原子 / 粒子 / 波 / 次回へ",
+          "markdown": "## まとめ\n\n今回は、量子力学が原子、電子、光のような非常に小さな世界を説明する学問だと学びました。日常の物体では「物は決まった場所を進む」という直感が役立ちますが、量子では、検出結果は一点の粒のように現れる一方、たくさん集めると波のような広がりや縞模様を示します。\n\n量子力学は奇妙な例外を並べたものではなく、繰り返し確かめられた実験を説明する規則です。次回は光電効果と二重スリットを詳しく取り上げ、量子が一個ずつ届くのに波の模様を作る理由を、確率と観測への入口として考えます。",
+          "heading": "まとめ",
+          "cost_usd": 0.006,
+          "latency_ms": 31592,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "luna_mid": {
+          "image_url": "/sample/session1-visual-lab/luna_s1_sec8_mid.png",
+          "prompt": "A closing visual combining an atom, a single detector dot, and a double-slit interference pattern along a clear learning path toward the next lesson, 16:9 panoramic composition, cinematic educational B-roll, hopeful illuminated laboratory atmosphere, polished scientific textures, short labels: 原子 / 粒子 / 波 / 次回へ",
+          "markdown": "## まとめ\n\n今回は、量子力学が原子、電子、光のような非常に小さな世界を説明する学問だと学びました。日常の物体では「物は決まった場所を進む」という直感が役立ちますが、量子では、検出結果は一点の粒のように現れる一方、たくさん集めると波のような広がりや縞模様を示します。\n\n量子力学は奇妙な例外を並べたものではなく、繰り返し確かめられた実験を説明する規則です。次回は光電効果と二重スリットを詳しく取り上げ、量子が一個ずつ届くのに波の模様を作る理由を、確率と観測への入口として考えます。",
+          "heading": "まとめ",
+          "cost_usd": 0.048,
+          "latency_ms": 52983,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_low": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec8_low.png",
+          "prompt": "A concise closing tableau of an atom, a single bright detector dot, and a wave-like interference pattern connected by a luminous path toward an open laboratory doorway; 16:9 composition with three concepts arranged clearly from left to right; cinematic educational B-roll, polished scientific storytelling; balanced blue and amber lighting, glass, metal, and soft particle textures; short Japanese labels: 「原子」 「粒子」 「波」 「次回：確率と観測」",
+          "markdown": "## まとめ\n\n量子力学は、原子、電子、光のような非常に小さな世界を説明するための学問です。日常の物理を否定するのではなく、その直感だけでは足りない領域で、実験に合う規則を与えます。\n\n量子は検出すると一点として現れるため、粒子らしく見えます。しかし多くの結果を集めると、波の重なりを思わせる模様も現れます。粒子か波かを一方だけに決めるより、両方の現れ方を受け止めることが出発点です。\n\n次回は、光電効果と二重スリットを詳しく見ます。一個ずつ届く量子と、全体で現れる波の模様を通して、確率と観測への入口を開きましょう。",
+          "heading": "まとめ",
+          "cost_usd": 0.006,
+          "latency_ms": 32108,
+          "quality": "low",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        },
+        "terra_mid": {
+          "image_url": "/sample/session1-visual-lab/terra_s1_sec8_mid.png",
+          "prompt": "A concise closing tableau of an atom, a single bright detector dot, and a wave-like interference pattern connected by a luminous path toward an open laboratory doorway; 16:9 composition with three concepts arranged clearly from left to right; cinematic educational B-roll, polished scientific storytelling; balanced blue and amber lighting, glass, metal, and soft particle textures; short Japanese labels: 「原子」 「粒子」 「波」 「次回：確率と観測」",
+          "markdown": "## まとめ\n\n量子力学は、原子、電子、光のような非常に小さな世界を説明するための学問です。日常の物理を否定するのではなく、その直感だけでは足りない領域で、実験に合う規則を与えます。\n\n量子は検出すると一点として現れるため、粒子らしく見えます。しかし多くの結果を集めると、波の重なりを思わせる模様も現れます。粒子か波かを一方だけに決めるより、両方の現れ方を受け止めることが出発点です。\n\n次回は、光電効果と二重スリットを詳しく見ます。一個ずつ届く量子と、全体で現れる波の模様を通して、確率と観測への入口を開きましょう。",
+          "heading": "まとめ",
+          "cost_usd": 0.048,
+          "latency_ms": 46624,
+          "quality": "medium",
+          "model_id": "gpt-image-2",
+          "source": "generated"
+        }
+      }
+    }
+  ]
+}
