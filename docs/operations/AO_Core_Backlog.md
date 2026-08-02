@@ -65,13 +65,18 @@ PR: https://github.com/juci-borcigin/Altan-Orda-AI-Frontend/pull/1
 
 ## 作業順の仮置き
 
-1. **足場**: 1 PR（講義＋Lab 改名、Lab はデプロイ除外）→ 製品のみ本番反映（旧 Sample を Vercel から落とす）
-2. **使える基本機能（最低限ゲート）**  
-   - 脱 OpenRouter（その中でモデル最新化）  
+1. **足場**: 完了（2026-08-02）
+2. **使える基本機能（最低限ゲート）** — 実装中／完了予定  
+   - **脱 OpenRouter**: 常時直結。例外は `AO_LLM_FORCE_OPENROUTER=1` のみ（開発時明示）。失敗はエラー（OR へ黙って落とさない）  
+   - **単価**: ベンダー直結表（`ao-vendor-pricing.ts`）。OR models API は FORCE 時のみ  
+   - **モデル**: Anthropic（Opus 5/4.8/4.7/4.6・Sonnet 5/4.6/4.5・Haiku 4.5）＋ OpenAI（5.6 Sol/Terra/Luna・5.5・5.4/mini）必須。試験に Fable 5・nano・Grok・DeepSeek・Sonar/Pro  
+   - 要約既定: Haiku 4.5（実課金は圧縮時のみ別コール。UI 概算には未加算）  
+   - Sonar 選択時は Tavily オフ  
    - RAG 改良は内容未定・後追い可
 2.5. **基本機能の続き**（この段階で想起）  
    - 同期・永続の健全性  
    - API 残高切れ UX  
+   - （候補）履歴要約 Haiku の概算への加算
 3. **レイアウト Ver2**（Phase 7 の枠）※前後で `page.tsx`：確定 → 掃除 → 分割  
 4. **Phase 7 機能本体**  
 5. **マルチユーザー**

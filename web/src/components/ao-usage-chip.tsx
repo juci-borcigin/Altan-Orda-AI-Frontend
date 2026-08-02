@@ -24,6 +24,12 @@ function providerDisplayLabel(provider?: string): string {
       return "Google";
     case "openai":
       return "OpenAI";
+    case "xai":
+      return "xAI";
+    case "deepseek":
+      return "DeepSeek";
+    case "perplexity":
+      return "Perplexity";
     default:
       return provider?.trim() || "—";
   }

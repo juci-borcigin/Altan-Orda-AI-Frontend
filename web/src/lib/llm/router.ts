@@ -6,7 +6,7 @@ export {
 } from "@/lib/llm/build-outbound-messages";
 export { applyCompletionBudgetToPayload } from "@/lib/llm/completion-payload";
 export { toDirectApiModelId } from "@/lib/llm/map-direct-model-id";
-export { hasAnyLlmCredential, resolveEnvLlmDefaults, resolveLlmRoute } from "@/lib/llm/resolve-route";
+export { hasAnyLlmCredential, resolveEnvLlmDefaults, resolveLlmRoute, isPerplexitySonarModelId } from "@/lib/llm/resolve-route";
 export type {
   ChatContentPart,
   LlmProvider,

@@ -42,6 +42,7 @@ import {
   buildOutboundChatMessages,
   completionHeaders,
   hasAnyLlmCredential,
+  isPerplexitySonarModelId,
   resolveEnvLlmDefaults,
   resolveLlmRoute,
   serializeOutboundChatMessages,
@@ -660,7 +661,10 @@ export async function POST(req: Request) {
   const envLlm = resolveEnvLlmDefaults();
   if (!hasAnyLlmCredential() && !mockMode && !dryRunMode) {
     return NextResponse.json(
-      { error: "LLM API key is not set (LLM_API_KEY / OPENAI / GEMINI / ANTHROPIC)" },
+      {
+        error:
+          "LLM API key is not set（脱 OR: OPENAI / ANTHROPIC / GEMINI / XAI / DEEPSEEK / PERPLEXITY。例外時のみ LLM_API_KEY+OpenRouter）",
+      },
       { status: 500 },
     );
   }
@@ -676,6 +680,14 @@ export async function POST(req: Request) {
     }
   }
   const llmRoute = resolveLlmRoute(configuredModelId);
+  if (!llmRoute.apiKey?.trim() && !mockMode && !dryRunMode) {
+    return NextResponse.json(
+      {
+        error: `直結 API キーがありません（provider=${llmRoute.provider}, model=${configuredModelId}）。脱 OR 方針のため OpenRouter へは自動フォールバックしません。AO_LLM_FORCE_OPENROUTER=1 は例外時のみ。`,
+      },
+      { status: 500 },
+    );
+  }
   const { baseUrl, apiKey } = llmRoute;
   const effectiveModel = configuredModelId;
   const userMsgs = Array.isArray(body.messages) ? body.messages : [];
@@ -746,8 +758,10 @@ export async function POST(req: Request) {
 
   const userTurnCount = trimmed.filter((m) => m.role === "user").length;
   const webSearchMinRounds = phase5Ctx?.bundle.runtime.web_search_min_rounds ?? 0;
+  /** Sonar は内蔵検索のため Tavily を付けない（二重検索・二重課金防止） */
   const tavilyEnabled =
     Boolean(process.env.TAVILY_API_KEY?.trim()) &&
+    !isPerplexitySonarModelId(effectiveModel) &&
     (phase5Ctx ? phase5Ctx.bundle.runtime.web_search_enabled : true) &&
     userTurnCount > webSearchMinRounds;
   const tavilySuffix = tavilyEnabled

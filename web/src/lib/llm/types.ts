@@ -1,4 +1,11 @@
-export type LlmProvider = "openrouter" | "openai" | "google" | "anthropic";
+export type LlmProvider =
+  | "openrouter"
+  | "openai"
+  | "google"
+  | "anthropic"
+  | "xai"
+  | "deepseek"
+  | "perplexity";
 
 export type LlmRoute = {
   provider: LlmProvider;

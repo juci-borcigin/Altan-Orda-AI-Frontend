@@ -1,8 +1,8 @@
 import { getOpenRouterTokenRates } from "@/lib/ao-openrouter-pricing";
+import { getVendorTokenRates } from "@/lib/ao-vendor-pricing";
 
 /**
  * 概算 USD（粗い既定単価）。未設定なら null。
- * OpenRouter の models API でモデル別単価を取れる場合は estimateCompletionUsdForModel を使う。
  */
 function envPerMillion(name: string): number | null {
   const raw = process.env[name]?.trim();
@@ -23,20 +23,30 @@ export function estimateCompletionUsd(
 }
 
 /**
- * model_id が OpenRouter 公開一覧に載っているときはその単価で算出。
- * 載っていない／取得失敗時は estimateCompletionUsd（AO_USD_*）へフォールバック。
+ * 1) ベンダー直結単価表 2) 例外時 OpenRouter models API 3) env フォールバック
  */
 export async function estimateCompletionUsdForModel(
   promptTokens: number,
   completionTokens: number,
   modelId: string,
 ): Promise<number | null> {
-  const rates = await getOpenRouterTokenRates(modelId);
-  if (rates) {
-    const raw = promptTokens * rates.promptPerTok + completionTokens * rates.completionPerTok;
-    if (!Number.isFinite(raw)) return estimateCompletionUsd(promptTokens, completionTokens);
-    return Math.round(raw * 1e6) / 1e6;
+  const vendor = getVendorTokenRates(modelId);
+  if (vendor) {
+    const raw = promptTokens * vendor.promptPerTok + completionTokens * vendor.completionPerTok;
+    if (Number.isFinite(raw)) return Math.round(raw * 1e6) / 1e6;
   }
+
+  const forceOr =
+    (process.env.AO_LLM_FORCE_OPENROUTER ?? "").trim().toLowerCase() === "1" ||
+    (process.env.AO_LLM_FORCE_OPENROUTER ?? "").trim().toLowerCase() === "true";
+  if (forceOr) {
+    const rates = await getOpenRouterTokenRates(modelId);
+    if (rates) {
+      const raw = promptTokens * rates.promptPerTok + completionTokens * rates.completionPerTok;
+      if (Number.isFinite(raw)) return Math.round(raw * 1e6) / 1e6;
+    }
+  }
+
   return estimateCompletionUsd(promptTokens, completionTokens);
 }
 
