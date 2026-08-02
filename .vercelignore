@@ -12,7 +12,8 @@ web/.env.local
 
 # ---------------------------------------------------------------------------
 # Lab（実験室）— 本番には載せない（ローカル専用）
-# 方針: docs/lab/README.md 「運用方針」／ docs/operations/AO_Core_Backlog.md
+# 注意: Vercel の Root Directory は `web` のため、効く正本は `web/.vercelignore`
+# 本ファイルはリポジトリ直下からの CLI 用。方針: docs/lab/README.md
 # ---------------------------------------------------------------------------
 web/src/app/lab
 web/src/app/api/lab

@@ -124,7 +124,7 @@ web/scripts/lab-phone-view.sh
 
 旧パス互換（ローカル）: `next.config.ts` の redirects（`/sample` → `/lab`、`/api/sample` → `/api/lab`）。
 
-本番除外の正本: リポジトリ直下 `.vercelignore`。
+本番除外の正本: **`web/.vercelignore`**（Vercel Root Directory = `web`）。リポジトリ直下の `.vercelignore` は CLI 用の補助。
 
 ---
 
