@@ -38,8 +38,11 @@
 
 ### 実行前の残確認
 
-- [ ] デプロイ経路（ブランチ／CLI）— 実行時に殿下の慣例へ合わせる
-- [ ] **実行の明示許可**（コミット → PR → デプロイ）
+- [x] デプロイ経路: リポジトリ直下の linked project（`altan-orda-ai-frontend`）へ `vercel --prod`（Root Directory = `web`）。`web/` 単体で新規プロジェクトを作らないこと
+- [x] 実行（コミット → Push → PR → 本番デプロイ）— 2026-08-02
+
+PR: https://github.com/juci-borcigin/Altan-Orda-AI-Frontend/pull/1  
+本番: https://altan-orda-ai-frontend.vercel.app （`/l` 生存、`/lab`・`/sample` はビルド非搭載）
 
 ---
 
