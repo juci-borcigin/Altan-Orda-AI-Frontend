@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 
-export const SESSION1_VISUAL_LAB_DIR = "sample/session1-visual-lab";
+export const SESSION1_VISUAL_LAB_DIR = "lab/session1-visual-lab";
 
 export type Session1LlmId = "luna" | "terra" | "sonnet";
 export type Session1Quality = "low" | "medium";

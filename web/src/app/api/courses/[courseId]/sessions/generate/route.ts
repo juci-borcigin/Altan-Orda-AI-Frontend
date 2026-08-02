@@ -12,7 +12,14 @@ import {
   generateSessionContent,
   generateSessionSection,
 } from "@/lib/course-maker/course-llm";
-import type { CourseMaster } from "@/lib/course-maker/course-master-schema";
+import {
+  heroSlotId,
+  type CourseMaster,
+} from "@/lib/course-maker/course-master-schema";
+import {
+  attachWikimediaSectionImages,
+  resolveHeroImagePrompt,
+} from "@/lib/course-maker/course-session-media";
 import { recordCourseTrace } from "@/lib/course-maker/course-trace";
 import { verifySessionBody } from "@/lib/course-maker/verify-session";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -23,89 +30,21 @@ export const maxDuration = 300;
 type Ctx = { params: Promise<{ courseId: string }> };
 type Supa = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
 
-function slotIdFor(sessionNo: number, sectionNo: number) {
-  return `vis_${sessionNo}_${sectionNo}`;
-}
-
-/** 画像は生成せず、プロンプトだけ visuals に保存（管理者検証用） */
-async function upsertImagePromptDraft(
+/** Format v2: 回メイン画像のみ生成（セクション画像は Wikimedia） */
+async function generateSessionHeroImage(
   supa: Supa,
   courseId: string,
+  master: CourseMaster,
   sessionNo: number,
-  sectionNo: number,
-  prompt: string | null,
-  rationale: string | null,
 ) {
-  const slotId = slotIdFor(sessionNo, sectionNo);
-  if (!prompt) {
-    await supa.from("ao_course_visuals").upsert(
-      {
-        course_id: courseId,
-        session_no: sessionNo,
-        slot_id: slotId,
-        visual_type: "diagram",
-        status: "skipped",
-        prompt: null,
-        artifact_url: null,
-        image_model_id: null,
-        image_model_tier: "mini",
-        error_message: rationale ?? "図解不要と判定",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "course_id,session_no,slot_id" },
-    );
-    return;
-  }
-
-  await supa.from("ao_course_visuals").upsert(
-    {
-      course_id: courseId,
-      session_no: sessionNo,
-      slot_id: slotId,
-      visual_type: "diagram",
-      status: "pending",
-      prompt,
-      artifact_url: null,
-      image_model_id: null,
-      image_model_tier: "mini",
-      error_message: rationale,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "course_id,session_no,slot_id" },
-  );
-
-  await recordCourseTrace(supa, {
-    course_id: courseId,
-    phase: "ui_display",
-    step_key: `image_prompt_draft_s${sessionNo}_sec${sectionNo}`,
-    user_prompt: prompt,
-    response_text: rationale ?? undefined,
-    meta: { session_no: sessionNo, section_no: sectionNo, kind: "image_prompt_draft" },
+  const slotId = heroSlotId(sessionNo);
+  const prompt = resolveHeroImagePrompt(master, sessionNo);
+  const img = await generateCourseVisualImage({
+    prompt,
+    courseId,
+    slotId,
+    quality: "low",
   });
-}
-
-async function generateSectionImageFromStoredPrompt(
-  supa: Supa,
-  courseId: string,
-  sessionNo: number,
-  sectionNo: number,
-  promptOverride?: string,
-) {
-  const slotId = slotIdFor(sessionNo, sectionNo);
-  let prompt = promptOverride?.trim() ?? "";
-  if (!prompt) {
-    const { data } = await supa
-      .from("ao_course_visuals")
-      .select("prompt")
-      .eq("course_id", courseId)
-      .eq("session_no", sessionNo)
-      .eq("slot_id", slotId)
-      .maybeSingle();
-    prompt = (data?.prompt as string | null)?.trim() ?? "";
-  }
-  if (!prompt) throw new Error("画像プロンプトがありません。先に文章＋画像プロンプトを生成してください。");
-
-  const img = await generateCourseVisualImage({ prompt, courseId, slotId });
   await supa.from("ao_course_visuals").upsert(
     {
       course_id: courseId,
@@ -116,7 +55,7 @@ async function generateSectionImageFromStoredPrompt(
       artifact_url: img.artifact_url,
       prompt,
       image_model_id: img.model_id,
-      image_model_tier: img.model_id.includes("mini") ? "mini" : "medium",
+      image_model_tier: "mini",
       error_message: null,
       updated_at: new Date().toISOString(),
     },
@@ -125,16 +64,16 @@ async function generateSectionImageFromStoredPrompt(
   await recordCourseTrace(supa, {
     course_id: courseId,
     phase: "tier2_image",
-    step_key: `s${sessionNo}_sec${sectionNo}_${slotId}`,
+    step_key: `s${sessionNo}_${slotId}`,
     model_id: img.model_id,
     provider: img.provider,
     user_prompt: prompt,
-    response_text: img.revised_prompt ?? "(image)",
+    response_text: img.revised_prompt ?? "(hero image)",
     latency_ms: img.latency_ms,
     cost_usd: img.cost_usd,
     meta: {
       session_no: sessionNo,
-      section_no: sectionNo,
+      kind: "hero",
       size: img.size,
       quality: img.quality,
     },
@@ -167,44 +106,28 @@ async function generateOneSession(
   let model_id = "";
   let fallback_used = false;
   let llm_call_count = 0;
-  const image_prompts: Array<{
-    section_no: number;
-    image_prompt: string | null;
-    image_rationale: string | null;
-  }> = [];
   const trace = { course_id: courseId, supa };
+  let workingMaster = master;
 
-  // text / both: 本文＋画像プロンプト（画像バイトは作らない）
+  // text / both: 本文（soft 字数）
   if (opts.output === "text" || opts.output === "both") {
     if (opts.section_no == null) {
       const result = await generateSessionContent({
-        master,
+        master: workingMaster,
         session_no: sessionNo,
         trace,
+        enforce_length: false,
       });
       model_id = result.model_id;
       fallback_used = result.fallback_used;
       llm_call_count = result.llm_calls.length;
       for (const page of result.pages) {
         parts.push(page.markdown.trim());
-        image_prompts.push({
-          section_no: page.section_no,
-          image_prompt: page.image_prompt,
-          image_rationale: page.image_rationale,
-        });
-        await upsertImagePromptDraft(
-          supa,
-          courseId,
-          sessionNo,
-          page.section_no,
-          page.image_prompt,
-          page.image_rationale,
-        );
       }
     } else {
       const sec = sections[0]!;
       const result = await generateSessionSection({
-        master,
+        master: workingMaster,
         session_no: sessionNo,
         section_no: sec.section_no,
         trace,
@@ -212,33 +135,23 @@ async function generateOneSession(
       model_id = result.model_id;
       llm_call_count = result.llm ? 1 : 0;
       parts.push(result.markdown.trim());
-      image_prompts.push({
-        section_no: sec.section_no,
-        image_prompt: result.image_prompt,
-        image_rationale: result.image_rationale,
-      });
-      await upsertImagePromptDraft(
-        supa,
-        courseId,
-        sessionNo,
-        sec.section_no,
-        result.image_prompt,
-        result.image_rationale,
-      );
+    }
+
+    // 全文生成時のみ Wikimedia セクション画像を付与して master を更新
+    if (opts.section_no == null) {
+      workingMaster = await attachWikimediaSectionImages(workingMaster, sessionNo);
+      await updateCourse(supa, courseId, { course_master: workingMaster });
     }
   }
 
-  // image / both: 保存済み（または直前に作った）プロンプトで画像生成
+  // image / both: 回メイン画像のみ（Image2 Low）
+  let hero: { artifact_url: string; cost_usd: number } | null = null;
   if (opts.output === "image" || opts.output === "both") {
-    for (const sec of sections) {
-      const drafted = image_prompts.find((p) => p.section_no === sec.section_no);
-      await generateSectionImageFromStoredPrompt(
-        supa,
-        courseId,
-        sessionNo,
-        sec.section_no,
-        drafted?.image_prompt ?? undefined,
-      );
+    if (opts.section_no != null) {
+      // セクション単位の画像生成は v2 ではしない（Wikimedia）
+    } else {
+      const img = await generateSessionHeroImage(supa, courseId, workingMaster, sessionNo);
+      hero = { artifact_url: img.artifact_url, cost_usd: img.cost_usd };
     }
   }
 
@@ -256,15 +169,18 @@ async function generateOneSession(
     }
   }
   const word_count = markdown_body ? markdown_body.replace(/\s/g, "").length : null;
-  const valid_source_ids = new Set(master.sources.items.map((s) => s.source_id));
+  const valid_source_ids = new Set(workingMaster.sources.items.map((s) => s.source_id));
   if (valid_source_ids.size === 0) valid_source_ids.add("mock_chunk_1");
+
+  const sessionForVerify =
+    workingMaster.sessions.find((s) => s.session_no === sessionNo) ?? session;
 
   const verification =
     markdown_body != null
       ? verifySessionBody({
           markdown: markdown_body,
-          session,
-          target_chars: master.meta.target_chars_per_session,
+          session: sessionForVerify,
+          target_chars: workingMaster.meta.target_chars_per_session,
           valid_source_ids,
         })
       : null;
@@ -278,7 +194,8 @@ async function generateOneSession(
       partial: opts.section_no != null,
       fallback_used,
       llm_call_count,
-      image_prompts,
+      format: "v2",
+      hero_url: hero?.artifact_url ?? null,
     },
   };
   if (markdown_body != null) {
@@ -296,7 +213,7 @@ async function generateOneSession(
       step_key: `learn_s${sessionNo}${opts.section_no != null ? `_sec${opts.section_no}` : ""}`,
       ui_display_ref: `/courses/${courseId}/learn`,
       response_text: markdown_body.slice(0, 2000),
-      meta: { word_count, output: opts.output, image_prompts },
+      meta: { word_count, output: opts.output, format: "v2" },
     });
   }
 
@@ -306,7 +223,7 @@ async function generateOneSession(
     model_id,
     markdown_body,
     output: opts.output,
-    image_prompts,
+    hero,
   };
 }
 
@@ -327,7 +244,7 @@ export async function POST(req: Request, ctx: Ctx) {
     /* empty */
   }
 
-  // デフォルトは画像バイトまで一気に作らず、プロンプト検証を先に行う
+  // デフォルトは本文＋Wikimedia。回メイン画像は output=image|both
   const output = body.output != null ? parseTier2OutputMode(body.output) : "text";
 
   try {
@@ -355,8 +272,11 @@ export async function POST(req: Request, ctx: Ctx) {
         }),
       );
     } else if (pipeline) {
+      let current = master;
       for (let n = 1; n <= master.meta.session_count; n++) {
-        results.push(await generateOneSession(supa, courseId, master, n, { output }));
+        const courseNow = await getCourse(supa, courseId);
+        current = (courseNow?.course_master as CourseMaster | null) ?? current;
+        results.push(await generateOneSession(supa, courseId, current, n, { output }));
       }
     } else {
       return NextResponse.json({ error: "session_no or pipeline required" }, { status: 400 });

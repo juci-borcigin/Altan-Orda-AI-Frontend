@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { COURSE_IMAGE_STYLE_YOUTUBE_BG } from "./course-image-prompt-guide";
 
-/** 量子力学入門比較ラボ用の既定講座 */
+/** 量子力学入門比較ラボ用の既定講義 */
 export const IMAGE_LAB_DEFAULT_COURSE_ID = "bfea8c94-40d9-4c39-8f68-627a4927a648";
 
 /** 16:9 近傍（gpt-image-2 許容: 倍数16・比≦3） */
@@ -25,7 +25,7 @@ export type ImageLabSlot = {
   session_no: number;
   section_no: number;
   heading: string;
-  /** 旧プロンプト（講座DB由来） */
+  /** 旧プロンプト（講義DB由来） */
   base_prompt: string;
   /** A: base + スタイル後付け */
   style_a_prompt?: string;
@@ -72,7 +72,7 @@ export function imageLabManifestPath(): string {
 }
 
 export function publicUrlForLabFile(filename: string): string {
-  return `/sample/image-lab/${filename}`;
+  return `/lab/image-lab/${filename}`;
 }
 
 export async function readImageLabManifest(): Promise<ImageLabManifest | null> {
@@ -100,7 +100,7 @@ export function applyStyleA(basePrompt: string): string {
 export const IMAGE_LAB_VARIANT_META: ImageLabManifest["variants"] = [
   {
     id: "baseline_mid",
-    label: "既存配置 · gpt-image-2 mid（講座の現行）",
+    label: "既存配置 · gpt-image-2 mid（講義の現行）",
     model_id: "gpt-image-2",
     quality: "medium",
     style: "none",

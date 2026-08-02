@@ -206,7 +206,7 @@ function patternLabel(modelId: string, quality: string, count: number): string {
 }
 
 /**
- * 画像以外の課金と、画像パターン別の「その画像に差し替えた場合の講座合計」を算出。
+ * 画像以外の課金と、画像パターン別の「その画像に差し替えた場合の講義合計」を算出。
  * 複数品質の画像トレースが共存しても合計を二重計上しない。
  */
 export function buildImagePatternComparison(

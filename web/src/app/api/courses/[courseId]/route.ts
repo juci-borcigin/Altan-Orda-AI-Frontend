@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCourse, listSessions, updateCourse } from "@/lib/course-maker/course-db";
+import { publicLearnInfo } from "@/lib/course-maker/course-public-learn";
 import {
   buildImagePatternComparison,
   listCourseTraceCosts,
@@ -146,6 +147,7 @@ export async function GET(req: Request, ctx: Ctx) {
       process_logs: includeLogs ? process_logs : [],
       llm_summary,
       image_pattern_compare,
+      public_learn: publicLearnInfo(courseId),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

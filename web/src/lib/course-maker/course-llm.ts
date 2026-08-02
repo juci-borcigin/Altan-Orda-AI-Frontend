@@ -1,12 +1,14 @@
 import {
+  audienceLabel,
+  CHARS_PER_SESSION,
   extractJsonFromLlm,
   MAX_SECTIONS_PER_SESSION,
   mathLevelGuide,
   mathLevelLabel,
   MIN_SECTIONS_PER_SESSION,
   parseCourseMaster,
+  PREFERRED_CONTENT_SECTIONS,
   PREFERRED_SECTION_CHARS,
-  targetCharsForDuration,
   type CourseMaster,
   type CourseParams,
 } from "./course-master-schema";
@@ -129,11 +131,9 @@ async function traceLlmCall(ctx: LlmTraceCtx | undefined, call: LlmCallResult, m
 }
 
 function mockCourseMaster(params: CourseParams): CourseMaster {
-  const target = targetCharsForDuration(params.session_duration_min);
-  const sectionCount = Math.max(
-    MIN_SECTIONS_PER_SESSION,
-    Math.min(MAX_SECTIONS_PER_SESSION, Math.round(target / PREFERRED_SECTION_CHARS)),
-  );
+  const target = CHARS_PER_SESSION;
+  const contentCount = PREFERRED_CONTENT_SECTIONS;
+  const sectionCount = contentCount + 2;
   const sectionChars = Math.round(target / sectionCount);
   const sessions = Array.from({ length: params.session_count }, (_, i) => {
     const n = i + 1;
@@ -146,17 +146,8 @@ function mockCourseMaster(params: CourseParams): CourseMaster {
       continuity_out: `第${n}回の到達点を説明できる`,
       foreshadow_ids: n === 1 ? ["fs_main"] : [],
       payoff_ids: n === params.session_count ? ["fs_main"] : [],
-      visual_slots:
-        n === 2
-          ? [
-              {
-                slot_id: `vis_${n}_1`,
-                visual_type: "diagram" as const,
-                prompt_hint: `${params.theme}の概念図`,
-                image_model_tier: "mini" as const,
-              },
-            ]
-          : [],
+      hero_image_prompt: `Educational 16:9 hero for ${params.theme} session ${n}, cinematic educational still`,
+      visual_slots: [] as CourseMaster["sessions"][number]["visual_slots"],
       sections: Array.from({ length: sectionCount }, (_, si) => {
         const role = si === 0 ? "intro" : si === sectionCount - 1 ? "outro" : "content";
         return {
@@ -167,16 +158,19 @@ function mockCourseMaster(params: CourseParams): CourseMaster {
               ? "はじめに"
               : role === "outro"
                 ? "まとめ"
-                : `セクション${si + 1}`,
+                : `セクション${si}`,
           intent:
             role === "intro"
               ? n === 1
-                ? "講座全体の位置づけと今回の目標"
+                ? "講義全体の位置づけと今回の目標"
                 : "前回のまとめと今回の目標"
               : role === "outro"
                 ? "今回のまとめ"
-                : `${params.theme}の部分テーマ${si + 1}`,
+                : `${params.theme}の部分テーマ${si}`,
           target_chars: sectionChars,
+          image_search_query:
+            role === "content" ? `${params.theme} ${si}` : undefined,
+          image_source: "none" as const,
         };
       }),
       source_refs: [],
@@ -205,57 +199,86 @@ function mockCourseMaster(params: CourseParams): CourseMaster {
   };
 }
 
-const OUTLINE_SYSTEM = `あなたは講座設計者です。出力は JSON のみ（説明文・markdown不要）。
+const OUTLINE_SYSTEM = `あなたは講義設計者です。出力は JSON のみ（説明文・markdown不要）。
 schema_version は必ず 1。
 sessions は配列。各要素に session_no（1始まりの整数）, title, objectives, keywords,
-continuity_in, continuity_out, foreshadow_ids, payoff_ids, visual_slots, sections, source_refs を含める。
-sections はテーマと1回の時間に応じてAIが各回3〜10個の範囲で決める。回ごとに個数が異なってよい。
-最初の section は role="intro"、heading="はじめに"。第1回は講座全体の位置づけと今回の目標、第2回以降は前回のまとめと今回の目標を扱う。
-最後の section は role="outro"、heading="まとめ"。今回の要点と次回へのつながり（最終回は講座全体の着地）を扱う。
-その間は role="content"。section_no は各回1からの連番。
-各 section には role, heading, intent（このセクションで教えること・なぜ必要かを日本語1〜2文）, target_chars を必ず書く。
-target_chars は平均400字を基本とし、通常300〜500字。各回の合計を目標文字数の±10%に収める。
-長時間回で10セクション×500字では総文字数に届かない場合は、10個を上限に各target_charsを均等に増やす。
-intent に「部分テーマ1」のようなプレースホルダは不可。具体的な学習内容を書く。
-continuity_in/out は各600字以内。第n回の continuity_out と 第n+1回の continuity_in は語彙を共有する。
-visual_slots の image_model_tier は "mini" を既定とする。
-meta / common の narrative_arc, tone は必ず文字列で出力する。
-数値フィールド（session_no, section_no, session_count 等）は JSON number 型で出力する（文字列不可）。
+continuity_in, continuity_out, foreshadow_ids, payoff_ids, hero_image_prompt, sections, source_refs を含める。
+visual_slots は空配列 [] でよい（Format v2 では使わない）。
 
-【伏線 foreshadow — 機械検証 M3/M4 で必ずチェックされる】
-1. foreshadow_registry[].id は fs_1, fs_2 のように一意の文字列
-2. 各 id について introduced_session 回の sessions[].foreshadow_ids に含める
-3. 各 id について resolved_session 回の sessions[].payoff_ids に含める（他の回には入れない）
-4. sessions に出てくる foreshadow_ids / payoff_ids の id はすべて registry に定義する
-5. payoff_ids に id がある回の session_no は、registry の resolved_session と一致させる
+【フォーマット — Web／ブログ型記事】
+1回＝1本の縦読み記事。紙芝居・1コマ1画像ではない。
+sections は受講画面の記事見出しブロック（Intro + 中身 + Outro）。
+知識ドラフトの Markdown 見出しを1:1でセクション化しない。
 
-例（5回講座・伏線1本）:
+【セクション数】
+各回 ${MIN_SECTIONS_PER_SESSION}〜${MAX_SECTIONS_PER_SESSION} 個（Intro1 + 中身およそ${PREFERRED_CONTENT_SECTIONS}±1 + Outro1）。
+中身だけ8個は多すぎ。総セクションも ${MAX_SECTIONS_PER_SESSION} を超えない。
+最初は role="intro"、heading="はじめに"。最後は role="outro"、heading="まとめ"。間は role="content"。
+
+【文字数】
+1回の目標は常に ${CHARS_PER_SESSION} 字（Intro+中身+Outro合計）。
+各 section に target_chars。合計を ${CHARS_PER_SESSION} の±10%に。
+セクションあたり目安 roughly ${PREFERRED_SECTION_CHARS} 字。
+
+【画像まわり（構成段階）】
+- hero_image_prompt: その回のメイン画像用（英語主体1段落・16:9・シネマ調 educational）。各回必須。
+- content セクションのみ image_search_query（英語または日本語の短い Wikimedia 検索語）。intro/outro には付けない。
+- セクション画像は生成しない（検索取得）。visual_slots は不要。
+
+各 section に role, heading, intent（日本語1〜2文）, target_chars を必ず書く。
+intent に「部分テーマ1」のようなプレースホルダは不可。
+continuity_in/out は各600字以内。第n回 continuity_out と第n+1回 continuity_in は語彙を共有。
+meta / common の narrative_arc, tone は文字列。数値は JSON number。
+
+【伏線 foreshadow — 機械検証 M3/M4】
+1. foreshadow_registry[].id は fs_1 等で一意
+2. introduced_session 回の foreshadow_ids に含める
+3. resolved_session 回の payoff_ids に含める
+4. 出てくる id はすべて registry に定義
+5. payoff のある回の session_no は resolved_session と一致
+
+例（5回・伏線1本）:
 foreshadow_registry: [{ "id": "fs_1", "introduced_session": 1, "resolved_session": 5, "description": "..." }]
 sessions[0].foreshadow_ids: ["fs_1"], sessions[0].payoff_ids: []
 sessions[4].foreshadow_ids: [], sessions[4].payoff_ids: ["fs_1"]`;
 
-function buildOutlineUserPrompt(params: CourseParams, target: number, retryNote?: string): string {
-  const base = `以下の条件で CourseMaster JSON を生成してください。
+function buildOutlineUserPrompt(
+  params: CourseParams,
+  target: number,
+  retryNote?: string,
+  contentLockedMarkdown?: string,
+): string {
+  const base = `以下の条件で CourseMaster JSON を生成してください（Format v2・Web記事型）。
 
 テーマ: ${params.theme}
-現在のレベル（トピック習熟度）: ${params.learner_level}
-数学レベル: ${mathLevelLabel(params.math_level)}（${params.math_level}）
+受講者属性: ${audienceLabel(params.audience)}（${params.audience}）
+数学レベル: ${mathLevelLabel(params.math_level)}（常に中学数学固定）
 数学の使用上限: ${mathLevelGuide(params.math_level)}
-語学レベル: ${params.language_level}
 達成目標: ${params.target_outcome || params.theme}
-回数: ${params.session_count}
-1回あたり時間: ${params.session_duration_min}分
-1回あたり目標文字数: ${target}
-各回のセクション数: 3〜10個から内容に応じて判断（平均400字、総文字数優先）
+回数: ${params.session_count}（5〜10のみ）
+1回あたり目標文字数: ${target}（固定。分数パラメータは無い）
+各回のセクション数: ${MIN_SECTIONS_PER_SESSION}〜${MAX_SECTIONS_PER_SESSION}（中身目安 ${PREFERRED_CONTENT_SECTIONS}±1）
 
 必須トップレベルキー: schema_version, meta, common, sources, foreshadow_registry, sessions
-meta には theme, session_count, target_chars_per_session: ${target} を含める（learner_level 等は省略可）。
+meta には theme, audience, math_level, session_count, target_chars_per_session: ${target}, target_outcome を含める。
 common には narrative_arc, tone, prerequisites_stated, glossary を含める。
 sources は { "locked": false, "items": [] } でよい。
+各 session に hero_image_prompt を書く。content に image_search_query を書く。
 伏線は上記ルールに厳密に従うこと。`;
 
-  if (!retryNote) return base;
-  return `${base}
+  const locked = contentLockedMarkdown?.trim()
+    ? `
+
+【確定済み知識ドラフト】
+これは講義全体の「教える中身」である。Markdown 見出しは知識の目次であり、受講画面のセクション数ではない。
+見出しを1:1でセクション化せず、指定の回数と1回 ${target} 字に合わせて回へ再配分せよ。内容の大幅な改変はしない。
+
+${contentLockedMarkdown.trim().slice(0, 14_000)}
+`
+    : "";
+
+  if (!retryNote) return `${base}${locked}`;
+  return `${base}${locked}
 
 【前回の出力は検証エラー。以下を修正して再出力】
 ${retryNote}`;
@@ -276,8 +299,9 @@ async function generateCourseMasterOnce(
   trace?: LlmTraceCtx,
   retryNote?: string,
   maxTokens = 8192,
+  contentLockedMarkdown?: string,
 ): Promise<{ master: CourseMaster; raw: string; llm: LlmCallResult }> {
-  const user = buildOutlineUserPrompt(params, target, retryNote);
+  const user = buildOutlineUserPrompt(params, target, retryNote, contentLockedMarkdown);
   const llm = await llmCompletion(model_id, OUTLINE_SYSTEM, user, maxTokens);
   await traceLlmCall(trace, llm, { attempt: retryNote ? "retry" : "initial" });
   const parsed = parseCourseMaster(extractJsonFromLlm(llm.text), { params });
@@ -290,7 +314,13 @@ async function generateCourseMasterOnce(
 export async function generateCourseMaster(
   params: CourseParams,
   trace?: Pick<LlmTraceCtx, "course_id" | "supa">,
-  options?: { model_id?: string; max_tokens?: number; max_attempts?: 1 | 2 },
+  options?: {
+    model_id?: string;
+    max_tokens?: number;
+    max_attempts?: 1 | 2;
+    /** 構成フェーズで確定した知識ドラフト（任意） */
+    content_locked_markdown?: string;
+  },
 ): Promise<{
   master: CourseMaster;
   model_id: string;
@@ -311,13 +341,22 @@ export async function generateCourseMaster(
   }
 
   const model_id = options?.model_id?.trim() || resolveOutlineModelId();
-  const target = targetCharsForDuration(params.session_duration_min);
+  const target = CHARS_PER_SESSION;
   const maxTokens = options?.max_tokens ?? 20_000;
+  const locked = options?.content_locked_markdown;
   const llm_calls: LlmCallResult[] = [];
 
-  let { master, raw, llm } = await generateCourseMasterOnce(params, model_id, target, trace
-    ? { ...trace, phase: "tier1_outline", step_key: "tier1_attempt_1" }
-    : undefined, undefined, maxTokens);
+  let { master, raw, llm } = await generateCourseMasterOnce(
+    params,
+    model_id,
+    target,
+    trace
+      ? { ...trace, phase: "tier1_outline", step_key: "tier1_attempt_1" }
+      : undefined,
+    undefined,
+    maxTokens,
+    locked,
+  );
   llm_calls.push(llm);
   let verification = verifyCourseMaster(master);
   let attempts = 1;
@@ -331,6 +370,7 @@ export async function generateCourseMaster(
       trace ? { ...trace, phase: "tier1_outline", step_key: "tier1_attempt_2" } : undefined,
       retryNote,
       maxTokens,
+      locked,
     );
     master = second.master;
     raw = second.raw;
@@ -342,27 +382,21 @@ export async function generateCourseMaster(
   return { master, model_id, raw, attempts, verification, llm_calls };
 }
 
-const SESSION_SYSTEM = `あなたは単一講師の連続講義を書く。出力は JSON のみ（説明文・前後のコードフェンス不要）。
+const SESSION_SYSTEM = `あなたは単一講師の Web／ブログ型講義記事を書く。出力は JSON のみ（説明文・前後のコードフェンス不要）。
 
 スキーマ:
 {
   "markdown": "string — 講義本文。見出しは ## から。Markdown。",
-  "image_prompt": "string — このセクション紙芝居ページ上部の説明図を1枚つくるための画像生成プロンプト（日本語可）。必ず1本書く",
-  "image_rationale": "string — 本文のどの部分を図にしたか／ねらい（短く）"
+  "image_prompt": "string|null — Format v2 では通常 null（セクション画像は検索取得）",
+  "image_rationale": "string|null"
 }
 
 ルール:
-- 1回の講義は同日・同じ座。セクション間で「こんにちは」「今日は」等の挨拶を繰り返さない。
+- 1回の講義は同日・同じ座の連続記事。セクション間で「こんにちは」「今日は」等の挨拶を繰り返さない。
 - 第1回・第1セクションのみ短い導入挨拶可。それ以外は前セクションの続きから書く。
-- 目標文字数を大きく超えない。
-- 紙芝居は1セクション＝1ページ＝セクション画1枚。image_prompt は必ず非空で書く。
-- image_prompt は次の順で、英語を主に1本の連続文／段落として書く（箇条書き不要）:
-  1) 被写体（何を見せるか・焦点は1つ）
-  2) 構図（16:9 wide。left-right / center hero 等）
-  3) 視覚スタイル（YouTube背景級のシネマ調 educational B-roll。線画クリップアートは避ける）
-  4) 照明・質感（volumetric light、浅い被写界深度、落ち着いたカラーグレード）
-  5) 短いラベル（英語でも漢字でも可。長い文章ラベルは避ける）
-- 科学的に正しく。装飾のための要素で主題をぼかさない。`;
+- 目標文字数を大きく超えない（当面 soft）。
+- 紙芝居ではない。セクションごとの生成画像プロンプトは不要（null 可）。
+- 科学的に正しく。`;
 
 function parseSectionLlmPayload(raw: string): {
   markdown: string;
@@ -419,46 +453,37 @@ export async function generateSessionSection(opts: {
     const body = `## ${section.heading}\n\nこれは第${session_no}回・セクション${section_no}のモック本文です。${master.meta.theme}について説明します。\n\n`;
     return {
       markdown: body,
-      image_prompt: `教育用の横長説明図: 「${section.heading}」。${master.meta.theme}。シンプルな線画ダイアグラム、文字は最小限。`,
-      image_rationale: "モック: 見出しの概念を1枚で示す",
+      image_prompt: null,
+      image_rationale: null,
       model_id: "mock",
     };
   }
 
   const model_id = opts.model_id?.trim() || resolveSessionModelId();
   const isFirstSection = session_no === 1 && section_no === 1;
-  const audienceLabel =
-    master.meta.audience === "student"
-      ? "中高生"
-      : master.meta.audience === "silver"
-        ? "シルバー"
-        : "社会人";
   const intentLine =
     section.intent && !/の部分テーマ\d+$/.test(section.intent)
       ? `設計メモ（参考・無くてもよい）: ${section.intent}`
       : "";
 
-  const user = `講座テーマ: ${master.meta.theme}
+  const user = `講義テーマ: ${master.meta.theme}
 口調: ${master.common.tone}
 数学レベル: ${mathLevelLabel(master.meta.math_level)} — ${mathLevelGuide(master.meta.math_level)}
-受講者: ${audienceLabel}
+受講者: ${audienceLabel(master.meta.audience)}
 
-## 第${session_no}回 ${session.title}（1回＝紙芝居の連続ページ。本セクションは1ページ）
+## 第${session_no}回 ${session.title}（Web記事の1ブロック）
 continuity_in（回の冒頭文脈）: ${session.continuity_in}
 continuity_out（回の締め文脈）: ${session.continuity_out}
 objectives: ${session.objectives.join(" / ")}
 
-### 今回のページ（セクション ${section_no}/6）
+### 今回のブロック（セクション ${section_no}）
 見出し: ${section.heading}
+role: ${section.role}
 ${intentLine}
-目標文字数: 約${section.target_chars}字（±10%以内）
+目標文字数: 約${section.target_chars}字（±15%目安・soft）
 
-出力: JSON（markdown + image_prompt）。
-markdown は紙芝居の本文。image_prompt はこのページ上部のセクション画1枚用（1セクション必ず1画像）。空や null は不可。
-「文章のどの部分を図にした方がよいか」を考えてから image_prompt を書け。
-image_prompt は 焦点→構図(16:9)→シネマ/educational B-roll スタイル→照明→短いラベル の順。漢字ラベル可。線画クリップアートは避ける。
-
-${isFirstSection ? "冒頭に短い挨拶を1回だけ入れてよい。" : "挨拶は禁止。前のページの続きとして書く。"}
+出力: JSON（markdown 必須。image_prompt は null でよい）。
+${isFirstSection ? "冒頭に短い挨拶を1回だけ入れてよい。" : "挨拶は禁止。前のブロックの続きとして書く。"}
 見出しは ## ${section.heading} から始める。`;
 
   const llm = await llmCompletion(model_id, SESSION_SYSTEM, user, 4096);
@@ -489,15 +514,13 @@ ${isFirstSection ? "冒頭に短い挨拶を1回だけ入れてよい。" : "挨
   };
 }
 
-const SESSION_BATCH_SYSTEM = `あなたは単一講師による1回分の連続講義を書く。出力はJSONのみ。
+const SESSION_BATCH_SYSTEM = `あなたは単一講師による1回分の Web／ブログ型講義記事を書く。出力はJSONのみ。
 スキーマ:
 {
   "sections": [
     {
       "section_no": 1,
-      "markdown": "## 見出し\\n\\n本文",
-      "image_prompt": "16:9の教材画像生成プロンプト",
-      "image_rationale": "図にする狙い"
+      "markdown": "## 見出し\\n\\n本文"
     }
   ]
 }
@@ -505,18 +528,17 @@ const SESSION_BATCH_SYSTEM = `あなたは単一講師による1回分の連続�
 ルール:
 - 入力された全セクションを順番どおり、過不足なく1回答で書く。
 - 各markdownは指定見出しから開始し、指定target_charsを目安にする。
-- 回全体の本文合計を指定目標文字数の±15%に収める。
-- intro「はじめに」は、第1回なら講座の位置づけと今回の目標、第2回以降なら前回のまとめと今回の目標。
-- outro「まとめ」は今回の要点と次回へのつながり。最終回は講座全体を着地させる。
+- 回全体の本文合計を指定目標文字数の±15%に近づける（当面 soft。厳格失敗で落とさない想定の呼び出し側あり）。
+- intro「はじめに」は、第1回なら講義の位置づけと今回の目標、第2回以降なら前回のまとめと今回の目標。
+- outro「まとめ」は今回の要点と次回へのつながり。最終回は講義全体を着地させる。
 - 挨拶は第1回introに短く1回だけ。それ以外では繰り返さない。
-- 1セクション＝紙芝居1ページ。各image_promptは必ず非空。
-- image_promptは英語主体の1段落で、焦点→16:9構図→cinematic educational B-roll→照明・質感→短いラベルの順。
-- 科学的に正しく、漢字ラベル可。線画クリップアートは避ける。`;
+- 紙芝居ではない。セクションごとの image_prompt は不要（書いても無視される）。
+- 科学的に正しく。`;
 
 export type GeneratedSessionPage = {
   section_no: number;
   markdown: string;
-  image_prompt: string;
+  image_prompt: string | null;
   image_rationale: string | null;
 };
 
@@ -548,7 +570,9 @@ function parseSessionBatchPayload(
     const section_no = Number(value.section_no);
     const markdown = typeof value.markdown === "string" ? value.markdown.trim() : "";
     const image_prompt =
-      typeof value.image_prompt === "string" ? value.image_prompt.trim() : "";
+      typeof value.image_prompt === "string" && value.image_prompt.trim()
+        ? value.image_prompt.trim()
+        : null;
     const image_rationale =
       typeof value.image_rationale === "string" && value.image_rationale.trim()
         ? value.image_rationale.trim()
@@ -559,14 +583,13 @@ function parseSessionBatchPayload(
     if (!markdown.startsWith(`## ${plan.heading}`)) {
       throw new Error(`section ${section_no} must start with ## ${plan.heading}`);
     }
-    if (!image_prompt) throw new Error(`section ${section_no} image_prompt is empty`);
     return { section_no, markdown, image_prompt, image_rationale };
   });
   const totalChars = pages.reduce(
     (sum, page) => sum + page.markdown.replace(/[#*_`\s]/g, "").length,
     0,
   );
-  const target = master.meta.target_chars_per_session;
+  const target = master.meta.target_chars_per_session || CHARS_PER_SESSION;
   const ratio = totalChars / Math.max(target, 1);
   if (enforceLength && (ratio < 0.85 || ratio > 1.15)) {
     throw new Error(
@@ -583,6 +606,7 @@ export async function generateSessionContent(opts: {
   luna_model_id?: string;
   terra_model_id?: string;
   allow_fallback?: boolean;
+  /** Format v2 既定は soft（false）。厳格化時のみ true */
   enforce_length?: boolean;
   max_tokens?: number;
 }): Promise<{
@@ -598,8 +622,8 @@ export async function generateSessionContent(opts: {
       pages: session.sections.map((section) => ({
         section_no: section.section_no,
         markdown: `## ${section.heading}\n\n${opts.master.meta.theme}についてのモック本文です。`,
-        image_prompt: `${section.heading}を説明する16:9の教材図`,
-        image_rationale: "モック",
+        image_prompt: null,
+        image_rationale: null,
       })),
       model_id: "mock",
       fallback_used: false,
@@ -607,12 +631,6 @@ export async function generateSessionContent(opts: {
     };
   }
 
-  const audienceLabel =
-    opts.master.meta.audience === "student"
-      ? "中高生"
-      : opts.master.meta.audience === "silver"
-        ? "シルバー"
-        : "社会人";
   const sectionPlan = [...session.sections]
     .sort((a, b) => a.section_no - b.section_no)
     .map((section, index, all) => ({
@@ -624,12 +642,12 @@ export async function generateSessionContent(opts: {
       intent: section.intent,
       target_chars: section.target_chars,
     }));
-  const user = `講座テーマ: ${opts.master.meta.theme}
+  const user = `講義テーマ: ${opts.master.meta.theme}
 口調: ${opts.master.common.tone}
 数学レベル: ${mathLevelLabel(opts.master.meta.math_level)} — ${mathLevelGuide(opts.master.meta.math_level)}
-受講者: ${audienceLabel}
+受講者: ${audienceLabel(opts.master.meta.audience)}
 全${opts.master.meta.session_count}回中の第${opts.session_no}回: ${session.title}
-回全体の本文目標: ${opts.master.meta.target_chars_per_session}字
+回全体の本文目標: ${opts.master.meta.target_chars_per_session || CHARS_PER_SESSION}字（soft）
 continuity_in: ${session.continuity_in}
 continuity_out: ${session.continuity_out}
 objectives: ${session.objectives.join(" / ")}
@@ -637,11 +655,12 @@ objectives: ${session.objectives.join(" / ")}
 セクション設計:
 ${JSON.stringify(sectionPlan, null, 2)}
 
-上記セクションすべてのmarkdownとimage_promptを1つのJSON回答で生成せよ。`;
+上記セクションすべてのmarkdownを1つのJSON回答で生成せよ。`;
 
   const lunaModel = opts.luna_model_id?.trim() || "openai/gpt-5.6-luna";
   const terraModel = opts.terra_model_id?.trim() || "openai/gpt-5.6-terra";
   const calls: LlmCallResult[] = [];
+  const enforce = opts.enforce_length === true;
   const run = async (modelId: string, fallback: boolean) => {
     const call = await llmCompletion(
       modelId,
@@ -655,7 +674,7 @@ ${JSON.stringify(sectionPlan, null, 2)}
         call.text,
         opts.master,
         opts.session_no,
-        opts.enforce_length !== false,
+        enforce,
       );
       await traceLlmCall(
         opts.trace

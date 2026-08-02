@@ -31,7 +31,7 @@ export const COURSE_IMAGE_PROMPT_BLOCK_A = `
 16:9 cinematic educational still (YouTube background grade), lower-third negative space, soft volumetric light, cool steel-blue + warm amber color grade, polished high-end 3D / refined illustration (not clipart), Infographic / explanatory diagram — no photorealistic room photos.
 `.trim();
 
-/** B' · ユーザー設定ブロックを講座パラメータから組み立てる */
+/** B' · ユーザー設定ブロックを講義パラメータから組み立てる */
 export function buildCourseImagePromptBlockB(opts: {
   language?: string;
   audience?: string;

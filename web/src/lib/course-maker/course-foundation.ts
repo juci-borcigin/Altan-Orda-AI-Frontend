@@ -8,7 +8,9 @@ import {
   type FoundationStep,
 } from "./course-foundation-schema";
 
-const PUBLIC_REL = path.join("sample", "course-foundation-poc");
+export { emptyFoundationManifest } from "./course-foundation-schema";
+
+const PUBLIC_REL = path.join("lab", "course-foundation-poc");
 
 export function foundationPocPublicDir(): string {
   return path.join(process.cwd(), "public", PUBLIC_REL);
@@ -52,7 +54,7 @@ export function estimateFoundationRun(opts: {
   const calls: FoundationEstimate["calls"] = [
     {
       step: 1,
-      label: "コンテンツ・ドラフト（講座全体）",
+      label: "コンテンツ・ドラフト（講義全体）",
       model_or_tool: "openai/gpt-5.6-luna",
       count: 1,
       approx_usd: 0.04,
@@ -81,7 +83,7 @@ export function estimateFoundationRun(opts: {
   if (opts.through_step >= 4) {
     calls.push({
       step: 4,
-      label: "講座構成（CourseMaster）",
+      label: "講義構成（CourseMaster）",
       model_or_tool: "openai/gpt-5.6-terra",
       count: 1,
       approx_usd: 0.12,
@@ -118,16 +120,22 @@ export function estimateFoundationRun(opts: {
 }
 
 /**
- * 実行スタブ。課金パスは未配線。
- * 許可後の実装で step ごとに LLM/Tavily を呼ぶ。
+ * 見積もり、または課金実行。
+ * - through_step≤3: 1→3 を新規実行
+ * - through_step≥4: 既存 locked から 4・5 を続行（失敗回の再生成含む）
  */
-export async function runFoundationPipelineStub(opts: {
+export async function runFoundationPipeline(opts: {
   through_step: FoundationStep;
   theme: string;
   course_id?: string | null;
   session_count?: number;
-  /** true のときのみ「実行」とみなすが、現状は常に未実装エラー */
+  session_duration_min?: number;
+  learner_level?: string;
+  audience?: string;
+  target_outcome?: string;
   execute?: boolean;
+  only_sessions?: number[];
+  regenerate_outline?: boolean;
 }): Promise<FoundationManifest> {
   const estimate = estimateFoundationRun({
     through_step: opts.through_step,
@@ -141,23 +149,30 @@ export async function runFoundationPipelineStub(opts: {
       through_step: opts.through_step,
       status: "estimated",
       estimate,
-      notes:
-        "見積もりのみ。execute=true かつ殿下が範囲許可したのち、実装済みランナーで課金実行する。",
+      notes: "見積もりのみ。execute=true で課金実行。",
     });
     await writeFoundationManifest(manifest);
     return manifest;
   }
 
-  const manifest = emptyFoundationManifest({
-    course_id: opts.course_id ?? null,
+  if (opts.through_step <= 3) {
+    const { runFoundationThrough3 } = await import("./course-foundation-run");
+    return runFoundationThrough3(opts);
+  }
+
+  const { runFoundationContinue45 } = await import("./course-foundation-run");
+  return runFoundationContinue45({
     theme: opts.theme,
-    through_step: opts.through_step,
-    status: "error",
-    estimate,
-    error:
-      "課金ランナー未実装。型・見積もり・マニフェスト保存のみ。実装後に再実行すること。",
-    notes: "骨格フェーズ: LLM/Tavily は呼び出していない。",
+    course_id: opts.course_id,
+    session_count: opts.session_count,
+    session_duration_min: opts.session_duration_min,
+    learner_level: opts.learner_level,
+    audience: opts.audience,
+    target_outcome: opts.target_outcome,
+    only_sessions: opts.only_sessions,
+    regenerate_outline: opts.regenerate_outline,
   });
-  await writeFoundationManifest(manifest);
-  return manifest;
 }
+
+/** @deprecated 互換エイリアス */
+export const runFoundationPipelineStub = runFoundationPipeline;

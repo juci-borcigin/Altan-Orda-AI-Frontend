@@ -3,6 +3,7 @@ import { ensureSessionRows, ensureVisualRows, getCourse, updateCourse } from "@/
 import { isCourseDevMode } from "@/lib/course-maker/course-dev";
 import { generateCourseMaster } from "@/lib/course-maker/course-llm";
 import type { CourseParams } from "@/lib/course-maker/course-master-schema";
+import { normalizeCourseParams } from "@/lib/course-maker/course-master-schema";
 import { recordCourseTrace } from "@/lib/course-maker/course-trace";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
@@ -20,7 +21,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     const course = await getCourse(supa, courseId);
     if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const params = course.params as CourseParams;
+    const params = normalizeCourseParams(course.params as CourseParams);
     const { master, model_id, attempts, verification } = await generateCourseMaster(params, {
       course_id: courseId,
       supa,

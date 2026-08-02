@@ -151,21 +151,13 @@ export function indexSectionLogs(events: ProcessingLogEvent[]): Map<string, Sect
 
 export function formatCourseParamsForAdmin(params: CourseParams): Array<{ label: string; value: string }> {
   const audience = AUDIENCE_OPTIONS.find((o) => o.value === params.audience)?.label ?? params.audience;
-  const learner =
-    params.learner_level === "zero"
-      ? "ゼロから"
-      : params.learner_level === "beginner"
-        ? "初級"
-        : "中級";
   return [
     { label: "テーマ", value: params.theme },
     { label: "達成目標", value: params.target_outcome || "—" },
     { label: "回数", value: String(params.session_count) },
-    { label: "1回あたり", value: `${params.session_duration_min}分` },
+    { label: "1回あたり", value: "約5000字（Format v2）" },
     { label: "受講者", value: audience },
-    { label: "現在のレベル", value: learner },
     { label: "数学レベル", value: mathLevelLabel(params.math_level) },
-    { label: "語学レベル", value: params.language_level },
   ];
 }
 
@@ -231,7 +223,12 @@ export type VisualRow = {
 export function visualHasArtifact(v: VisualRow | null | undefined): boolean {
   if (!v) return false;
   if (v.has_artifact) return true;
-  return Boolean(v.artifact_url?.startsWith("data:image") || v.artifact_url?.startsWith("http"));
+  const url = v.artifact_url ?? "";
+  return (
+    url.startsWith("data:image") ||
+    url.startsWith("http") ||
+    url.startsWith("/")
+  );
 }
 
 export function visualForSection(
@@ -245,6 +242,11 @@ export function visualForSection(
     visuals.find((v) => v.session_no === session_no && v.slot_id.endsWith(`_${section_no}`)) ??
     null
   );
+}
+
+export function visualForHero(visuals: VisualRow[], session_no: number): VisualRow | null {
+  const slotId = `hero_s${session_no}`;
+  return visuals.find((v) => v.session_no === session_no && v.slot_id === slotId) ?? null;
 }
 
 export function masterSectionSettings(

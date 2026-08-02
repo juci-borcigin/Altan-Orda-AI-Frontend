@@ -122,6 +122,27 @@ export async function ensureVisualRows(
   master: CourseMaster,
 ): Promise<void> {
   for (const s of master.sessions) {
+    const heroId = `hero_s${s.session_no}`;
+    const heroPrompt =
+      s.hero_image_prompt?.trim() ||
+      `Educational 16:9 hero for ${master.meta.theme} session ${s.session_no}`;
+    {
+      const { error } = await supa.from("ao_course_visuals").upsert(
+        {
+          course_id: courseId,
+          session_no: s.session_no,
+          slot_id: heroId,
+          visual_type: "diagram",
+          prompt: heroPrompt,
+          image_model_tier: "mini",
+          image_model_id: "gpt-image-2",
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "course_id,session_no,slot_id" },
+      );
+      if (error) throw new Error(error.message);
+    }
     for (const v of s.visual_slots) {
       const { error } = await supa.from("ao_course_visuals").upsert(
         {

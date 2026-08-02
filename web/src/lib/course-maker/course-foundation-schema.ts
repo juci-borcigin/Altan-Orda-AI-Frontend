@@ -1,5 +1,5 @@
 /**
- * 講座構成フェーズ拡張（知識ドラフト → 監査 → 確定 → 構成 → 本文）の型。
+ * 講義構成フェーズ拡張（知識ドラフト → 監査 → 確定 → 構成 → 本文）の型。
  * 課金呼び出しは course-foundation.ts / API 経由。骨格のみでは LLM/Tavily を叩かない。
  */
 
@@ -13,7 +13,7 @@ export type ContentDraft = {
   topic: string;
   learner_level: string;
   audience: string;
-  /** 講座全体の教える中身（回割前）。見出し階層つき Markdown */
+  /** 講義全体の教える中身（回割前）。見出し階層つき Markdown */
   body_markdown: string;
   learning_outcomes: string[];
   out_of_scope: string[];
@@ -45,7 +45,7 @@ export type AuditReport = {
   truncated: boolean;
   findings: AuditFinding[];
   revision_instructions: string[];
-  /** 講座末尾用の参考 URL（インライン出典はしない） */
+  /** 講義末尾用の参考 URL（インライン出典はしない） */
   reference_urls: string[];
   meta: {
     search_provider: "tavily" | "none";
@@ -90,14 +90,27 @@ export type FoundationArtifacts = {
   draft?: ContentDraft;
   audit?: AuditReport;
   locked?: ContentDraft;
-  /** ステップ4: 既存 CourseMaster JSON（骨格では未生成） */
+  /** ステップ4: 既存 CourseMaster JSON */
   course_master?: unknown;
-  /** ステップ5: 回ごとの要約メタ（骨格では未生成） */
+  verification?: unknown;
+  /** ステップ5: 回ごとの本文結果 */
   sessions?: Array<{
     session_no: number;
-    status: "pending" | "done" | "skipped";
+    title?: string;
+    status: "pending" | "done" | "error" | "skipped";
+    model_id?: string;
+    fallback_used?: boolean;
     body_chars?: number;
+    target_chars?: number;
+    length_pass?: boolean;
     cost_usd?: number;
+    error?: string;
+    pages?: Array<{
+      section_no: number;
+      heading: string;
+      markdown: string;
+      image_prompt: string | null;
+    }>;
   }>;
 };
 

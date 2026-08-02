@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Altan Orda 実験室（静的）</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Hiragino Sans", "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+        background: linear-gradient(165deg, #e6eef3, #d5e0e8);
+        color: #101820;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 1.75rem 1.1rem 3rem;
+      }
+      .kicker {
+        margin: 0;
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #4a5a68;
+      }
+      h1 {
+        margin: 0.35rem 0 0.55rem;
+        font-family: "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+        font-size: clamp(2rem, 6vw, 2.8rem);
+        font-weight: 600;
+      }
+      a.card {
+        display: block;
+        text-decoration: none;
+        color: inherit;
+        background: #f5f8fa;
+        border-left: 3px solid #0b6e4f;
+        padding: 0.9rem 1rem;
+        margin-bottom: 0.55rem;
+      }
+      .meta {
+        font-size: 0.86rem;
+        color: #4a5a68;
+        line-height: 1.55;
+      }
+      code {
+        font-size: 0.86em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">Altan Orda</p>
+      <h1>実験室</h1>
+      <p class="meta">
+        開発・比較・PoC の静的入口。動的ハブは Next の <code>/lab</code>。旧
+        <code>/sample</code> から移設。
+      </p>
+
+      <a class="card" href="./session1-visual-lab/static.html">
+        <strong>第1回 · 文章＋画像比較（静的）</strong>
+        <div class="meta">Luna / Terra × Image2 Low&amp;Mid。画像の下に本文。</div>
+      </a>
+      <a class="card" href="/lab">
+        <strong>動的ハブ（Next.js）</strong>
+        <div class="meta">開発サーバ／デプロイ上の公式一覧。</div>
+      </a>
+
+      <section class="meta" style="margin-top: 1.2rem; background: #f5f8fa; padding: 0.9rem">
+        <strong>スマホで見る方法</strong>
+        <ol>
+          <li>同一 Wi-Fi: <code>http://&lt;MacのLAN IP&gt;:3000/lab</code></li>
+          <li>
+            Mac なし:
+            <a href="./session1-visual-lab-offline.zip">offline.zip</a>
+            を送るか、このフォルダを静的ホストへ
+          </li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>

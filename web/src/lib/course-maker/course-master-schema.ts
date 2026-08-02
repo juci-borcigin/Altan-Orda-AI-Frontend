@@ -1,7 +1,33 @@
-/** Tier1 講座マスター — 型とパース（Zod 未導入のため手動検証） */
+/** Tier1 講義マスター — 型とパース（Zod 未導入のため手動検証） */
 
-/** 講座で使ってよい数学の上限（日本の学習段階） */
+import {
+  CHARS_PER_SESSION,
+  MAX_SECTIONS_PER_SESSION,
+  MAX_SESSION_COUNT,
+  MIN_SECTIONS_PER_SESSION,
+  MIN_SESSION_COUNT,
+  PREFERRED_CONTENT_SECTIONS,
+  PREFERRED_SECTION_CHARS,
+  targetCharsForDuration,
+} from "./course-format-v2";
+
+export {
+  CHARS_PER_SESSION,
+  MAX_SECTIONS_PER_SESSION,
+  MAX_SESSION_COUNT,
+  MIN_SECTIONS_PER_SESSION,
+  MIN_SESSION_COUNT,
+  PREFERRED_CONTENT_SECTIONS,
+  PREFERRED_SECTION_CHARS,
+  readingMinutesForSession,
+  targetCharsForDuration,
+} from "./course-format-v2";
+
+/** 講義で使ってよい数学の上限（日本の学習段階） */
 export type MathLevel = "elementary" | "middle_school" | "high_school";
+
+/** Format v2: 数学は常に中学に固定 */
+export const FIXED_MATH_LEVEL: MathLevel = "middle_school";
 
 export const MATH_LEVEL_OPTIONS: {
   value: MathLevel;
@@ -38,12 +64,14 @@ export function coerceMathLevel(v: unknown): MathLevel | null {
   if (v === "elementary" || v === "middle_school" || v === "high_school") return v;
   if (v === "none") return "elementary";
   if (v === "undergrad" || v === "expert") return "high_school";
-  if (v === "high_school") return "high_school"; // legacy key と新 key が同じ
   return null;
 }
 
-/** 受講者区分 — 日本語表現のトーン（将来 Tier1/Tier2 プロンプトに反映予定） */
-export type Audience = "student" | "working_adult" | "silver";
+/**
+ * 受講者属性（Format v2）— 口調・字数感・画像印象を統合。
+ * 当面は社会人のみ選択可。
+ */
+export type Audience = "kids" | "student" | "working_adult";
 
 export const AUDIENCE_OPTIONS: {
   value: Audience;
@@ -52,42 +80,67 @@ export const AUDIENCE_OPTIONS: {
   note: string;
 }[] = [
   {
-    value: "student",
-    label: "中高生",
+    value: "kids",
+    label: "キッズ（小中学生）",
     enabled: false,
-    note: "（準備中）やや平易な語彙・短い文",
+    note: "",
+  },
+  {
+    value: "student",
+    label: "学生（高校・大学）",
+    enabled: false,
+    note: "",
   },
   {
     value: "working_adult",
     label: "社会人",
     enabled: true,
-    note: "ネットに転がっているレベルの普通の日本語（現状はプロンプト未指定）",
-  },
-  {
-    value: "silver",
-    label: "シルバー",
-    enabled: false,
-    note: "（準備中）冗長に丁寧・流行語を避ける",
+    note: "ネットに転がっているレベルの普通の日本語",
   },
 ];
 
 export function coerceAudience(v: unknown): Audience {
-  if (v === "student" || v === "working_adult" || v === "silver") return v;
+  if (v === "kids" || v === "student" || v === "working_adult") return v;
+  if (v === "silver") return "working_adult";
   return "working_adult";
+}
+
+export function audienceLabel(a: Audience): string {
+  return AUDIENCE_OPTIONS.find((o) => o.value === a)?.label ?? a;
 }
 
 export type CourseParams = {
   theme: string;
-  /** トピックに対する習熟度（UI: 現在のレベル） */
-  learner_level: "zero" | "beginner" | "intermediate";
-  /** 受講者区分（UI: 受講者）— 日本語表現用。v1 は社会人のみ選択可 */
+  /** 受講者属性（キッズ／学生／社会人） */
   audience: Audience;
+  /** 常に middle_school（Format v2） */
   math_level: MathLevel;
-  language_level: "high_school" | "undergrad" | "professional";
   target_outcome: string;
+  /** 5〜10 */
   session_count: number;
-  session_duration_min: 15 | 30 | 60 | 90 | 120;
 };
+
+/** フォーム／API 入力を Format v2 の CourseParams に正規化 */
+export function normalizeCourseParams(
+  raw: Partial<CourseParams> & { theme: string },
+): CourseParams {
+  const theme = raw.theme.trim();
+  const sc = Number(raw.session_count);
+  return {
+    theme,
+    audience: coerceAudience(raw.audience),
+    math_level: FIXED_MATH_LEVEL,
+    target_outcome: raw.target_outcome?.trim() || theme,
+    session_count: Math.max(
+      MIN_SESSION_COUNT,
+      Math.min(MAX_SESSION_COUNT, Number.isFinite(sc) ? sc : MIN_SESSION_COUNT),
+    ),
+  };
+}
+
+export function heroSlotId(sessionNo: number): string {
+  return `hero_s${sessionNo}`;
+}
 
 export type SourceRef = {
   source_id: string;
@@ -116,6 +169,14 @@ export type SectionPlan = {
   heading: string;
   intent: string;
   target_chars: number;
+  /** Wikimedia 検索クエリ（content のみ）。intro/outro は空 */
+  image_search_query?: string;
+  /** 取得済み小画像 URL（非生成） */
+  image_url?: string | null;
+  image_attribution?: string | null;
+  /** Commons ファイルページなど（ツールチップ用リンク） */
+  image_page_url?: string | null;
+  image_source?: "wikimedia" | "none";
 };
 
 export type SessionMaster = {
@@ -127,6 +188,9 @@ export type SessionMaster = {
   continuity_out: string;
   foreshadow_ids: string[];
   payoff_ids: string[];
+  /** 回メイン画像用プロンプト（Image2 Low・1枚） */
+  hero_image_prompt?: string;
+  /** @deprecated Format v1 visual_slots — 読み取り互換のみ */
   visual_slots: VisualSlot[];
   sections: SectionPlan[];
   source_refs: string[];
@@ -134,7 +198,13 @@ export type SessionMaster = {
 
 export type CourseMaster = {
   schema_version: 1;
-  meta: CourseParams & { target_chars_per_session: number };
+  meta: CourseParams & {
+    target_chars_per_session: number;
+    /** 旧講義互換（生成では使わない） */
+    session_duration_min?: number;
+    learner_level?: string;
+    language_level?: string;
+  };
   common: {
     narrative_arc: string;
     tone: string;
@@ -150,30 +220,14 @@ export type ParseResult =
   | { ok: true; master: CourseMaster }
   | { ok: false; errors: string[] };
 
-const SESSION_DURATIONS = new Set([15, 30, 60, 90, 120]);
-export const MIN_SECTIONS_PER_SESSION = 3;
-export const MAX_SECTIONS_PER_SESSION = 10;
-export const PREFERRED_SECTION_CHARS = 400;
 const VISUAL_TYPES = ["diagram", "portrait", "comparison", "timeline"] as const;
 
-export function targetCharsForDuration(min: number): number {
-  return Math.round(min * 200);
+function sectionCharsForSession(_params?: CourseParams): number {
+  return PREFERRED_SECTION_CHARS;
 }
 
-function sectionCharsForSession(params?: CourseParams): number {
-  if (!params) return PREFERRED_SECTION_CHARS;
-  const target = targetCharsForDuration(params.session_duration_min);
-  return Math.max(PREFERRED_SECTION_CHARS, Math.round(target / MAX_SECTIONS_PER_SESSION));
-}
-
-function defaultSectionCount(params?: CourseParams): number {
-  const target = params
-    ? targetCharsForDuration(params.session_duration_min)
-    : PREFERRED_SECTION_CHARS * 6;
-  return Math.max(
-    MIN_SECTIONS_PER_SESSION,
-    Math.min(MAX_SECTIONS_PER_SESSION, Math.round(target / PREFERRED_SECTION_CHARS)),
-  );
+function defaultSectionCount(_params?: CourseParams): number {
+  return MIN_SECTIONS_PER_SESSION;
 }
 
 function pickString(sec: Record<string, unknown>, keys: string[]): string {
@@ -216,14 +270,45 @@ function normalizeSections(
       pickString(sec, ["intent", "description", "summary", "purpose", "goal"]) ||
       (role === "intro"
         ? sessionNo === 1
-          ? `${theme}における講座全体の位置づけと今回の目標を示す`
+          ? `${theme}における講義全体の位置づけと今回の目標を示す`
           : "前回の要点を振り返り、今回の目標につなげる"
         : role === "outro"
           ? "今回の要点をまとめ、次回へのつながりを示す"
           : `${theme}の部分テーマ${section_no}`);
     const target_chars =
       coerceInt(sec.target_chars) ?? coerceInt(sec.target_char_count) ?? defaultChars;
-    out.push({ section_no, role, heading, intent, target_chars });
+    const image_search_query =
+      role === "content"
+        ? pickString(sec, ["image_search_query", "image_query", "search_query"]) || undefined
+        : undefined;
+    const image_url =
+      typeof sec.image_url === "string" && sec.image_url.trim()
+        ? sec.image_url.trim()
+        : null;
+    const image_attribution =
+      typeof sec.image_attribution === "string" ? sec.image_attribution : null;
+    const image_page_url =
+      typeof sec.image_page_url === "string" && sec.image_page_url.trim()
+        ? sec.image_page_url.trim()
+        : null;
+    const image_source =
+      sec.image_source === "wikimedia" || sec.image_source === "none"
+        ? sec.image_source
+        : image_url
+          ? "wikimedia"
+          : "none";
+    out.push({
+      section_no,
+      role,
+      heading,
+      intent,
+      target_chars,
+      image_search_query,
+      image_url,
+      image_attribution,
+      image_page_url,
+      image_source,
+    });
   }
   return out;
 }
@@ -361,31 +446,30 @@ export function normalizeCourseMasterInput(raw: unknown, params?: CourseParams):
   const metaIn = isRecord(raw.meta) ? { ...raw.meta } : {};
   if (params) {
     metaIn.theme = params.theme;
-    metaIn.learner_level = params.learner_level;
     metaIn.audience = coerceAudience(params.audience);
-    metaIn.math_level = coerceMathLevel(params.math_level) ?? params.math_level;
-    metaIn.language_level = params.language_level;
+    metaIn.math_level = FIXED_MATH_LEVEL;
     metaIn.target_outcome = params.target_outcome?.trim() || params.theme;
-    metaIn.session_count = params.session_count;
-    metaIn.session_duration_min = params.session_duration_min;
-    metaIn.target_chars_per_session = targetCharsForDuration(params.session_duration_min);
+    metaIn.session_count = Math.max(
+      MIN_SESSION_COUNT,
+      Math.min(MAX_SESSION_COUNT, params.session_count),
+    );
+    metaIn.target_chars_per_session = CHARS_PER_SESSION;
+    delete metaIn.session_duration_min;
+    delete metaIn.learner_level;
+    delete metaIn.language_level;
   } else {
-    const coercedMath = coerceMathLevel(metaIn.math_level);
-    if (coercedMath) metaIn.math_level = coercedMath;
+    metaIn.math_level = FIXED_MATH_LEVEL;
     metaIn.audience = coerceAudience(metaIn.audience);
-    const dur = coerceInt(metaIn.session_duration_min);
-    if (dur != null) metaIn.session_duration_min = dur;
     const sc = coerceInt(metaIn.session_count);
     if (sc != null) metaIn.session_count = sc;
-    const tc = coerceInt(metaIn.target_chars_per_session);
-    if (tc != null) metaIn.target_chars_per_session = tc;
+    metaIn.target_chars_per_session = CHARS_PER_SESSION;
   }
 
   const commonIn = isRecord(raw.common) ? { ...raw.common } : {};
   if (typeof commonIn.narrative_arc !== "string" || !commonIn.narrative_arc.trim()) {
     commonIn.narrative_arc = params
       ? `${params.theme}を${params.session_count}回で学ぶ`
-      : "講座全体の物語線";
+      : "講義全体の物語線";
   }
   if (typeof commonIn.tone !== "string" || !commonIn.tone.trim()) {
     commonIn.tone = "単一講師・落ち着いた説明";
@@ -393,7 +477,7 @@ export function normalizeCourseMasterInput(raw: unknown, params?: CourseParams):
 
   const theme =
     params?.theme ??
-    (typeof metaIn.theme === "string" && metaIn.theme.trim() ? metaIn.theme.trim() : "講座");
+    (typeof metaIn.theme === "string" && metaIn.theme.trim() ? metaIn.theme.trim() : "講義");
   const sectionChars = sectionCharsForSession(params);
   const sessionCount = coerceInt(metaIn.session_count) ?? params?.session_count ?? 1;
 
@@ -468,6 +552,9 @@ export function normalizeCourseMasterInput(raw: unknown, params?: CourseParams):
         payoff_ids: Array.isArray(found.payoff_ids)
           ? found.payoff_ids.filter((x): x is string => typeof x === "string")
           : [],
+        hero_image_prompt:
+          pickString(found, ["hero_image_prompt", "session_image_prompt", "cover_prompt"]) ||
+          undefined,
         visual_slots: normalizeVisualSlots(found.visual_slots, n, theme),
         sections: normalizeSections(found.sections, n, theme, sectionChars),
         source_refs: Array.isArray(found.source_refs)
@@ -506,33 +593,19 @@ export function parseCourseMaster(raw: unknown, opts?: ParseCourseMasterOptions)
 
   const metaIn = isRecord(normalized.meta) ? normalized.meta : {};
   const theme = str(metaIn.theme, "meta.theme", errors, 500);
-  const learner_level = metaIn.learner_level;
   const audience = coerceAudience(metaIn.audience);
-  const math_level = metaIn.math_level;
-  const language_level = metaIn.language_level;
-  const target_outcome = str(metaIn.target_outcome, "meta.target_outcome", errors, 2000);
-  const session_count = posInt(metaIn.session_count, "meta.session_count", errors);
-  const session_duration_min = metaIn.session_duration_min;
-
-  const levels = ["zero", "beginner", "intermediate"] as const;
-  const math = ["elementary", "middle_school", "high_school"] as const;
-  const lang = ["high_school", "undergrad", "professional"] as const;
-  if (!levels.includes(learner_level as (typeof levels)[number])) errors.push("meta.learner_level invalid");
-  if (!math.includes(math_level as (typeof math)[number])) errors.push("meta.math_level invalid");
-  if (!lang.includes(language_level as (typeof lang)[number])) errors.push("meta.language_level invalid");
-  if (typeof session_duration_min !== "number" || !SESSION_DURATIONS.has(session_duration_min)) {
-    const coerced = coerceInt(session_duration_min);
-    if (coerced != null && SESSION_DURATIONS.has(coerced)) {
-      (metaIn as { session_duration_min: number }).session_duration_min = coerced;
-    } else {
-      errors.push("meta.session_duration_min invalid");
-    }
+  const math_level = FIXED_MATH_LEVEL;
+  const target_outcome =
+    str(metaIn.target_outcome, "meta.target_outcome", errors, 2000) ?? theme ?? "";
+  let session_count = posInt(metaIn.session_count, "meta.session_count", errors);
+  if (
+    session_count != null &&
+    (session_count < MIN_SESSION_COUNT || session_count > MAX_SESSION_COUNT)
+  ) {
+    errors.push(
+      `meta.session_count must be ${MIN_SESSION_COUNT}..${MAX_SESSION_COUNT}`,
+    );
   }
-
-  const session_duration_final =
-    typeof metaIn.session_duration_min === "number"
-      ? metaIn.session_duration_min
-      : coerceInt(metaIn.session_duration_min);
 
   const commonIn = isRecord(normalized.common) ? normalized.common : {};
   const narrative_arc = str(commonIn.narrative_arc, "common.narrative_arc", errors, 2000);
@@ -562,7 +635,7 @@ export function parseCourseMaster(raw: unknown, opts?: ParseCourseMasterOptions)
             1,
           description:
             pickString(f, ["description", "summary", "note", "text"]) ||
-            `${theme ?? "講座"}の伏線${i + 1}`,
+            `${theme ?? "講義"}の伏線${i + 1}`,
         }))
     : [];
 
@@ -603,13 +676,16 @@ export function parseCourseMaster(raw: unknown, opts?: ParseCourseMasterOptions)
     const sections = normalizeSections(
       s.sections,
       session_no,
-      theme ?? "講座",
+      theme ?? "講義",
       sectionCharsForSession(opts?.params),
     );
 
     const visual_slots: VisualSlot[] = Array.isArray(s.visual_slots)
-      ? normalizeVisualSlots(s.visual_slots, session_no, theme ?? "講座")
+      ? normalizeVisualSlots(s.visual_slots, session_no, theme ?? "講義")
       : [];
+    const hero_image_prompt =
+      pickString(s, ["hero_image_prompt", "session_image_prompt", "cover_prompt"]) ||
+      undefined;
 
     sessions.push({
       session_no,
@@ -620,6 +696,7 @@ export function parseCourseMaster(raw: unknown, opts?: ParseCourseMasterOptions)
       continuity_out,
       foreshadow_ids,
       payoff_ids,
+      hero_image_prompt,
       visual_slots,
       sections,
       source_refs,
@@ -651,19 +728,15 @@ export function parseCourseMaster(raw: unknown, opts?: ParseCourseMasterOptions)
 
   if (errors.length > 0) return { ok: false, errors };
 
-  const dur = (session_duration_final ?? session_duration_min) as CourseParams["session_duration_min"];
   const master: CourseMaster = {
     schema_version: 1,
     meta: {
       theme: theme!,
-      learner_level: learner_level as CourseParams["learner_level"],
       audience,
-      math_level: math_level as CourseParams["math_level"],
-      language_level: language_level as CourseParams["language_level"],
+      math_level,
       target_outcome: target_outcome!,
       session_count: session_count!,
-      session_duration_min: dur,
-      target_chars_per_session: targetCharsForDuration(dur),
+      target_chars_per_session: CHARS_PER_SESSION,
     },
     common: {
       narrative_arc: narrative_arc ?? "",

@@ -27,6 +27,14 @@ const nextConfig: NextConfig = {
     root: ".",
   },
   ...(mergedAllowedDevOrigins.length > 0 ? { allowedDevOrigins: mergedAllowedDevOrigins } : {}),
+  /** 旧 Sample（/sample）→ Lab（/lab）。ブックマーク・ドキュメント互換 */
+  async redirects() {
+    return [
+      { source: "/sample", destination: "/lab", permanent: true },
+      { source: "/sample/:path*", destination: "/lab/:path*", permanent: true },
+      { source: "/api/sample/:path*", destination: "/api/lab/:path*", permanent: true },
+    ];
+  },
   /** 静的アセットのブラウザキャッシュ（HTML/API は対象外） */
   async headers() {
     return [

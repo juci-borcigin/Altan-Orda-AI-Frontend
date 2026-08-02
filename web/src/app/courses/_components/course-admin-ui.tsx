@@ -205,7 +205,7 @@ export function LlmTotalsBar({
         </p>
       ) : summary && summary.event_count > 0 ? (
         <p style={{ margin: 0 }}>
-          講座全体（モデル呼び出し累積）: 料金 <strong>{formatUsd(summary.total_cost_usd)}</strong> ·
+          講義全体（モデル呼び出し累積）: 料金 <strong>{formatUsd(summary.total_cost_usd)}</strong> ·
           処理時間 <strong>{formatMs(summary.total_latency_ms)}</strong> · {summary.event_count} 回
         </p>
       ) : null}
@@ -222,8 +222,8 @@ export function LlmTotalsBar({
                 <th align="left">パターン</th>
                 <th align="right">画像料金</th>
                 <th align="right">画像時間</th>
-                <th align="right">講座合計（料金）</th>
-                <th align="right">講座合計（時間）</th>
+                <th align="right">講義合計（料金）</th>
+                <th align="right">講義合計（時間）</th>
               </tr>
             </thead>
             <tbody>
@@ -258,7 +258,7 @@ export function LlmTotalsBar({
           {Object.entries(summary.by_phase)
             .map(([phase, v]) => {
               const phaseLabel: Record<string, string> = {
-                tier1_outline: "講座構成",
+                tier1_outline: "講義構成",
                 tier2_section: "文書",
                 tier2_image: "画像",
                 chat: "チャット",

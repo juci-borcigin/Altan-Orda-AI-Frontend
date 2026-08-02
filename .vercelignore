@@ -1,0 +1,24 @@
+# CLI deploy 肥大化防止（git push デプロイでも同様に効く）
+web/.next
+web/node_modules
+**/.next
+**/node_modules
+
+# 秘密情報は Vercel Env を使う（ローカル .env を上げない）
+web/.env
+web/.env.local
+.env
+.env.local
+
+# ---------------------------------------------------------------------------
+# Lab（実験室）— 本番には載せない（ローカル専用）
+# 方針: docs/lab/README.md 「運用方針」／ docs/operations/AO_Core_Backlog.md
+# ---------------------------------------------------------------------------
+web/src/app/lab
+web/src/app/api/lab
+web/public/lab
+
+# 旧 Sample パスが残存している場合の保険（リポからは削除済み想定）
+web/src/app/sample
+web/src/app/api/sample
+web/public/sample

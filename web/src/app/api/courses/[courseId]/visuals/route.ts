@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ courseId: string }> };
 
-/** 1スロット分の画像本体だけ返す（講座 GET から巨大 base64 を外すため） */
+/** 1スロット分の画像本体だけ返す（講義 GET から巨大 base64 を外すため） */
 export async function GET(req: Request, ctx: Ctx) {
   const { courseId } = await ctx.params;
   const supa = getSupabaseAdmin();

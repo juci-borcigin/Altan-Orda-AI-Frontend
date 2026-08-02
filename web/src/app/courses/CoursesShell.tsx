@@ -12,7 +12,7 @@ export function CoursesShell({ children }: { children: React.ReactNode }) {
       <header className="cm-header">
         <div className="cm-header-inner">
           <Link href="/courses" className="cm-brand">
-            講習メーカー
+            講義メーカー
           </Link>
           {!isLearn && (
             <nav className="cm-nav">

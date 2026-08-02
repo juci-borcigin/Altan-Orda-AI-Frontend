@@ -33,20 +33,36 @@ export function clearVisualArtifactCache(courseId?: string) {
   }
 }
 
+export type VisualFetchOpts = {
+  /** 既定: `/api/courses/{courseId}`。公開受講は `/api/l/{courseId}` */
+  apiBase?: string;
+};
+
 export async function fetchVisualArtifact(
   courseId: string,
   sessionNo: number,
   sectionNo: number,
+  opts?: VisualFetchOpts,
 ): Promise<string | null> {
-  const key = cacheKey(courseId, sessionNo, sectionNo);
+  return fetchVisualBySlot(courseId, sessionNo, `vis_${sessionNo}_${sectionNo}`, opts);
+}
+
+export async function fetchVisualBySlot(
+  courseId: string,
+  sessionNo: number,
+  slotId: string,
+  opts?: VisualFetchOpts,
+): Promise<string | null> {
+  const key = `${courseId}:${sessionNo}:${slotId}`;
   const hit = artifactCache.get(key);
   if (hit) return hit;
 
+  const apiBase = opts?.apiBase ?? `/api/courses/${courseId}`;
   const qs = new URLSearchParams({
     session_no: String(sessionNo),
-    section_no: String(sectionNo),
+    slot_id: slotId,
   });
-  const res = await fetch(`/api/courses/${courseId}/visuals?${qs}`);
+  const res = await fetch(`${apiBase}/visuals?${qs}`);
   const json = (await res.json()) as {
     visual?: { artifact_url?: string | null; status?: string };
     error?: string;

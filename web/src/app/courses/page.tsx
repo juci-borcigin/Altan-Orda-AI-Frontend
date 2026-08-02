@@ -22,23 +22,23 @@ export default async function CoursesListPage() {
 
   return (
     <>
-      <h1 className="cm-page-title">講習一覧</h1>
-      <p className="cm-page-sub">AO 本体とは独立した講座モジュール（機能検証用）</p>
+      <h1 className="cm-page-title">講義一覧</h1>
+      <p className="cm-page-sub">AO 本体とは独立した講義モジュール（機能検証用）</p>
 
       {error && <div className="cm-error">{error}</div>}
 
       <div className="cm-card">
         <div className="cm-btn-row" style={{ marginTop: 0 }}>
           <Link href="/courses/new" className="cm-btn cm-btn-primary">
-            新規講習を作成
+            新規講義を作成
           </Link>
         </div>
       </div>
 
       <div className="cm-card">
-        <h2>登録済み講習</h2>
+        <h2>登録済み講義</h2>
         {courses.length === 0 ? (
-          <p className="cm-muted">まだ講習がありません。</p>
+          <p className="cm-muted">まだ講義がありません。</p>
         ) : (
           <ul className="cm-list">
             {courses.map((c) => (

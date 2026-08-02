@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CourseMaster, CourseParams } from "@/lib/course-maker/course-master-schema";
 import type { VerificationResult } from "@/lib/course-maker/verify-course-master";
 import { verifyCourseMaster } from "@/lib/course-maker/verify-course-master";
@@ -26,6 +26,8 @@ import {
   type VisualRow,
 } from "@/lib/course-maker/course-admin-view";
 import { putVisualArtifact } from "@/lib/course-maker/course-visual-client";
+import { parseSetupState } from "@/lib/course-maker/course-theme-brief";
+import type { PublicLearnInfo } from "@/lib/course-maker/course-public-learn";
 import {
   AdminSettingsTable,
   AdminSubBlock,
@@ -71,7 +73,7 @@ function CheckList({ v }: { v: VerificationResult | null }) {
   return (
     <div style={{ marginTop: "0.5rem" }}>
       <p className="cm-muted" style={{ marginBottom: "0.35rem" }}>
-        講座構成の機械チェック（構成整合性）
+        講義構成の機械チェック（構成整合性）
       </p>
       {v.checks.map((c) => (
         <div
@@ -112,6 +114,8 @@ export default function CourseAdminPage() {
   const [showMasterJson, setShowMasterJson] = useState(false);
   const [adminMemo, setAdminMemo] = useState("");
   const [memoBusy, setMemoBusy] = useState(false);
+  const [publicLearn, setPublicLearn] = useState<PublicLearnInfo | null>(null);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,6 +134,7 @@ export default function CourseAdminPage() {
           patterns: ImagePatternCompareRow[];
           mid_course_total: ImagePatternCompareRow | null;
         };
+        public_learn?: PublicLearnInfo;
         error?: string;
       }>(courseRes);
       if (!courseRes.ok) throw new Error(json.error ?? courseRes.statusText);
@@ -140,6 +145,7 @@ export default function CourseAdminPage() {
       setLogs(json.process_logs ?? []);
       setLlmSummary(json.llm_summary ?? null);
       setImageCompare(json.image_pattern_compare ?? null);
+      setPublicLearn(json.public_learn ?? null);
       if (json.course?.course_master) {
         setOutlineVerification(verifyCourseMaster(json.course.course_master as CourseMaster));
       }
@@ -233,7 +239,7 @@ export default function CourseAdminPage() {
   }
 
   if (loading) return <p className="cm-muted">読み込み中…</p>;
-  if (!course) return <div className="cm-error">講習が見つかりません</div>;
+  if (!course) return <div className="cm-error">講義が見つかりません</div>;
 
   const master = course.course_master;
   const params = course.params;
@@ -249,6 +255,24 @@ export default function CourseAdminPage() {
   const canGenerateSessions =
     course.status === "outline_approved" || course.status === "generating" || course.status === "ready";
   const hasReadySession = sessions.some((s) => s.status === "ready");
+  const shareUrl = useMemo(() => {
+    if (publicLearn?.url) return publicLearn.url;
+    if (typeof window !== "undefined") {
+      return `${window.location.origin}${publicLearn?.path ?? `/l/${courseId}`}`;
+    }
+    return publicLearn?.path ?? `/l/${courseId}`;
+  }, [publicLearn, courseId]);
+
+  async function copyShareUrl() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopyMsg("コピーしました");
+      window.setTimeout(() => setCopyMsg(null), 2000);
+    } catch {
+      setCopyMsg("コピーに失敗しました");
+      window.setTimeout(() => setCopyMsg(null), 2000);
+    }
+  }
 
   return (
     <>
@@ -256,16 +280,52 @@ export default function CourseAdminPage() {
         <div>
           <h1 className="cm-page-title">{course.title}</h1>
           <p className="cm-page-sub">
-            講座管理 · ステータス:{" "}
+            講義管理 · ステータス:{" "}
             <span className={`cm-badge cm-badge-${course.status}`}>{course.status}</span>
           </p>
         </div>
         {hasReadySession && (
-          <Link href={`/courses/${courseId}/learn`} className="cm-btn cm-btn-primary">
-            受講画面を開く →
-          </Link>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <Link href={`/courses/${courseId}/learn`} className="cm-btn cm-btn-primary">
+              受講画面を開く →
+            </Link>
+            <Link href={publicLearn?.path ?? `/l/${courseId}`} className="cm-btn" target="_blank" rel="noreferrer">
+              公開ページを開く
+            </Link>
+          </div>
         )}
       </div>
+
+      {hasReadySession && (
+        <div className="cm-card">
+          <h2>公開受講 URL（スマホ共有用）</h2>
+          <p className="cm-muted" style={{ marginTop: 0 }}>
+            認証なし。allowlist に入っている講義だけが開けます。Mac を落としても読ませるには Vercel 上の URL を渡してください。
+          </p>
+          <p style={{ margin: "0.5rem 0", wordBreak: "break-all", fontFamily: "ui-monospace, monospace" }}>
+            {shareUrl}
+          </p>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+            <button type="button" className="cm-btn cm-btn-primary" onClick={() => void copyShareUrl()}>
+              URL をコピー
+            </button>
+            <a href={shareUrl} className="cm-btn" target="_blank" rel="noreferrer">
+              新しいタブで開く
+            </a>
+            {copyMsg ? <span className="cm-muted">{copyMsg}</span> : null}
+          </div>
+          {!publicLearn?.allowlisted ? (
+            <p className="cm-error" style={{ marginBottom: 0 }}>
+              この講義はまだ allowlist（AO_COURSE_PUBLIC_LEARN_IDS）に入っていません。公開ページは 404 になります。
+            </p>
+          ) : !publicLearn.url ? (
+            <p className="cm-muted" style={{ marginBottom: 0 }}>
+              共有用オリジン未設定のため、いま開いているホスト基準の URL を表示しています。Vercel 用は
+              AO_COURSE_PUBLIC_LEARN_ORIGIN を設定してください。
+            </p>
+          ) : null}
+        </div>
+      )}
 
       <LlmTotalsBar summary={llmSummary} imageCompare={imageCompare} />
 
@@ -319,13 +379,13 @@ export default function CourseAdminPage() {
       <div className="cm-card">
         <h2>管理者用メモ</h2>
         <p className="cm-muted">
-          講座の生成には影響しません。モデル比較・観点・気づきを残すためのメモです。
+          講義の生成には影響しません。モデル比較・観点・気づきを残すためのメモです。
         </p>
         <textarea
           value={adminMemo}
           onChange={(e) => setAdminMemo(e.target.value)}
           rows={6}
-          placeholder={"例:\n- 講座構成: gpt-4.1-mini\n- 文書: …\n- 画像: gpt-image-1-mini low / 漢字崩れ\n- 比較ポイント: 内容の深さ、日本語、料金"}
+          placeholder={"例:\n- 講義構成: gpt-4.1-mini\n- 文書: …\n- 画像: gpt-image-1-mini low / 漢字崩れ\n- 比較ポイント: 内容の深さ、日本語、料金"}
           style={{ width: "100%", fontFamily: "inherit", fontSize: "0.85rem" }}
         />
         <div className="cm-btn-row" style={{ marginBottom: 0 }}>
@@ -344,7 +404,7 @@ export default function CourseAdminPage() {
             disabled={!!busy}
             onClick={() => runAction("outline", `/api/courses/${courseId}/outline/generate`)}
           >
-            {busy === "outline" ? "生成中…" : "講座構成を生成"}
+            {busy === "outline" ? "生成中…" : "講義構成を生成"}
           </button>
           <button
             type="button"
@@ -352,7 +412,7 @@ export default function CourseAdminPage() {
             disabled={!!busy || !canApprove}
             onClick={() => runAction("approve", `/api/courses/${courseId}/outline/approve`)}
           >
-            {busy === "approve" ? "承認中…" : "講座構成を承認"}
+            {busy === "approve" ? "承認中…" : "講義構成を承認"}
           </button>
           <button
             type="button"
@@ -367,30 +427,78 @@ export default function CourseAdminPage() {
         </div>
       </div>
 
-      {/* ── 1）講座 ── */}
-      <AdminTierBlock title="講座 — 設定・構成・作成">
+      {/* ── 1）講義 ── */}
+      <AdminTierBlock title="講義 — 設定・構成・作成">
         <AdminSubBlock title="管理者設定">
           <AdminSettingsTable rows={formatCourseParamsForAdmin(params)} />
         </AdminSubBlock>
 
+        {(() => {
+          const setup = parseSetupState(course?.admin_memo);
+          if (!setup) return null;
+          return (
+            <AdminSubBlock title="ヒアリング骨格（ThemeBrief / Skeleton）">
+              <p className="cm-muted">
+                phase: {setup.phase}
+                {setup.phase !== "locked" ? (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <Link href={`/courses/new?id=${courseId}`}>ヒアリングに戻る</Link>
+                  </>
+                ) : null}
+              </p>
+              {setup.brief ? (
+                <p className="cm-muted" style={{ whiteSpace: "pre-wrap" }}>
+                  {[
+                    setup.brief.framing,
+                    `ペルソナ: ${setup.brief.persona.label}`,
+                    `目標: ${setup.brief.learning_outcomes[0] ?? "—"}`,
+                    setup.brief.user_freeform
+                      ? `その他: ${setup.brief.user_freeform}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                </p>
+              ) : null}
+              {setup.skeleton ? (
+                <ol style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
+                  {setup.skeleton.sessions.map((s) => (
+                    <li key={s.session_no} style={{ marginBottom: "0.35rem" }}>
+                      <strong>{s.title}</strong>
+                      <div className="cm-muted">{s.one_liner}</div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="cm-muted">骨格はまだありません。</p>
+              )}
+              <p className="cm-muted" style={{ fontSize: "0.8rem", marginTop: "0.5rem" }}>
+                ※ 生データは下部の管理者メモ（JSON）にも保存されています。ヒアリングのアウトラインは回タイトル＋1行のみです。詳細セクション構成は下の「講義構成を生成」で作ります。
+              </p>
+            </AdminSubBlock>
+          );
+        })()}
+
         <AdminSubBlock title="LLMとのやりとり（指示プロンプト・回答）">
           {courseLogs.length === 0 ? (
-            <p className="cm-muted">講座構成を生成すると、ここに指示と回答が記録されます。</p>
+            <p className="cm-muted">講義構成を生成すると、ここに指示と回答が記録されます。</p>
           ) : (
             courseLogs.map((ev) => (
-              <LlmExchangeBlock key={ev.id} label={`講座構成の生成（${ev.step_key}）`} ev={ev} />
+              <LlmExchangeBlock key={ev.id} label={`講義構成の生成（${ev.step_key}）`} ev={ev} />
             ))
           )}
         </AdminSubBlock>
 
-        <AdminSubBlock title="講座の構成（本文）">
+        <AdminSubBlock title="講義の構成（本文）">
           {!master ? (
-            <p className="cm-muted">未生成です。「講座構成を生成」を実行してください。</p>
+            <p className="cm-muted">未生成です。「講義構成を生成」を実行してください。</p>
           ) : (
             <>
               <p className="cm-muted">
-                {master.meta.session_count}回 · 1回 {master.meta.session_duration_min}分 · 目標{" "}
-                {master.meta.target_chars_per_session}字/回
+                {master.meta.session_count}回 · 1回 約
+                {master.meta.target_chars_per_session}字
                 {outlineVerification && (
                   <>
                     {" "}
@@ -603,7 +711,7 @@ export default function CourseAdminPage() {
 
       {!master && (
         <p className="cm-muted" style={{ marginTop: "1rem" }}>
-          講座構成を生成すると、各回・セクションの作成ブロックが表示されます。
+          講義構成を生成すると、各回・セクションの作成ブロックが表示されます。
         </p>
       )}
     </>

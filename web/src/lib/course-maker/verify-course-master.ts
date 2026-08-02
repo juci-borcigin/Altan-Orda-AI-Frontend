@@ -67,7 +67,7 @@ export function verifyCourseMaster(master: CourseMaster): VerificationResult {
     id: "M3",
     pass: M3,
     severity: "error",
-    message_ja: "伏線IDが講座の伏線一覧に定義されているか",
+    message_ja: "伏線IDが講義の伏線一覧に定義されているか",
   });
 
   let M4 = true;
