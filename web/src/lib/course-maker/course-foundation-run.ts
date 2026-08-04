@@ -52,10 +52,9 @@ async function foundationLlm(
   const isOpenAiGpt56 =
     route.provider === "openai" &&
     route.modelId.trim().toLowerCase().startsWith("gpt-5.6");
+  // sampling は送らない（ベンダー既定）。GPT-5.6 のみ reasoning を明示。
   if (isOpenAiGpt56) {
     payload.reasoning_effort = "none";
-  } else {
-    payload.temperature = 0.3;
   }
   applyCompletionBudgetToPayload(payload, route, maxTokens);
 

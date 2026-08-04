@@ -40,7 +40,6 @@ async function ocrPngPage(png: Buffer, openaiKey: string): Promise<string> {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        temperature: 0,
         messages: [
           {
             role: "user",

@@ -37,7 +37,7 @@ import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
 import { chatSseStream } from "@/lib/ao-chat-sse";
 import { postOpenAiChatCompletionStream } from "@/lib/ao-openai-stream";
 import type { AoMsgAttachment } from "@/lib/ao-attachments";
-import { applyCompletionBudgetToPayload, stripUnsupportedSamplingFromPayload } from "@/lib/llm/completion-payload";
+import { applyCompletionBudgetToPayload, applyChatCompletionsToolReasoningCompat, stripUnsupportedSamplingFromPayload } from "@/lib/llm/completion-payload";
 import {
   buildOutboundChatMessages,
   completionHeaders,
@@ -1015,9 +1015,9 @@ export async function POST(req: Request) {
         finalCompletionPhaseSent = true;
         emit("phase", { phase: "final_completion" });
       }
+      // temperature 等の sampling は送らない（ベンダー既定）。拒否モデルでの 400 を避ける。
       const payload: Record<string, unknown> = {
         model: llmRoute.modelId,
-        temperature: 0.7,
         messages,
       };
       applyCompletionBudgetToPayload(payload, llmRoute, completionBudget);
@@ -1029,6 +1029,7 @@ export async function POST(req: Request) {
         payload.tools = tools;
         payload.tool_choice = "none";
       }
+      applyChatCompletionsToolReasoningCompat(payload, llmRoute);
 
       const useLlmStream = forceNoTools || !tools;
       let json: CompletionJson;

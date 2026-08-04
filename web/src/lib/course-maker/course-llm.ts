@@ -69,7 +69,6 @@ async function llmCompletion(
 
   const payload: Record<string, unknown> = {
     model: route.modelId,
-    temperature: 0.3,
     stream: false,
     messages: [
       { role: "system", content: system },

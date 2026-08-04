@@ -28,7 +28,6 @@ export async function summarizeHistoryWithLlm(
     headers: completionHeaders(route),
     body: JSON.stringify({
       model: route.modelId,
-      temperature: 0.2,
       max_tokens: 2048,
       stream: false,
       messages: [{ role: "user", content: prompt }],

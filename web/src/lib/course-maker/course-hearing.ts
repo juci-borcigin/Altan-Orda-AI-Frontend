@@ -71,13 +71,7 @@ async function llmCompletion(
       { role: "user", content: user },
     ],
   };
-  const isOpenAiGpt56 =
-    route.provider === "openai" && route.modelId.trim().toLowerCase().startsWith("gpt-5.6");
-  if (isOpenAiGpt56) {
-    payload.temperature = 1;
-  } else {
-    payload.temperature = 0.4;
-  }
+  // sampling は送らない（ベンダー既定）。拒否モデルでの 400 を避ける。
   applyCompletionBudgetToPayload(payload, route, maxTokens);
 
   const started = Date.now();

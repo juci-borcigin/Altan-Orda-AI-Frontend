@@ -116,7 +116,6 @@ export async function POST(req: Request, ctx: Ctx) {
 
     const payload: Record<string, unknown> = {
       model: route.modelId,
-      temperature: 0.4,
       stream: false,
       messages,
     };
