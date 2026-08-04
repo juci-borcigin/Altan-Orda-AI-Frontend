@@ -37,7 +37,7 @@ import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
 import { chatSseStream } from "@/lib/ao-chat-sse";
 import { postOpenAiChatCompletionStream } from "@/lib/ao-openai-stream";
 import type { AoMsgAttachment } from "@/lib/ao-attachments";
-import { applyCompletionBudgetToPayload } from "@/lib/llm/completion-payload";
+import { applyCompletionBudgetToPayload, stripUnsupportedSamplingFromPayload } from "@/lib/llm/completion-payload";
 import {
   buildOutboundChatMessages,
   completionHeaders,
@@ -1021,6 +1021,7 @@ export async function POST(req: Request) {
         messages,
       };
       applyCompletionBudgetToPayload(payload, llmRoute, completionBudget);
+      stripUnsupportedSamplingFromPayload(payload, llmRoute);
       if (tools && !forceNoTools) {
         payload.tools = tools;
         payload.tool_choice = "auto";

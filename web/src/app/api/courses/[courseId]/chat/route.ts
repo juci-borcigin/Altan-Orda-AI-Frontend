@@ -6,7 +6,7 @@ import {
   type CourseChatContext,
 } from "@/lib/course-maker/course-chat";
 import type { CourseMaster } from "@/lib/course-maker/course-master-schema";
-import { applyCompletionBudgetToPayload } from "@/lib/llm/completion-payload";
+import { applyCompletionBudgetToPayload, stripUnsupportedSamplingFromPayload } from "@/lib/llm/completion-payload";
 import { completionHeaders } from "@/lib/llm/router";
 import { resolveLlmRoute } from "@/lib/llm/resolve-route";
 import { recordCourseTrace } from "@/lib/course-maker/course-trace";
@@ -116,6 +116,7 @@ export async function POST(req: Request, ctx: Ctx) {
       messages,
     };
     applyCompletionBudgetToPayload(payload, route, 2048);
+    stripUnsupportedSamplingFromPayload(payload, route);
 
     const started = Date.now();
     const res = await fetch(`${route.baseUrl}/chat/completions`, {

@@ -12,7 +12,7 @@ import {
   type CourseMaster,
   type CourseParams,
 } from "./course-master-schema";
-import { applyCompletionBudgetToPayload } from "@/lib/llm/completion-payload";
+import { applyCompletionBudgetToPayload, stripUnsupportedSamplingFromPayload } from "@/lib/llm/completion-payload";
 import { verifyCourseMaster, type VerificationResult } from "./verify-course-master";
 import { completionHeaders } from "@/lib/llm/router";
 import { hasAnyLlmCredential, resolveLlmRoute } from "@/lib/llm/resolve-route";
@@ -69,21 +69,15 @@ async function llmCompletion(
 
   const payload: Record<string, unknown> = {
     model: route.modelId,
+    temperature: 0.3,
     stream: false,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
     ],
   };
-  const isOpenAiGpt56 =
-    route.provider === "openai" && route.modelId.trim().toLowerCase().startsWith("gpt-5.6");
-  if (isOpenAiGpt56) {
-    // GPT-5.6 は temperature=0.3 を拒否する。文章比較では非推論設定に揃える。
-    payload.reasoning_effort = "none";
-  } else {
-    payload.temperature = 0.3;
-  }
   applyCompletionBudgetToPayload(payload, route, maxTokens);
+  stripUnsupportedSamplingFromPayload(payload, route);
 
   const started = Date.now();
   const res = await fetch(`${route.baseUrl}/chat/completions`, {
