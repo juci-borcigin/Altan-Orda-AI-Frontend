@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState, type ReactNode } from "react";
 import { IcoArrowLeft, IcoCheck } from "@/components/ao-action-icons";
 import {
   ALLY_LORE_SECTION_KEY,
@@ -38,7 +38,7 @@ const ALLY_AVATAR_SRC: Record<string, string> = {
   コルグズ: "/personas/AO_Char_Qorguz.png",
 };
 
-export type AoSettingsSubpage = "global" | "header" | "mode" | "allies";
+export type AoSettingsSubpage = "global" | "header" | "mode" | "reijitsu" | "allies";
 
 const AO_SETTINGS_SUBPAGE_TAB_INACTIVE =
   "rounded-sm border border-transparent px-1 py-0 text-[10px] font-semibold leading-tight text-[#6A3F0A] outline-none transition-colors hover:bg-black/5 hover:text-[#3D1C08]";
@@ -59,6 +59,7 @@ export function AoSettingsSubpageTabs({
     { id: "global", label: "グローバル" },
     { id: "header", label: "ヘッダ" },
     { id: "mode", label: "モード" },
+    { id: "reijitsu", label: "令旨" },
     { id: "allies", label: "僚友" },
   ];
   return (
@@ -143,6 +144,13 @@ type Props = {
   /** embedded 時：帯ヘッダのタブと同期 */
   embeddedSubpage?: AoSettingsSubpage;
   onEmbeddedSubpageChange?: (v: AoSettingsSubpage) => void;
+  /**
+   * ビューエリア大枠内など、外側でスクロールするとき true。
+   * 内側の細い枠＋枠内スクロールを付けない。
+   */
+  outerScroll?: boolean;
+  /** `reijitsu` タブの中身（論固有設定）。未指定時は案内文のみ */
+  reijitsuPanel?: ReactNode;
 };
 
 export type AoSettingsOverlayHandle = {
@@ -151,7 +159,15 @@ export type AoSettingsOverlayHandle = {
 };
 
 export const AoSettingsOverlay = forwardRef<AoSettingsOverlayHandle, Props>(function AoSettingsOverlay(
-  { open, onClose, embedded = false, embeddedSubpage, onEmbeddedSubpageChange },
+  {
+    open,
+    onClose,
+    embedded = false,
+    embeddedSubpage,
+    onEmbeddedSubpageChange,
+    outerScroll = false,
+    reijitsuPanel,
+  },
   ref,
 ) {
   const [loading, setLoading] = useState(false);
@@ -231,11 +247,25 @@ export const AoSettingsOverlay = forwardRef<AoSettingsOverlayHandle, Props>(func
   if (!open) return null;
 
   const rootClass = embedded
-    ? "flex min-h-0 min-w-0 flex-1 flex-col box-border overflow-x-hidden px-1.5 pb-1 pt-0 ao-p5-parchment-surface"
+    ? outerScroll
+      ? "flex w-full min-w-0 flex-col box-border overflow-x-hidden px-1.5 pb-1 pt-0"
+      : "flex min-h-0 min-w-0 flex-1 flex-col box-border overflow-x-hidden px-1.5 pb-1 pt-0 ao-p5-parchment-surface"
     : "absolute inset-0 z-[55] flex min-h-0 min-w-0 flex-col box-border overflow-x-hidden px-2 pb-2 pt-0.5 ao-p5-parchment-surface";
 
+  const bodyClass = outerScroll
+    ? "w-full min-w-0 px-0.5 py-1"
+    : "min-h-0 flex-1 overflow-y-auto border border-solid [scrollbar-gutter:stable] px-2 py-1";
+  const bodyStyle = outerScroll
+    ? undefined
+    : { borderColor: AO_INK, borderWidth: 1, backgroundColor: "#faf6ee" };
+
   return (
-    <div className={rootClass} style={{ backgroundColor: AO_PARCHMENT }} role="dialog" aria-label="設定">
+    <div
+      className={rootClass}
+      style={outerScroll ? undefined : { backgroundColor: AO_PARCHMENT }}
+      role="dialog"
+      aria-label="設定"
+    >
       {!embedded ? (
         <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-x-1 border-b border-[#3D1C08]/15 px-2 pb-1.5 pt-1">
           <div className="min-w-0 shrink-0" aria-hidden />
@@ -265,27 +295,26 @@ export const AoSettingsOverlay = forwardRef<AoSettingsOverlayHandle, Props>(func
       ) : null}
 
       {!supabaseConfigured ? (
-        <div className="shrink-0 px-2 pb-2 text-center text-[12px] text-amber-200/95">
+        <div className="shrink-0 px-2 pb-2 text-center text-[12px] text-amber-800/90">
           Supabase（サービスロール）が未設定です。表示のみでき、確定では保存されません。
         </div>
       ) : null}
 
       {error ? (
-        <div className="shrink-0 px-2 pb-2 text-center text-[12px] text-red-300">{error}</div>
+        <div className="shrink-0 px-2 pb-2 text-center text-[12px] text-red-700">{error}</div>
       ) : null}
 
-      <div
-        className="min-h-0 flex-1 overflow-y-auto border border-solid [scrollbar-gutter:stable] px-2 py-1"
-        style={{ borderColor: AO_INK, borderWidth: 1, backgroundColor: "#faf6ee" }}
-      >
-        {loading ? (
+      <div className={bodyClass} style={bodyStyle}>
+        {loading && activeSubpage !== "reijitsu" ? (
           <div className="py-6 text-center text-[12px] text-[#3D1C08]/60">読み込み中…</div>
         ) : (
-          <div className="min-h-0 flex-1 pb-2">
-            <p className="mb-2 shrink-0 text-[10px] leading-snug text-[#3D1C08]/65">
-              表示のみ（編集は Supabase Table Editor または今後の移行 UI）。論別の実行設定はメイン画面の
-              <strong className="font-semibold"> 令旨</strong> から保存してください。
-            </p>
+          <div className="min-h-0 w-full pb-2">
+            {activeSubpage !== "reijitsu" ? (
+              <p className="mb-2 shrink-0 text-[10px] leading-snug text-[#3D1C08]/65">
+                表示のみ（編集は Supabase Table Editor または今後の移行 UI）。論別の実行設定は
+                <strong className="font-semibold"> 令旨</strong> タブから保存してください。
+              </p>
+            ) : null}
             {activeSubpage === "global" ? (
               <section className="flex flex-col gap-2" role="tabpanel" aria-label="グローバル">
                 <h3
@@ -344,6 +373,13 @@ export const AoSettingsOverlay = forwardRef<AoSettingsOverlayHandle, Props>(func
                     <PromptTextarea key={key} readOnly label={SECTION_LABELS[key] ?? key} value={draftSections[key] ?? ""} />
                   ))}
                 </div>
+              </section>
+            ) : null}
+            {activeSubpage === "reijitsu" ? (
+              <section className="flex flex-col gap-2" role="tabpanel" aria-label="令旨">
+                {reijitsuPanel ?? (
+                  <p className="py-4 text-center text-[12px] text-[#3D1C08]/70">論を選択すると令旨を表示します。</p>
+                )}
               </section>
             ) : null}
             {activeSubpage === "allies" ? (

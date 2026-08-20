@@ -1,6 +1,7 @@
 /**
  * ベンダー直結のテキスト単価（USD / 1M tokens）。概算表示の正本。
- * 取得日: 2026-08-02（OpenAI / Anthropic / xAI / DeepSeek / Perplexity 公開価格）
+ * 取得日: 2026-08-04（OpenAI / Anthropic / xAI / DeepSeek / Perplexity 公開価格）
+ * 鮮度: AO 動作時に付帯単価は env 再読込。本表はコード更新時に日付を上げること。
  * Sonnet 5 は導入価格 $2/$10（〜2026-08-31）。以降は標準 $3/$15 に更新すること。
  */
 

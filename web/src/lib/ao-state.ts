@@ -12,12 +12,26 @@ export type MsgTurnUsage = {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** 合計概算 USD（内訳があるときは total） */
   estimatedUsd: number | null;
   modelId: string;
   /** 実際に叩いた経路（openrouter / google / anthropic / openai など） */
   provider?: string;
   /** API に送った model 名（直結時は vendor プレフィックス無しの場合がある） */
   apiModel?: string;
+  /** 可変費内訳（LLM / 要約 / Tavily / embedding） */
+  costBreakdown?: {
+    llmUsd: number | null;
+    summaryUsd: number | null;
+    tavilyUsd: number | null;
+    embeddingUsd: number | null;
+    totalUsd: number | null;
+    tavilyQueries: number;
+    summaryPromptTokens?: number;
+    summaryCompletionTokens?: number;
+    embeddingApproxTokens?: number;
+    pricingAsOf?: string;
+  };
 };
 
 /** /api/chat が返す LLM 往復全文（Supabase assistant 先頭行にも保存） */

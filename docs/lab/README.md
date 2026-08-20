@@ -59,11 +59,12 @@
 
 | パス | 内容 | 状態 |
 |------|------|------|
-| `/phase5-preview` | 吹き出し・肖像・名札・ビューポート等の UI 部品ギャラリー | **生存**（Next ルート） |
+| `/lab/template-tokens` | テンプレ・トークン台帳（視覚 SSOT）。旧 `/phase5-preview` はここへリダイレクト | **生存** |
 | `/phase5-preview/notebook-sources` | 典籍ソース仮UI | **生存** |
 | `/ao-shin-icon-samples.html` | アイコン SVG 候補の静的プレビュー | **生存**（`public/`） |
 
-関連アセット（本番でも使用）: `web/public/phase5/`、`web/public/personas/`  
+関連アセット（本番でも使用）: `web/public/template/`、`web/public/personas/`  
+パス SSOT: `web/src/lib/template/ao-template-assets.ts`  
 SP 用プロンプト文例（画面ではない）: `docs/phase5/sp-samples/`
 
 ### 運用・プレビュー（`/lab` 配下・ローカル専用）

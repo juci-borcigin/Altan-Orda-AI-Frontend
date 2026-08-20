@@ -1,22 +1,15 @@
-export { AoP5Corner } from "./AoP5Corner";
-export type { AoP5CornerSlot } from "./AoP5Corner";
-export { AoP5DecorativeFrame } from "./AoP5DecorativeFrame";
-export { AoP5CornerMaster } from "./AoP5CornerMaster";
-export { AoOrnamentalFrame } from "./AoOrnamentalFrame";
-export { AoP5Bubble } from "./AoP5Bubble";
-export type { AoP5BubbleProps } from "./AoP5Bubble";
-export { AoP5ParchmentBubble } from "./AoP5ParchmentBubble";
-export type { AoP5ParchmentBubbleProps } from "./AoP5ParchmentBubble";
+export { AoBorderImageFrame } from "./AoBorderImageFrame";
+export { AoTemplateFrame } from "./AoTemplateFrame";
+export { AoMainColumnFrame } from "./AoMainColumnFrame";
+export {
+  AoTemplateLayoutSample,
+  AoTemplateFrameShowcase,
+  AoFrameBReservePreview,
+} from "./AoTemplateLayoutSample";
+export { AoFrameInsetLab } from "./AoFrameInsetLab";
+export { AoTemplateTokenCatalog } from "./AoTemplateTokenCatalog";
 export { AoP5NineSliceBubble } from "./AoP5NineSliceBubble";
 export type { AoP5NineSliceBubbleProps, AoP5NineSliceBubbleVariant } from "./AoP5NineSliceBubble";
-export { AoP5PortraitCard } from "./AoP5PortraitCard";
-export type { AoP5PortraitCardProps, PortraitCardVariant } from "./AoP5PortraitCard";
-export { AoP5PortraitFrame } from "./AoP5PortraitFrame";
-export type { AoP5PortraitFrameProps } from "./AoP5PortraitFrame";
-export { AoP5NameplateSm } from "./AoP5NameplateSm";
-export type { AoP5NameplateSmProps } from "./AoP5NameplateSm";
-export { AoP5PortraitFrameC } from "./AoP5PortraitFrameC";
-export type { AoP5PortraitFrameCProps } from "./AoP5PortraitFrameC";
 export {
   AoP5FaceFrameMid,
   AO_MAIN_CHAT_FACE_PORTRAIT_SCALE,

@@ -57,7 +57,8 @@ export function isAoNativeThread(t: { sourceProvider?: string }): boolean {
 
 /**
  * 論タブに応じた僚友ハイライト（主担当＋副担当。クリックでは切り替えない）。
- * メイン投稿時の project_id は `aoPostingProjectIdForTopic` を参照（巷間論 chat は DB 永続化なし）。
+ * メイン投稿時の project_id は `aoPostingProjectIdForTopic` を参照。
+ * 巷間論（chat）もスレ／メッセージは Supabase に永続する（embedding／RAG 対象外）。
  */
 export function activeNokorNamesForTopic(topicId: TopicUiId | null): Set<string> {
   if (!topicId) return new Set();
@@ -110,7 +111,7 @@ export function aoPostingProjectIdForTopic(topicId: TopicUiId): ProjectId {
 }
 
 /**
- * 年代記・議事一覧：当該論の議事（Supabase 同期済みは取り込み nblm 等も含む。巷間論 chat は ephemeral 空も可）
+ * 年代記・議事一覧：当該論の議事（Supabase 同期済みは取り込み nblm 等も含む。巷間論 chat も永続可）
  */
 export function threadsForTopicGiList(threads: Thread[], topicId: TopicUiId): Thread[] {
   const pids = projectIdsForTopic(topicId);

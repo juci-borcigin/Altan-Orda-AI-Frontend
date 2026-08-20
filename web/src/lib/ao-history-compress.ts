@@ -23,6 +23,13 @@ export type CompressHistoryResult = {
   cache: ThreadHistoryCompression | null;
   /** 今回新たに要約したか */
   didSummarize: boolean;
+  /** 今回の要約 LLM 課金（走らなければ null） */
+  summaryUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    modelId: string;
+    estimatedUsd: number | null;
+  } | null;
 };
 
 /** 1 リクエストあたりの LLM 要約ラウンド上限（超過分はターン削除のみ） */
@@ -124,7 +131,16 @@ export async function compressHistoryForChat(opts: {
   messages: HistoryMessage[];
   thresholdTokens: number;
   cache: ThreadHistoryCompression | null | undefined;
-  summarize: (payload: { existingSummary: string; newTurnsText: string }) => Promise<string>;
+  summarize: (payload: {
+    existingSummary: string;
+    newTurnsText: string;
+  }) => Promise<{
+    text: string;
+    promptTokens: number;
+    completionTokens: number;
+    modelId: string;
+    estimatedUsd: number | null;
+  }>;
   maxSummarizeRounds?: number;
 }): Promise<CompressHistoryResult> {
   const threshold = opts.thresholdTokens;
@@ -133,7 +149,12 @@ export async function compressHistoryForChat(opts: {
     list.map((m) => ({ role: m.role, content: m.content }));
 
   if (threshold <= 0 || opts.messages.length === 0) {
-    return { messages: strip(opts.messages), cache: opts.cache ?? null, didSummarize: false };
+    return {
+      messages: strip(opts.messages),
+      cache: opts.cache ?? null,
+      didSummarize: false,
+      summaryUsage: null,
+    };
   }
 
   let summary = opts.cache?.summary?.trim() ?? "";
@@ -166,6 +187,7 @@ export async function compressHistoryForChat(opts: {
   const folded: string[] = [];
   let didSummarize = false;
   let summarizeRounds = 0;
+  let summaryUsage: CompressHistoryResult["summaryUsage"] = null;
 
   const tokenEstimate = () =>
     estimateHistoryTokens([
@@ -185,13 +207,18 @@ export async function compressHistoryForChat(opts: {
   }
 
   if (folded.length > 0) {
-    summary = (
-      await opts.summarize({
-        existingSummary: summary,
-        newTurnsText: folded.join("\n\n---\n\n"),
-      })
-    ).trim();
+    const summarized = await opts.summarize({
+      existingSummary: summary,
+      newTurnsText: folded.join("\n\n---\n\n"),
+    });
+    summary = summarized.text.trim();
     didSummarize = true;
+    summaryUsage = {
+      promptTokens: summarized.promptTokens,
+      completionTokens: summarized.completionTokens,
+      modelId: summarized.modelId,
+      estimatedUsd: summarized.estimatedUsd,
+    };
   }
 
   const flat = turns.flatMap((t) => t.messages);
@@ -206,6 +233,7 @@ export async function compressHistoryForChat(opts: {
       messages: strip(flat.length ? flat : recent),
       cache: null,
       didSummarize,
+      summaryUsage,
     };
   }
 
@@ -216,8 +244,11 @@ export async function compressHistoryForChat(opts: {
 
   return {
     messages: strip([head, ...flat]),
-    cache: fromMessageId ? { fromMessageId, summary } : { fromMessageId: cacheFromId || fromMessageId, summary },
+    cache: fromMessageId
+      ? { fromMessageId, summary }
+      : { fromMessageId: cacheFromId || fromMessageId, summary },
     didSummarize,
+    summaryUsage,
   };
 }
 

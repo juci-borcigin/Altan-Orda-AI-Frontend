@@ -1,6 +1,6 @@
 # AO 本体バックログ（To Do）
 
-**更新**: 2026-08-02  
+**更新**: 2026-08-20  
 **位置づけ**: 着手前の構想・残課題の置き場。勝手に実装しない。優先順位は殿下の指示に従う。
 
 関連: [AO_Handoff_to_Core_2026-08-02.md](./AO_Handoff_to_Core_2026-08-02.md) ・ [AO_Phase7_Planning.md](../phase7/AO_Phase7_Planning.md) ・ [version-2-layout.md](../version-2-layout.md)
@@ -11,7 +11,7 @@
 
 | 項目 | 状態 |
 |------|------|
-| 講義メーカー機能追加 | クローズ（再開は別指示） |
+| 講義メーカー機能追加 | **ナレッジ（KM）として AO シェル埋め込みへ移行中**（Generic `/courses` は残置） |
 | Phase 6 続き（典籍論・新規 upload・本番 RAG 配線） | **据え置き** |
 | 主戦場 | AO 本体（チャット・運用・レイアウト） |
 
@@ -67,20 +67,27 @@ PR: https://github.com/juci-borcigin/Altan-Orda-AI-Frontend/pull/1
 ## 作業順の仮置き
 
 1. **足場**: 完了（2026-08-02）
-2. **使える基本機能（最低限ゲート）** — 実装中／完了予定  
+2. **使える基本機能（最低限ゲート）** — **完了寄り**（2026-08-04）  
    - **脱 OpenRouter**: 常時直結。例外は `AO_LLM_FORCE_OPENROUTER=1` のみ（開発時明示）。失敗はエラー（OR へ黙って落とさない）  
    - **単価**: ベンダー直結表（`ao-vendor-pricing.ts`）。OR models API は FORCE 時のみ  
    - **モデル**: Anthropic（Opus 5/4.8/4.7/4.6・Sonnet 5/4.6/4.5・Haiku 4.5）＋ OpenAI（5.6 Sol/Terra/Luna・5.5・5.4/mini）必須。試験に Fable 5・nano・Grok・DeepSeek・Sonar/Pro  
-   - 要約既定: Haiku 4.5（実課金は圧縮時のみ別コール。UI 概算には未加算）  
+   - 要約既定: Haiku 4.5（実課金は圧縮時のみ別コール）  
    - Sonar 選択時は Tavily オフ  
+   - sampling は送らない／GPT-5.6+tools は `reasoning_effort: none`  
    - RAG 改良は内容未定・後追い可
-2.5. **基本機能の続き**（この段階で想起）  
-   - 同期・永続の健全性  
-   - API 残高切れ UX  
-   - （候補）履歴要約 Haiku の概算への加算
-3. **レイアウト Ver2**（Phase 7 の枠）※前後で `page.tsx`：確定 → 掃除 → 分割  
-4. **Phase 7 機能本体**  
-5. **マルチユーザー**
+2.5. **基本機能の続き** — **完了**（2026-08-04・localhost。Prod は別指示）  
+   - 同期・永続の失敗可視化（一覧／persist／localStorage）  
+   - API 残高・制限の日本語 UX（分類コード付き）  
+   - 発言ごとの可変費内訳: LLM＋要約＋Tavily＋embedding（合計を `estimatedUsd`）  
+   - 単価鮮度: AO 動作時に付帯単価 env 再読込・OR キャッシュ破棄（約 14 日）  
+   - A4: 巷間は永続する／embedding・RAG 対象外（方針一致）  
+   - （任意・未）一覧 50 件ページング
+3. **レイアウト Ver2 ＋ モジュール化** — **進行中**（正本: [version-2-layout.md](../version-2-layout.md)）  
+   - シェル／チャット分割／KM 第1弾（埋め込み）まで到達。論タブ `frame_AS` は **完了扱い**（2026-08-20）  
+   - **次（2026-08-20）**: 整理の一括 commit 後、左カラム（スマホ）の既存不具合。その後 **第二テンプレを用意し A/B 切替で試験**（マルチユーザーより先）  
+   - KM 第2弾（文末チャット等）はテンプレ A/B のあとで可  
+4. **独立モジュール（旧 Phase 7 機能本体）** — 情報 Push・巷間の右サイド移設・画像生成論。チャット／テンプレが落ち着いたら戻る  
+5. **マルチユーザー** — テンプレ A/B のあとに検討（切替試験の前提ではない）
 
 ---
 

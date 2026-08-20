@@ -22,12 +22,17 @@ const SECTIONS: LabSection[] = [
     id: "ao-core",
     title: "AO 本体アーカイブ",
     blurb:
-      "チャットUI・部品・典籍まわりの試作。旧 /sample ではなく /phase5-preview 等として残っているもの。",
+      "チャットUI・部品・典籍まわりの試作。見た目の正本はテンプレ台帳（`/lab/template-tokens`）。",
     items: [
       {
-        href: "/phase5-preview",
-        title: "Phase5 UI プレビュー",
-        note: "吹き出し・肖像・名札・ビューポート枠など、画面デザイン確認用の部品ギャラリー。",
+        href: "/lab/template-tokens",
+        title: "テンプレ・トークン台帳",
+        note: "視覚 SSOT。ガイド線、9-slice 部品（角・辺）、大枠/中枠/顔グラ/名札の組み合わせ。数値正本は ao-frame-tokens.ts。旧 /phase5-preview はここへ寄せた。",
+      },
+      {
+        href: "/lab/frame-inset-lab",
+        title: "枠インセット診断ラボ",
+        note: "大枠 AL・中枠 AS・顔グラ Frame_D の slice/border/装飾内端を 1px ガイドで可視化。本番同等コンポーネント。",
       },
       {
         href: "/phase5-preview/notebook-sources",
@@ -106,6 +111,11 @@ const SECTIONS: LabSection[] = [
         href: "/lab/kamakura-shodo-design",
         title: "ホームページ デザイン3案",
         note: "Coastal Mist / Garden Light / Ink Field。競合比較つき。",
+      },
+      {
+        href: "/lab/kamakura-shodo-ink-field",
+        title: "Ink Field 試作（HP）",
+        note: "正本Doc掲載案を反映。JP/EN・スマホ対応。",
       },
     ],
   },

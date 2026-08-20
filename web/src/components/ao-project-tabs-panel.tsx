@@ -2,26 +2,8 @@
 
 import { type RefObject } from "react";
 import { AO_TOPICS, type TopicUiId } from "@/lib/ao-topics";
-import { AoOrnamentalFrame } from "@/components/ao-phase5";
-
-function AoRubyGold({
-  main,
-  rt,
-  mainClassName,
-  rtClassName,
-}: {
-  main: string;
-  rt: string;
-  mainClassName: string;
-  rtClassName: string;
-}) {
-  return (
-    <ruby className={`inline-ruby ${mainClassName}`}>
-      {main}
-      <rt className={rtClassName}>{rt}</rt>
-    </ruby>
-  );
-}
+import { AoTemplateFrame } from "@/components/ao-phase5";
+import { AoRubyGold } from "@/components/ao-ruby-gold";
 
 export type AoProjectTabsPanelProps = {
   measureRef?: RefObject<HTMLDivElement | null>;
@@ -30,9 +12,7 @@ export type AoProjectTabsPanelProps = {
   onTabClick: (topicId: TopicUiId) => void;
   viewportCompact: boolean;
   topicFontSizePx: number;
-  frameInsetPx: number;
-  parchmentPad: string;
-  /** V1 メイン内の狭列幅。V2 サイドバーでは未指定で全幅 */
+  /** メイン内の狭列幅。「大会盟」相当。未指定時も全幅にせず既定狭幅 */
   columnWidthPx?: number | null;
 };
 
@@ -44,29 +24,30 @@ export function AoProjectTabsPanel({
   onTabClick,
   viewportCompact,
   topicFontSizePx,
-  frameInsetPx,
-  parchmentPad,
   columnWidthPx,
 }: AoProjectTabsPanelProps) {
-  const fullWidth = columnWidthPx == null;
+  const fallbackW = viewportCompact ? 62 : 72;
+  const widthPx =
+    typeof columnWidthPx === "number" && Number.isFinite(columnWidthPx) && columnWidthPx > 0
+      ? columnWidthPx
+      : fallbackW;
   return (
     <div
       ref={measureRef}
-      className="isolate flex shrink-0 grow-0 basis-auto flex-col self-start overflow-visible"
+      className="isolate flex h-full shrink-0 grow-0 basis-auto flex-col self-stretch overflow-visible"
       style={{
-        width: fullWidth ? "100%" : columnWidthPx ?? (viewportCompact ? 62 : 72),
-        alignSelf: "flex-start",
+        width: widthPx,
+        minWidth: widthPx,
+        maxWidth: widthPx,
       }}
     >
-      <AoOrnamentalFrame
-        scale={0.5}
-        rootDisplay="inline-flex"
-        contentInsetPx={frameInsetPx}
-        className="max-h-max w-full shrink-0 overflow-visible align-top"
-        contentClassName="flex max-h-max shrink-0 flex-col justify-start gap-0 overflow-visible"
-        contentStyle={{ padding: parchmentPad }}
+      <AoTemplateFrame
+        preset="frame_AS"
+        className="h-full max-h-full w-full shrink-0 overflow-hidden align-top"
+        contentClassName="flex h-full min-h-0 w-full shrink-0 flex-col justify-start gap-0 overflow-y-auto overflow-x-hidden"
+        contentStyle={{ padding: 0 }}
       >
-        <div className="ao-p5-parchment-surface flex max-h-max w-full flex-col justify-start divide-y divide-solid divide-[#3D1C08]/[0.14] px-0 py-0">
+        <div className="ao-p5-parchment-surface flex w-full flex-col justify-start divide-y divide-solid divide-[#3D1C08]/[0.14] px-0 py-0">
           {AO_TOPICS.map((tp) => {
             const on = selectedTopic === tp.id;
             const isKuriltai = tp.id === AO_TOPICS[0].id;
@@ -118,7 +99,7 @@ export function AoProjectTabsPanel({
             );
           })}
         </div>
-      </AoOrnamentalFrame>
+      </AoTemplateFrame>
     </div>
   );
 }

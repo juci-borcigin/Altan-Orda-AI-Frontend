@@ -5,9 +5,16 @@ import {
   aoP5FaceFrameMidOuterSizePx,
   aoP5NameplateSmOuterWidthPx,
 } from "@/components/ao-phase5";
+import {
+  AO_FRAME_A_SLICE_PX,
+  AO_FRAME_AS_BORDER_PX,
+  AO_FRAME_AS_TEXT_PAD_PX,
+  aoFrameAOverlayInsets,
+} from "@/lib/template/ao-frame-tokens";
 
 /** 削除確認ポップアップ：吹き出し内側（AI 9-slice 既定色） */
-export const AO_POPUP_AI_BUBBLE_BG = "#F1E8D8";
+/** = `--color-ao-bubble-system` */
+export const AO_POPUP_AI_BUBBLE_BG = "#F1E9D9";
 
 /** ao_popup.template_text のプレースホルダ */
 export type AoPopupVars = {
@@ -97,15 +104,14 @@ export function aoPopupKorguzKinStackHPx(): number {
 /** 帯高さの最終倍率（顔グラ列算出はそのまま、枠込みの外寸だけ抑える） */
 export const AO_POPUP_BAND_HEIGHT_FACTOR = 0.8;
 
-/** ポップアップ帯の外寸高さ（行＝顔グラ列基準＋装飾余白＋10% のあと AO_POPUP_BAND_HEIGHT_FACTOR） */
-export function aoPopupDeleteConfirmBandHPx(
-  frameInsetPx: number,
-  speechBlockHPx: number,
-): number {
+/** ポップアップ帯の外寸高さ（行＝顔グラ列基準＋ frame_AS 上下 inset＋10% のあと AO_POPUP_BAND_HEIGHT_FACTOR） */
+export function aoPopupDeleteConfirmBandHPx(speechBlockHPx: number): number {
   const kinH = aoPopupKorguzKinStackHPx();
   const rowH = Math.max(speechBlockHPx, kinH);
   const innerPadPx = 4;
-  const frameChromePx = frameInsetPx * 2 + 12;
+  const displayScale = AO_FRAME_AS_BORDER_PX / AO_FRAME_A_SLICE_PX;
+  const { content } = aoFrameAOverlayInsets(displayScale, AO_FRAME_AS_TEXT_PAD_PX);
+  const frameChromePx = content.top + content.bottom;
   const raw = (rowH + innerPadPx + frameChromePx) * 1.1;
   return Math.max(
     Math.round(raw * AO_POPUP_BAND_HEIGHT_FACTOR),

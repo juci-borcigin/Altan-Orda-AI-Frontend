@@ -1484,3 +1484,33 @@
 .cm-setup-session-list li {
   margin-bottom: 0.85rem;
 }
+
+/* AO シェル埋め込み：Generic の青リンク・角丸をテンプレ面に寄せる（本文データは同じ） */
+.cm-ao-km-embed .cm-learn-hero-img,
+.cm-ao-km-embed .cm-learn-hero-empty {
+  border-radius: 0;
+  max-width: 100%;
+}
+.cm-ao-km-embed .cm-learn-toc {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.cm-ao-km-embed .cm-learn-toc a {
+  color: var(--color-ao-ink);
+  font-size: inherit;
+}
+.cm-ao-km-embed .cm-learn-course-title,
+.cm-ao-km-embed .cm-learn-session-title,
+.cm-ao-km-embed .cm-learn-section-title,
+.cm-ao-km-embed .cm-body,
+.cm-ao-km-embed .cm-learn-body,
+.cm-ao-km-embed h1,
+.cm-ao-km-embed h2 {
+  color: var(--color-ao-ink);
+}
+.cm-ao-km-embed .cm-muted {
+  color: var(--color-ao-ink-muted);
+}

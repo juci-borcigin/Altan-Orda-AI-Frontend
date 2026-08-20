@@ -1,6 +1,14 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import {
+  AO_BUBBLE_SYSTEM_FILL,
+  AO_BUBBLE_USER_FILL,
+} from "@/lib/template/ao-frame-tokens";
+import {
+  AO_TEMPLATE_BUBBLE_NINE_SLICE,
+  aoTemplateAssetUrl,
+} from "@/lib/template/ao-template-assets";
 
 export type AoP5NineSliceBubbleVariant = "user" | "ai";
 
@@ -30,16 +38,23 @@ type SliceSet = {
   sideTileH: number;
 };
 
+function v(path: string): string {
+  return aoTemplateAssetUrl(path);
+}
+
+const U = AO_TEMPLATE_BUBBLE_NINE_SLICE.user;
+const S = AO_TEMPLATE_BUBBLE_NINE_SLICE.system;
+
 // 画像寸法（sips で確認済み）
 const USER_SLICES: SliceSet = {
-  lt: "/phase5/bubble_user_left_top.png",
-  lm: "/phase5/bubble_user_left_mid.png",
-  lb: "/phase5/bubble_user_left_btm.png",
-  rt: "/phase5/bubble_user_right_top.png",
-  rm: "/phase5/bubble_user_right_mid.png",
-  rb: "/phase5/bubble_user_right_btm.png",
-  tm: "/phase5/bubble_user_top_mid.png",
-  bm: "/phase5/bubble_user_btm_mid.png",
+  lt: v(U.lt),
+  lm: v(U.lm),
+  lb: v(U.lb),
+  rt: v(U.rt),
+  rm: v(U.rm),
+  rb: v(U.rb),
+  tm: v(U.tm),
+  bm: v(U.bm),
   leftW: 18,
   rightW: 48,
   topH: 10,
@@ -55,14 +70,14 @@ const USER_SLICES: SliceSet = {
 };
 
 const AI_SLICES: SliceSet = {
-  lt: "/phase5/bubble_ai_left_top.png",
-  lm: "/phase5/bubble_ai_left_mid.png",
-  lb: "/phase5/bubble_ai_left_btm.png",
-  rt: "/phase5/bubble_ai_right_top.png",
-  rm: "/phase5/bubble_ai_right_mid.png",
-  rb: "/phase5/bubble_ai_right_btm.png",
-  tm: "/phase5/bubble_ai_top_mid.png",
-  bm: "/phase5/bubble_ai_btm_mid.png",
+  lt: v(S.lt),
+  lm: v(S.lm),
+  lb: v(S.lb),
+  rt: v(S.rt),
+  rm: v(S.rm),
+  rb: v(S.rb),
+  tm: v(S.tm),
+  bm: v(S.bm),
   leftW: 48,
   rightW: 18,
   topH: 10,
@@ -83,7 +98,7 @@ function slicesFor(variant: AoP5NineSliceBubbleVariant): SliceSet {
 
 export interface AoP5NineSliceBubbleProps {
   variant: AoP5NineSliceBubbleVariant;
-  /** 内側背景色。指定がない場合 user=#fff / ai=#F1E8D8 */
+  /** 内側背景色。未指定時はトークン（user / system） */
   bgColor?: string;
   /** 枠（スライス幅）スケール。1=現状、0.5=半分など */
   frameScale?: number;
@@ -132,7 +147,8 @@ export function AoP5NineSliceBubble({
     midTileH: Math.max(1, Math.round(s.midTileH * fs)),
     sideTileH: Math.max(1, Math.round(s.sideTileH * fs)),
   };
-  const fill = bgColor ?? (variant === "user" ? "#FFFFFF" : "#F1E8D8");
+  const fill =
+    bgColor ?? (variant === "user" ? AO_BUBBLE_USER_FILL : AO_BUBBLE_SYSTEM_FILL);
 
   const innerPadX = contentPadX ?? 14;
   const innerPadY = contentPadY ?? 10;

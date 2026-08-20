@@ -18,3 +18,7 @@ web/public/lab/image-lab/
 
 # Cursor ローカル設定（エージェント用。リポには載せない）
 .cursor/
+
+# 掃除退避（ローカルのみ。Ledger: docs/operations/AO_Cleanup_Ledger.md）
+_archive/*
+!_archive/README.md

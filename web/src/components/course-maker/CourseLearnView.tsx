@@ -13,12 +13,30 @@ import {
 } from "@/lib/course-maker/course-admin-view";
 import { fetchVisualBySlot } from "@/lib/course-maker/course-visual-client";
 import { readingMinutesForSession } from "@/lib/course-maker/course-master-schema";
+import { IcoArrowLeft } from "@/components/ao-action-icons";
+import { AoTemplateFrame } from "@/components/ao-phase5/AoTemplateFrame";
+import {
+  AO_BTN_CLASS,
+  AO_BTN_SELECTED_CLASS,
+  AO_NAV_BACK_BTN_CLASS,
+} from "@/lib/template/ao-chrome";
 
 export type CourseLearnVariant = "admin" | "public";
+export type CourseLearnUi = "generic" | "ao";
 
 type CourseLearnViewProps = {
   courseId: string;
   variant: CourseLearnVariant;
+  /** false で文末チャットを隠す（AO シェル第1弾など） */
+  showSessionChat?: boolean;
+  /**
+   * generic＝Generic CSS（`/courses`・`/l`）。
+   * ao＝AO テンプレ部品のみ（シェル内ナレッジ）。本文データは同じ。
+   */
+  ui?: CourseLearnUi;
+  /** AO 使用面：親（巻物）から全体構成の開閉を制御するとき渡す */
+  outlineOpen?: boolean;
+  onOutlineOpenChange?: (open: boolean) => void;
 };
 
 type Session = {
@@ -52,12 +70,14 @@ function SectionFigure({
   pageUrl,
   alt,
   side,
+  frameD,
 }: {
   url: string;
   attribution?: string | null;
   pageUrl?: string | null;
   alt: string;
   side: "left" | "right";
+  frameD?: boolean;
 }) {
   const [broken, setBroken] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -89,14 +109,34 @@ function SectionFigure({
           onClick={() => setExpanded(true)}
           aria-label={`${alt}を拡大表示`}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={alt}
-            width={200}
-            height={150}
-            onError={() => setBroken(true)}
-          />
+          {frameD ? (
+            <AoTemplateFrame
+              preset="frame_D"
+              style={{ width: 212, height: 162, display: "block" }}
+              contentClassName="relative overflow-hidden p-0"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={alt}
+                width={200}
+                height={150}
+                onError={() => setBroken(true)}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+              />
+            </AoTemplateFrame>
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={alt}
+                width={200}
+                height={150}
+                onError={() => setBroken(true)}
+              />
+            </>
+          )}
         </button>
         {hasCredit && (
           <details className="cm-learn-attr-tip">
@@ -191,7 +231,14 @@ function HeroImage({
   return <img className="cm-learn-hero-img" src={url} alt={alt} />;
 }
 
-export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
+export function CourseLearnView({
+  courseId,
+  variant,
+  showSessionChat = true,
+  ui = "generic",
+  outlineOpen: outlineOpenProp,
+  onOutlineOpenChange,
+}: CourseLearnViewProps) {
   const apiBase =
     variant === "public" ? `/api/l/${courseId}` : `/api/courses/${courseId}`;
   const [title, setTitle] = useState("");
@@ -199,7 +246,10 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [visuals, setVisuals] = useState<VisualRow[]>([]);
   const [sessionNo, setSessionNo] = useState(1);
-  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [outlineOpenInner, setOutlineOpenInner] = useState(false);
+  const outlineControlled = outlineOpenProp !== undefined;
+  const outlineOpen = outlineControlled ? outlineOpenProp : outlineOpenInner;
+  const setOutlineOpen = onOutlineOpenChange ?? setOutlineOpenInner;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
@@ -259,6 +309,15 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
     if (chatMsgs.length === 0) return;
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMsgs]);
+
+  useEffect(() => {
+    if (!outlineOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOutlineOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [outlineOpen, setOutlineOpen]);
 
   const readySessions = useMemo(
     () => sessions.filter((s) => s.status === "ready").sort((a, b) => a.session_no - b.session_no),
@@ -327,79 +386,148 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
     }
   }
 
+  const ao = ui === "ao";
+  const btn = ao ? AO_BTN_CLASS : "cm-btn";
+  const btnPrimary = ao ? AO_BTN_CLASS : "cm-btn cm-btn-primary";
+  const tabClass = (on: boolean) =>
+    ao
+      ? `${AO_BTN_CLASS}${on ? ` ${AO_BTN_SELECTED_CLASS}` : ""}`
+      : `cm-session-tab ${on ? "active" : ""}`;
+
   if (loading) return <p className="cm-muted">読み込み中…</p>;
   if (error) return <div className="cm-error">{error}</div>;
 
-  return (
-    <div className="cm-learn-wrap">
-      <aside className={`cm-learn-drawer ${outlineOpen ? "open" : ""}`} aria-hidden={!outlineOpen}>
-        <div className="cm-learn-drawer-head">
-          <strong>講義全体構成</strong>
-          <button type="button" className="cm-btn" onClick={() => setOutlineOpen(false)}>
-            閉じる
+  const outlineNav = (tone: "generic" | "ao") => (
+    <nav
+      className={
+        tone === "ao" ? "min-h-0 flex-1 overflow-y-auto px-1 py-1" : "cm-learn-outline"
+      }
+    >
+      {(master?.sessions ?? []).map((s) => (
+        <div
+          key={s.session_no}
+          className={tone === "ao" ? "mb-3" : "cm-learn-outline-session"}
+        >
+          <button
+            type="button"
+            className={
+              tone === "ao"
+                ? `w-full border-0 bg-transparent text-left font-ao-serif text-ao-heading-2 text-ao-ink ${
+                    sessionNo === s.session_no ? "font-semibold" : "font-normal"
+                  }`
+                : `cm-learn-outline-session-btn ${sessionNo === s.session_no ? "active" : ""}`
+            }
+            onClick={() => {
+              goSession(s.session_no);
+              setOutlineOpen(false);
+            }}
+          >
+            第{s.session_no}回 {s.title}
           </button>
+          <ul className={tone === "ao" ? "mt-1 list-none pl-2" : undefined}>
+            {s.sections.map((sec) => (
+              <li key={sec.section_no}>
+                <a
+                  href={`#sec-${sec.section_no}`}
+                  className={
+                    tone === "ao"
+                      ? "block py-0.5 font-ao-serif text-ao-label text-ao-ink-muted no-underline hover:text-ao-ink"
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (sessionNo !== s.session_no) goSession(s.session_no);
+                    setOutlineOpen(false);
+                  }}
+                >
+                  {sec.section_no}. {sec.heading}
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
-        <nav className="cm-learn-outline">
-          {(master?.sessions ?? []).map((s) => (
-            <div key={s.session_no} className="cm-learn-outline-session">
+      ))}
+    </nav>
+  );
+
+  return (
+    <div className={`cm-learn-wrap${ao ? " relative" : ""}`}>
+      {!ao ? (
+        <>
+          <aside className={`cm-learn-drawer ${outlineOpen ? "open" : ""}`} aria-hidden={!outlineOpen}>
+            <div className="cm-learn-drawer-head">
+              <strong>講義全体構成</strong>
+              <button type="button" className={btn} onClick={() => setOutlineOpen(false)}>
+                閉じる
+              </button>
+            </div>
+            {outlineNav("generic")}
+          </aside>
+          {outlineOpen ? (
+            <button
+              type="button"
+              className="cm-learn-drawer-backdrop"
+              aria-label="構成を閉じる"
+              onClick={() => setOutlineOpen(false)}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      {ao && outlineOpen ? (
+        <div className="cm-learn-main">
+          <AoTemplateFrame
+            preset="frame_AS"
+            className="w-full"
+            contentClassName="flex flex-col"
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2 px-1 pb-2">
+              <p className="m-0 font-ao-serif text-ao-heading-3 font-semibold">
+                講義全体構成
+              </p>
               <button
                 type="button"
-                className={`cm-learn-outline-session-btn ${sessionNo === s.session_no ? "active" : ""}`}
-                onClick={() => {
-                  goSession(s.session_no);
-                  setOutlineOpen(false);
-                }}
+                className={AO_NAV_BACK_BTN_CLASS}
+                aria-label="戻る"
+                onClick={() => setOutlineOpen(false)}
               >
-                第{s.session_no}回 {s.title}
+                <IcoArrowLeft size={14} className="shrink-0" />
               </button>
-              <ul>
-                {s.sections.map((sec) => (
-                  <li key={sec.section_no}>
-                    <a
-                      href={`#sec-${sec.section_no}`}
-                      onClick={() => {
-                        if (sessionNo !== s.session_no) goSession(s.session_no);
-                        setOutlineOpen(false);
-                      }}
-                    >
-                      {sec.section_no}. {sec.heading}
-                    </a>
-                  </li>
-                ))}
-              </ul>
             </div>
-          ))}
-        </nav>
-      </aside>
-      {outlineOpen && (
-        <button
-          type="button"
-          className="cm-learn-drawer-backdrop"
-          aria-label="構成を閉じる"
-          onClick={() => setOutlineOpen(false)}
-        />
-      )}
-
-      <div className="cm-learn-main">
-        <div className="cm-learn-topbar">
-          <button type="button" className="cm-btn" onClick={() => setOutlineOpen(true)}>
-            構成
-          </button>
-          {variant === "admin" ? (
-            <Link href={`/courses/${courseId}`} className="cm-btn">
-              ← 管理画面
-            </Link>
-          ) : null}
+            {outlineNav("ao")}
+          </AoTemplateFrame>
         </div>
+      ) : null}
 
-        <p className="cm-learn-course-title">{title}</p>
+      <div className={`cm-learn-main${ao && outlineOpen ? " hidden" : ""}`}>
+        {!ao ? (
+          <div className="cm-learn-topbar">
+            <button type="button" className={btn} onClick={() => setOutlineOpen(true)}>
+              構成
+            </button>
+            {variant === "admin" ? (
+              <Link href={`/courses/${courseId}`} className="cm-btn">
+                ← 管理画面
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
 
-        <div className="cm-session-tabs">
+        <p
+          className={
+            ao
+              ? "cm-learn-course-title font-ao-serif text-ao-heading-1 font-bold text-ao-ink"
+              : "cm-learn-course-title"
+          }
+        >
+          {title}
+        </p>
+
+        <div className={`cm-session-tabs${ao ? " flex flex-wrap gap-1" : ""}`}>
           {readySessions.map((s) => (
             <button
               key={s.session_no}
               type="button"
-              className={`cm-session-tab ${sessionNo === s.session_no ? "active" : ""}`}
+              className={tabClass(sessionNo === s.session_no)}
               onClick={() => goSession(s.session_no)}
             >
               第{s.session_no}回
@@ -409,7 +537,13 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
 
         {sessionMaster && (
           <header className="cm-learn-article-head">
-            <h1 className="cm-learn-session-title">
+            <h1
+              className={
+                ao
+                  ? "font-ao-serif text-ao-heading-1 font-normal text-ao-ink"
+                  : "cm-learn-session-title"
+              }
+            >
               第{sessionNo}回 {sessionMaster.title}
             </h1>
             <p className="cm-muted">
@@ -422,16 +556,75 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
         )}
 
         <div className="cm-learn-hero">
-          <HeroImage
-            courseId={courseId}
-            sessionNo={sessionNo}
-            hasArtifact={visualHasArtifact(hero)}
-            alt={sessionMaster?.title ?? `第${sessionNo}回`}
-            apiBase={apiBase}
-          />
+          {ao ? (
+            <AoTemplateFrame
+              preset="frame_AS"
+              className="w-full max-w-[820px]"
+              contentClassName="overflow-hidden p-0"
+            >
+              <HeroImage
+                courseId={courseId}
+                sessionNo={sessionNo}
+                hasArtifact={visualHasArtifact(hero)}
+                alt={sessionMaster?.title ?? `第${sessionNo}回`}
+                apiBase={apiBase}
+              />
+            </AoTemplateFrame>
+          ) : (
+            <HeroImage
+              courseId={courseId}
+              sessionNo={sessionNo}
+              hasArtifact={visualHasArtifact(hero)}
+              alt={sessionMaster?.title ?? `第${sessionNo}回`}
+              apiBase={apiBase}
+            />
+          )}
         </div>
 
         {sections.length > 0 && (
+          ao ? (
+            <AoTemplateFrame
+              preset="frame_C"
+              className="mb-4 w-full max-w-[820px]"
+              contentClassName="px-1 py-1"
+            >
+              <nav className="cm-learn-toc" aria-label="この回の目次" style={{ margin: 0 }}>
+                <strong className="font-ao-serif text-ao-heading-3 text-ao-ink">この回の目次</strong>
+                <ol className="font-ao-serif text-ao-label text-ao-ink">
+                  {sections.map((sec) => (
+                    <li key={sec.section_no}>
+                      <a href={`#sec-${sec.section_no}`}>{sec.heading}</a>
+                    </li>
+                  ))}
+                </ol>
+                <div className="cm-learn-toc-nav">
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={!prevReady}
+                    onClick={() => prevReady && goSession(prevReady.session_no)}
+                  >
+                    前回
+                  </button>
+                  <button
+                    type="button"
+                    className={btn}
+                    onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                  >
+                    この回の先頭
+                  </button>
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={!nextReady}
+                    onClick={() => nextReady && goSession(nextReady.session_no)}
+                  >
+                    次回
+                  </button>
+                </div>
+              </nav>
+            </AoTemplateFrame>
+          ) : (
           <nav className="cm-learn-toc" aria-label="この回の目次">
             <strong>この回の目次</strong>
             <ol>
@@ -467,6 +660,7 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
               </button>
             </div>
           </nav>
+          )
         )}
 
         <article className="cm-learn-article">
@@ -482,7 +676,15 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
                   id={`sec-${sec.section_no}`}
                   className="cm-learn-block"
                 >
-                  <h2 className="cm-learn-section-title">{sec.heading}</h2>
+                  <h2
+                    className={
+                      ao
+                        ? "font-ao-serif text-ao-heading-2 font-semibold text-ao-ink"
+                        : "cm-learn-section-title"
+                    }
+                  >
+                    {sec.heading}
+                  </h2>
                   {sec.role === "content" && sec.image_url ? (
                     <SectionFigure
                       url={sec.image_url}
@@ -490,6 +692,7 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
                       pageUrl={sec.image_page_url}
                       alt={sec.heading}
                       side={sectionImageSide.get(sec.section_no) ?? "left"}
+                      frameD={ao}
                     />
                   ) : null}
                   {md ? (
@@ -506,7 +709,7 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
         <div className="cm-learn-nav">
           <button
             type="button"
-            className="cm-btn"
+            className={btn}
             disabled={!prevReady}
             onClick={() => prevReady && goSession(prevReady.session_no)}
           >
@@ -514,14 +717,14 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
           </button>
           <button
             type="button"
-            className="cm-btn"
+            className={btn}
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           >
             この回の先頭
           </button>
           <button
             type="button"
-            className="cm-btn cm-btn-primary"
+            className={btnPrimary}
             disabled={!nextReady}
             onClick={() => nextReady && goSession(nextReady.session_no)}
           >
@@ -529,6 +732,7 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
           </button>
         </div>
 
+        {showSessionChat ? (
         <div className="cm-card cm-chat">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h2 style={{ margin: 0 }}>講師とチャット</h2>
@@ -569,6 +773,7 @@ export function CourseLearnView({ courseId, variant }: CourseLearnViewProps) {
             </>
           )}
         </div>
+        ) : null}
       </div>
     </div>
   );

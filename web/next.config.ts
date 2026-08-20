@@ -33,6 +33,7 @@ const nextConfig: NextConfig = {
       { source: "/sample", destination: "/lab", permanent: true },
       { source: "/sample/:path*", destination: "/lab/:path*", permanent: true },
       { source: "/api/sample/:path*", destination: "/api/lab/:path*", permanent: true },
+      { source: "/phase5-preview", destination: "/lab/template-tokens", permanent: false },
     ];
   },
   /** 静的アセットのブラウザキャッシュ（HTML/API は対象外） */
@@ -43,7 +44,7 @@ const nextConfig: NextConfig = {
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       {
-        source: "/phase5/:path*",
+        source: "/template/:path*",
         headers: [
           {
             key: "Cache-Control",

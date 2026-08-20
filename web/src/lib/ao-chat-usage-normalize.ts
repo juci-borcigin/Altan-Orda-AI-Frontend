@@ -52,6 +52,34 @@ export function normalizeChatUsageFromApi(raw: unknown): MsgTurnUsage | undefine
   };
   if (provider) out.provider = provider;
   if (apiModel) out.apiModel = apiModel;
+
+  const br = o.costBreakdown ?? o.cost_breakdown;
+  if (br && typeof br === "object") {
+    const b = br as Record<string, unknown>;
+    out.costBreakdown = {
+      llmUsd: numUsd(b.llmUsd ?? b.llm_usd),
+      summaryUsd: numUsd(b.summaryUsd ?? b.summary_usd),
+      tavilyUsd: numUsd(b.tavilyUsd ?? b.tavily_usd),
+      embeddingUsd: numUsd(b.embeddingUsd ?? b.embedding_usd),
+      totalUsd: numUsd(b.totalUsd ?? b.total_usd),
+      tavilyQueries: numTok(b.tavilyQueries ?? b.tavily_queries),
+      ...(typeof b.summaryPromptTokens === "number"
+        ? { summaryPromptTokens: numTok(b.summaryPromptTokens) }
+        : {}),
+      ...(typeof b.summaryCompletionTokens === "number"
+        ? { summaryCompletionTokens: numTok(b.summaryCompletionTokens) }
+        : {}),
+      ...(typeof b.embeddingApproxTokens === "number"
+        ? { embeddingApproxTokens: numTok(b.embeddingApproxTokens) }
+        : {}),
+      ...(typeof b.pricingAsOf === "string" && b.pricingAsOf.trim()
+        ? { pricingAsOf: b.pricingAsOf.trim() }
+        : {}),
+    };
+    if (out.estimatedUsd == null && out.costBreakdown.totalUsd != null) {
+      out.estimatedUsd = out.costBreakdown.totalUsd;
+    }
+  }
   return out;
 }
 

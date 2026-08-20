@@ -24,6 +24,8 @@ export type RagSearchResult = {
   block: string;
   hitCount: number;
   topSimilarity: number | null;
+  /** クエリ embedding に使った文字数（課金概算用。未実施なら省略／0） */
+  queryEmbedChars?: number;
 };
 
 export type RagSearchOptions = {
@@ -69,12 +71,13 @@ export async function searchRagChunks(
   if (!query) return empty;
 
   const emb = await openAiEmbed(query, openaiKey);
-  return searchRagChunksWithVector(supa, emb, {
+  const searched = await searchRagChunksWithVector(supa, emb, {
     ...opts,
     isFirstUserTurn,
     filter_project_id: filterProjectId,
     filter_kind: filterKind,
   });
+  return { ...searched, queryEmbedChars: query.length };
 }
 
 /** クエリベクトル済みの Supabase RAG（Phase5 複合検索用） */

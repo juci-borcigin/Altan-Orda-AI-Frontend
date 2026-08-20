@@ -1,34 +1,79 @@
 @import "tailwindcss";
 
-/* Altan Orda UI theme (Phase 1) */
+/*
+ * AO デザイントークン（色の意味の SSOT）
+ * - 形は Tailwind v4 @theme（--color-* / --font-* / --text-*）
+ * - 名前空間は ao-*（将来の素テンプレ等は tm-* 等で追加）
+ * - 枠 PNG 中央塗りは本トークンの焼き込み成果物（変えたら PNG を再焼成）
+ * - 未使用の旧変数は新規登録しない。現行 :root の参照用は後方互換で残置
+ */
+@theme {
+  /* —— 面・文字（テンプレ本体） —— */
+  --color-ao-surface: #fffaf2;
+  --color-ao-ink: #3d1c08;
+  --color-ao-ink-muted: #5c4830;
+  --color-ao-bubble-user: #ffffff;
+  --color-ao-bubble-system: #f1e9d9;
 
+  /* —— 金・装飾 —— */
+  --color-ao-gold: #c9922a;
+  --color-ao-gold-l: #e8c060;
+  --color-ao-gold-d: #8a6018;
+  --color-ao-gold-plate: #dbb961;
+
+  /* —— シェル・クロム（現行利用分。未使用旧色はここに足さない） —— */
+  --color-ao-navy: #0b2340;
+  --color-ao-navy-2: #0d2a4a;
+  --color-ao-navy-3: #122d52;
+  --color-ao-navy-gelbar: #143d5e;
+  --color-ao-navy-footer: #143d5e;
+  --color-ao-brown: #1a0d04;
+  --color-ao-brown-2: #140a03;
+  --color-ao-muted: #b89565;
+  --color-ao-muted-2: #8a7048;
+  --color-ao-muted-3: #5c4830;
+  --color-ao-input-fg: #1a1208;
+  --color-ao-map-edge: #e6dac4;
+
+  /* —— フォント —— */
+  --font-ao-serif: var(--font-zen-old-mincho), Georgia, "Hiragino Mincho ProN", serif;
+
+  /* —— タイポサイズ（現行実地の暫定。クラス一括置換はしない） —— */
+  --text-ao-heading-1: 16px;
+  --text-ao-heading-2: 14px;
+  --text-ao-heading-3: 13px;
+  --text-ao-body: 13px;
+  --text-ao-label: 11px;
+  --text-ao-ruby: 10px;
+  --text-ao-table: 12px;
+}
+
+/* 後方互換: 既存 CSS / インラインが参照する --ao-*（@theme と同値に保つ） */
 :root {
-  --ao-navy: #0b2340;
-  --ao-navy2: #0d2a4a;
-  --ao-navy3: #122d52;
-  /* サブヘッダー（ゲルバー）：さらに薄いネイビー（CR #16） */
-  --ao-navy-gelbar: #143d5e;
-  /* 検索ボックス背景（CR #25） */
+  --ao-navy: var(--color-ao-navy);
+  --ao-navy2: var(--color-ao-navy-2);
+  --ao-navy3: var(--color-ao-navy-3);
+  --ao-navy-gelbar: var(--color-ao-navy-gelbar);
   --ao-navy-search-bg: #ffffff;
-  /* 入力フッター帯の周囲（CR #27: #143D5E）／テキストボックス内は白（CR #24） */
-  --ao-navy-footer: #143d5e;
+  --ao-navy-footer: var(--color-ao-navy-footer);
   --ao-navy-input: #ffffff;
-  --ao-input-fg: #1a1208;
-  --ao-brown: #1a0d04;
-  --ao-brown2: #140a03;
-  --ao-gold: #c9922a;
-  --ao-gold-l: #e8c060;
-  --ao-gold-d: #8a6018;
+  --ao-input-fg: var(--color-ao-input-fg);
+  --ao-brown: var(--color-ao-brown);
+  --ao-brown2: var(--color-ao-brown-2);
+  --ao-gold: var(--color-ao-gold);
+  --ao-gold-l: var(--color-ao-gold-l);
+  --ao-gold-d: var(--color-ao-gold-d);
   --ao-gold-dim: #3a2008;
   --ao-gold-dimmer: #1e0e02;
+  /* 歴史名。白ではない。新規は --color-ao-surface を使う */
   --ao-white: #f5f0e8;
-  --ao-muted: #b89565;
-  --ao-muted2: #8a7048;
-  --ao-muted3: #5c4830;
+  --ao-muted: var(--color-ao-muted);
+  --ao-muted2: var(--color-ao-muted-2);
+  --ao-muted3: var(--color-ao-muted-3);
   --ao-chat-bg: #ffffff;
-  --ao-bubble-ai: #f4f0e7;
+  --ao-bubble-ai: var(--color-ao-bubble-system);
   --ao-bubble-user: #ddd4c4;
-  --ao-bubble-user-text: #1a1208;
+  --ao-bubble-user-text: var(--color-ao-input-fg);
   --ao-rail-w: 44px;
   --ao-panel-w: 210px;
   /*
@@ -1392,20 +1437,12 @@ body {
   }
 }
 
-/* Phase 5: Parchment surface（吹き出し・入力・羊皮紙感を統一） */
+/* 面トークン: --color-ao-surface（#FFFAF2）一色。グラデは廃止
+ * 文字は --color-ao-ink。body の --ao-white を羊皮紙上へ継承させない */
 .ao-p5-parchment-surface {
-  background-color: #faf6ee;
-  background-image:
-    linear-gradient(180deg, rgba(255, 252, 245, 0.98) 0%, rgba(246, 239, 224, 0.97) 48%, rgba(236, 226, 206, 0.96) 100%),
-    radial-gradient(ellipse 110% 90% at 40% -15%, rgba(255, 255, 255, 0.75), transparent 52%),
-    radial-gradient(ellipse 70% 55% at 92% 88%, rgba(160, 110, 45, 0.07), transparent 48%),
-    repeating-linear-gradient(
-      -11deg,
-      transparent,
-      transparent 3px,
-      rgba(90, 70, 40, 0.022) 3px,
-      rgba(90, 70, 40, 0.022) 4px
-    );
+  background-color: var(--color-ao-surface);
+  background-image: none;
+  color: var(--color-ao-ink);
 }
 
 /* 「大会盟」：文字だけ縦を +20% */
@@ -1654,7 +1691,7 @@ body {
   background-color: rgba(255, 253, 248, 0.55);
   background-image:
     linear-gradient(to bottom, rgba(255, 253, 248, 0.94), rgba(248, 242, 230, 0.88)),
-    url("/phase5/map-bg1.png");
+    url("/template/bg/map-bg1.png");
   background-size: auto, cover;
   background-position: center;
   border-radius: 2px;
@@ -1681,7 +1718,7 @@ body {
   background-image:
     linear-gradient(135deg, rgba(255, 236, 180, 0.55), rgba(255, 248, 220, 0.5)),
     linear-gradient(to bottom, rgba(255, 253, 248, 0.85), rgba(252, 245, 228, 0.78)),
-    url("/phase5/map-bg1.png") !important;
+    url("/template/bg/map-bg1.png") !important;
   background-size: auto, auto, cover !important;
   background-position: center !important;
   border: 1px solid #a07018 !important;
