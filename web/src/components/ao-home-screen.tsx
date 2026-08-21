@@ -34,6 +34,7 @@ export function AoHomeScreen() {
     compactKinFrameStripMeasureRef,
     setCompactKinPortalHost,
     kinDrawerAnchorBottomPx,
+    kinDrawerHostExtendBottomPx,
     compactKinPortalHost,
     kinDrawerPortalReady,
     leftKinDrawerOpen,
@@ -72,17 +73,16 @@ export function AoHomeScreen() {
             aria-modal={leftKinDrawerOpen}
             aria-hidden={!leftKinDrawerOpen}
             aria-label="邦主と僚友"
-            className={`absolute left-0 top-0 z-[2] flex min-h-0 w-[min(92vw,400px)] flex-col overflow-hidden border-0 bg-transparent shadow-none will-change-transform ${
+            className={`absolute left-0 top-0 z-[2] flex h-full min-h-0 w-[min(69vw,300px)] flex-col overflow-x-visible overflow-y-hidden border-0 bg-transparent shadow-none will-change-transform ${
               leftKinDrawerOpen ? "pointer-events-auto" : "pointer-events-none"
             }`}
             style={{
               bottom: 0,
-              paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))",
               transform: leftKinDrawerOpen ? "translate3d(0,0,0)" : "translate3d(-100%,0,0)",
               transition: "transform 280ms cubic-bezier(0.33, 1, 0.68, 1)",
             }}
           >
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pt-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <div className="min-h-0 min-w-0 h-full flex-1 overflow-y-auto overflow-x-hidden pt-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               <AoLeftKinSideColumn
                 mobileDrawerNokorLayout
                 nameplateFontSizePx={7}
@@ -113,11 +113,7 @@ export function AoHomeScreen() {
     ) : null;
 
   return (
-    <div
-      className={`relative flex min-h-0 flex-col overflow-hidden bg-white text-[var(--ao-white)] ao-mobile-stack-scale ${
-        viewportCompact ? "" : "h-[100dvh] max-h-[100dvh]"
-      }`}
-    >
+    <div className="relative flex min-h-0 flex-col overflow-hidden bg-white text-[var(--ao-white)] ao-mobile-stack-scale">
       <header
         ref={compactKinHeaderMeasureRef}
         className={`ao-header-safe-x ao-header-safe-top relative shrink-0 grid grid-cols-[1fr_auto_1fr] items-center ${
@@ -207,9 +203,10 @@ export function AoHomeScreen() {
       {viewportCompact ? (
         <div
           ref={setCompactKinPortalHost}
-          className="pointer-events-none absolute inset-x-0 bottom-0"
+          className="pointer-events-none absolute inset-x-0"
           style={{
             top: kinDrawerAnchorBottomPx,
+            bottom: kinDrawerHostExtendBottomPx > 0 ? -kinDrawerHostExtendBottomPx : 0,
             zIndex: leftKinDrawerOpen ? AO_Z_COMPACT_KIN_DRAWER_OPEN : AO_Z_COMPACT_KIN_DRAWER_HOST,
           }}
         />

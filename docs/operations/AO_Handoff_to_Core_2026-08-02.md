@@ -1,6 +1,6 @@
 # 引き継ぎ — Altan Orda 本体へ戻る（2026-08-02）
 
-**次スレッドの最初に読む正本。**  
+**現行の次スレッド正本は [AO_Handoff_2026-08-20.md](./AO_Handoff_2026-08-20.md)。** 本ファイルは講義メーカー・クローズ／Lab 公式化時点の記録。  
 前スレッドで講義メーカーをクローズし、実験室（`/lab`）を公式化した。ここからの主戦場は **AO 本体（チャット UI・RAG・運用）**。
 
 呼称: ユーザー＝ジュチ殿下。エージェント＝スブタイ。
@@ -41,7 +41,7 @@
 
 | パス | 内容 |
 |------|------|
-| `/phase5-preview` | UI 部品・ビューポート・デザイン確認 |
+| `/lab/template-tokens` | テンプレ・トークン台帳（視覚 SSOT）。旧 `/phase5-preview` はリダイレクト |
 | `/phase5-preview/notebook-sources` | 典籍ソース仮UI |
 | `/ao-shin-icon-samples.html` | アイコン SVG 候補 |
 
@@ -89,9 +89,8 @@
 次を新チャットの先頭に貼るか、本ファイルを `@` 参照する。
 
 ```
-引き継ぎ: docs/operations/AO_Handoff_to_Core_2026-08-02.md を読んでから動くこと。
-主戦場は Altan Orda 本体。講義メーカーはクローズ済み（再開は docs/course-maker/README.md）。
-実験室は /lab（旧 /sample）。勝手にバッチ課金・force push・無断 commit しない。
+現行の引き継ぎ: docs/operations/AO_Handoff_2026-08-20.md を読んでから動くこと。
+（本ファイルは 2026-08-02 の講義メーカー・クローズ記録。）
 ```
 
 ---

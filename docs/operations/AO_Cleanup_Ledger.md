@@ -79,16 +79,7 @@
 
 | 日付 | chunk-id | 種別 | 触ったパス | commit | 退避 | Tier | 確認 | 戻し |
 |------|----------|------|------------|--------|------|------|------|------|
-| 2026-08-20 | setup | doc | 本 Ledger、`_archive/README.md`、`.gitignore` | （未 commit） | — | — | — | ファイル削除 |
-| 2026-08-20 | chunk-01-tier-a-mechanical | logic | `use-ao-chat-session.tsx`（未使用 import／死んだ state・effect・関数） | （未 commit） | Git のみ | A | `tsc` OK、`next build` OK | `git revert` |
-| 2026-08-20 | chunk-01-tier-a-mechanical | logic | `ao-kin-layout.ts`（GIKUJI 別名削除、`CHAT_FACE_STACK_W_PX` 非 export 化） | （未 commit） | Git のみ | A | 同上 | `git revert` |
-| 2026-08-20 | chunk-01-tier-a-mechanical | logic | `ao-project-tabs-panel.tsx`（`AoRubyGold` 共有化） | （未 commit） | Git のみ | A | 同上 | `git revert` |
-| 2026-08-20 | chunk-01-tier-a-mechanical | asset | `public/*.svg` 雛形 5 件削除 | （未 commit） | `_archive/cleanup-2026-08-20/chunk-01-tier-a-mechanical/public/` | A | build OK | `_archive` から `web/public/` へコピー |
-| 2026-08-20 | chunk-01-tier-a-mechanical | logic | `lib/ao-ron-tab-chrome.ts` 削除 | （未 commit） | `_archive/.../lib/ao-ron-tab-chrome.ts` | A | import 0・build OK | `_archive` から復元 |
-| 2026-08-20 | chunk-02-ornamental-to-template | UI | 議事一覧／設定重ね・削除確認を `AoTemplateFrame` `frame_AS` へ | （未 commit） | `_archive/cleanup-2026-08-20/chunk-02-ornamental-to-template/` | B | `tsc`／build 後、**殿下目視待ち** | `git revert` ＋退避から `AoOrnamentalFrame.tsx` 復元 |
-| 2026-08-20 | chunk-02-ornamental-to-template | logic | `AoOrnamentalFrame.tsx` 削除（本番参照 0） | （未 commit） | 同上 | B | 同上 | `_archive` から `web/src/components/ao-phase5/` へコピー |
-| 2026-08-20 | chunk-02-ornamental-to-template | doc | `version-2-layout.md` §9／§11.9 を Template 正本へ | （未 commit） | Git のみ | B | — | `git revert` |
-| 2026-08-20 | chunk-03-dead-phase5-prototypes | logic | `AoP5Bubble` / `Corner` / `DecorativeFrame` / `PortraitCard` / `PortraitFrameC` 削除 | （未 commit） | `_archive/cleanup-2026-08-20/chunk-03-dead-phase5-prototypes/` | A | `tsc`／build | `_archive` から `ao-phase5/` へコピー |
+| 2026-08-20 | setup〜chunk-03 | — | 掃除チャンク一式（import・Ornamental→Template・試作削除・典籍） | `a99ba95` | `_archive/cleanup-2026-08-20/` | A/B | PC／スマホ／Lab 目視済 | `git revert a99ba95` ＋ `_archive` |
 
 ---
 

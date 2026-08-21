@@ -104,6 +104,13 @@ export function aoScaleSideInsets(
   };
 }
 
+/** 中枠の左右テキスト余白合計（論タブ列幅の chrome 用） */
+export function aoFrameAsContentPadXPx(): number {
+  const displayScale = AO_FRAME_AS_BORDER_PX / AO_FRAME_A_SLICE_PX;
+  const { content } = aoFrameAOverlayInsets(displayScale, AO_FRAME_AS_TEXT_PAD_PX);
+  return content.left + content.right;
+}
+
 /** Frame_A のベージュ内枠・テキスト枠インセット（表示スケール後の px） */
 export function aoFrameAOverlayInsets(
   displayScale: number,

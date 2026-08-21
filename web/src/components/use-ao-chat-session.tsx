@@ -110,6 +110,7 @@ import {
   aoKinCenterSwipeOpensDrawer,
   aoKinCompactKinSwipeContentTopPx,
   aoKinDrawerSwipeTargetDisallowsEdgeSwipe,
+  aoCssZoomFromElement,
   aoKinTouchStartCanCloseDrawer,
   aoKinTouchStartCanOpenDrawer,
 } from "@/lib/ao-viewport-compact";
@@ -125,6 +126,7 @@ import {
   saveAoAppState,
 } from "@/lib/ao-home-helpers";
 import { RAW_POPOVER_W, aoCompactUserRawPanelRect, placeRawPromptPopover } from "@/lib/ao-raw-popover";
+import { aoFrameAsContentPadXPx } from "@/lib/template/ao-frame-tokens";
 
 const AGENDA_PAGE_SIZE = 15;
 
@@ -234,6 +236,8 @@ export function useAoChatSession() {
   const compactKinHeaderMeasureRef = useRef<HTMLElement | null>(null);
   const compactKinFrameStripMeasureRef = useRef<HTMLDivElement | null>(null);
   const [kinDrawerAnchorBottomPx, setKinDrawerAnchorBottomPx] = useState(96);
+  /** シェルが visualViewport より短いとき、ドロワー host を下へ伸ばす layout px */
+  const [kinDrawerHostExtendBottomPx, setKinDrawerHostExtendBottomPx] = useState(0);
   /** body ではなくページ内に載せ、ヘッダ z-10 より確実に奥に描画する */
   const [compactKinPortalHost, setCompactKinPortalHost] = useState<HTMLDivElement | null>(null);
   const [threadListAfterChatNonce, setThreadListAfterChatNonce] = useState(0);
@@ -733,20 +737,35 @@ export function useAoChatSession() {
     const hdr = compactKinHeaderMeasureRef.current;
     const frm = compactKinFrameStripMeasureRef.current;
     const sync = () => {
+      const scaleEl = hdr?.closest(".ao-mobile-stack-scale");
+      const scaleHtml = scaleEl instanceof HTMLElement ? scaleEl : null;
+      const zoom = aoCssZoomFromElement(scaleHtml);
       const hb = hdr?.getBoundingClientRect().bottom ?? 0;
       const fb = frm?.getBoundingClientRect().bottom ?? 0;
-      const bottom = Math.max(hb, fb);
-      if (bottom > 0) {
-        setKinDrawerAnchorBottomPx(Math.round(bottom));
+      const headerBottomVisual = Math.max(hb, fb);
+      if (scaleHtml && headerBottomVisual > 0) {
+        const scaleTop = scaleHtml.getBoundingClientRect().top;
+        setKinDrawerAnchorBottomPx(Math.round((headerBottomVisual - scaleTop) / zoom));
+        const vvH =
+          window.visualViewport && typeof window.visualViewport.height === "number"
+            ? window.visualViewport.height
+            : window.innerHeight;
+        const gapVisual = vvH - scaleHtml.getBoundingClientRect().bottom;
+        setKinDrawerHostExtendBottomPx(gapVisual > 0.5 ? Math.ceil(gapVisual / zoom) : 0);
+      } else if (headerBottomVisual > 0) {
+        setKinDrawerAnchorBottomPx(Math.round(headerBottomVisual));
+        setKinDrawerHostExtendBottomPx(0);
       }
     };
     sync();
     window.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("resize", sync);
     const ro = new ResizeObserver(sync);
     if (hdr) ro.observe(hdr);
     if (frm) ro.observe(frm);
     return () => {
       window.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
       ro.disconnect();
     };
   }, [viewportCompact]);
@@ -783,7 +802,11 @@ export function useAoChatSession() {
       // 下端の白抜けは「見えている高さ」を参照してタイル枚数が足りないのが原因。
       const winH =
         typeof window !== "undefined"
-          ? Math.max(window.innerHeight, document.documentElement?.clientHeight ?? 0)
+          ? Math.max(
+              window.visualViewport?.height ?? 0,
+              window.innerHeight,
+              document.documentElement?.clientHeight ?? 0,
+            )
           : viewportH;
       const topCompact = viewportCompact
         ? aoKinCompactKinSwipeContentTopPx(compactKinHeaderMeasureRef.current, compactKinFrameStripMeasureRef.current)
@@ -1966,18 +1989,21 @@ export function useAoChatSession() {
     const labelEl = kuriltaiLabelMeterRef.current;
     const probe = ronTopicLabelsProbeRef.current;
     if (!labelEl) return;
-    const parchmentPadX = viewportCompact ? 6 : 8;
+    const framePadX = aoFrameAsContentPadXPx();
+    const btnPadX = viewportCompact ? 0 : 8;
     const syncRonW = () => {
-      const lw = Math.ceil(labelEl.getBoundingClientRect().width);
+      const lw = Math.ceil(labelEl.offsetWidth || labelEl.getBoundingClientRect().width);
       let maxOther = 0;
       if (probe) {
         probe.querySelectorAll("[data-ao-ron-probe-label]").forEach((node) => {
-          if (node instanceof HTMLElement) maxOther = Math.max(maxOther, Math.ceil(node.getBoundingClientRect().width));
+          if (node instanceof HTMLElement) {
+            maxOther = Math.max(maxOther, Math.ceil(node.offsetWidth || node.getBoundingClientRect().width));
+          }
         });
       }
       const inner = Math.max(lw, maxOther);
-      const chrome = 2 * ronListFrameInsetPx + parchmentPadX + 8;
-      setRonColWidthPx(Math.max(viewportCompact ? 62 : 72, inner + chrome));
+      const chrome = framePadX + btnPadX;
+      setRonColWidthPx(Math.max(viewportCompact ? 52 : 72, inner + chrome));
     };
     syncRonW();
     const ro = new ResizeObserver(syncRonW);
@@ -1988,7 +2014,7 @@ export function useAoChatSession() {
       ro.disconnect();
       window.removeEventListener("resize", syncRonW);
     };
-  }, [viewportCompact, compactRonTabTopicFs, ronListFrameInsetPx]);
+  }, [viewportCompact, compactRonTabTopicFs]);
 
 
   const thinkingDotsText = AO_THINKING_DOT_CYCLE[thinkingDotsPhase];
@@ -2112,6 +2138,7 @@ export function useAoChatSession() {
       compactKinFrameStripMeasureRef,
       setCompactKinPortalHost,
       kinDrawerAnchorBottomPx,
+      kinDrawerHostExtendBottomPx,
       compactKinPortalHost,
       kinDrawerPortalReady,
       leftKinDrawerOpen,

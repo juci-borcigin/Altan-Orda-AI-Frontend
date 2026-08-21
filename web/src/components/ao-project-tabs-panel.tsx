@@ -61,7 +61,7 @@ export function AoProjectTabsPanel({
                   type="button"
                   onClick={() => onTabClick(tp.id)}
                   aria-pressed={on}
-                  className={`flex ${viewportCompact ? "min-h-[26px]" : "min-h-[30px]"} w-full items-center justify-center rounded-none border-0 bg-transparent px-0.5 py-0 text-[#3D1C08] transition-none ${pressed}`}
+                  className={`flex ${viewportCompact ? "min-h-[26px]" : "min-h-[30px]"} w-full items-center justify-center rounded-none border-0 bg-transparent py-0 text-[#3D1C08] transition-none ${viewportCompact ? "px-0" : "px-0.5"} ${pressed}`}
                 >
                   <div
                     ref={kuriltaiLabelMeterRef}
@@ -91,7 +91,7 @@ export function AoProjectTabsPanel({
                 type="button"
                 onClick={() => onTabClick(tp.id)}
                 aria-pressed={on}
-                className={`min-h-0 w-full rounded-none border-0 bg-transparent px-1 py-[2px] text-center font-semibold leading-[1.2] text-[#3D1C08] transition-none ${pressed}`}
+                className={`min-h-0 w-full whitespace-nowrap rounded-none border-0 bg-transparent py-[2px] text-center font-semibold leading-[1.2] text-[#3D1C08] transition-none ${viewportCompact ? "px-0" : "px-1"} ${pressed}`}
                 style={{ fontSize: topicFontSizePx }}
               >
                 {tp.label}

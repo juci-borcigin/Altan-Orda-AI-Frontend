@@ -101,7 +101,36 @@
  *
  * - ～359px: SE1 系（320 CSS px）— やや強めに縮小して横幅確保
  * - 360～767px: 16 Pro 系（～393〜430 CSS px）— 読みやすさ優先で縮小を弱める
+ *
+ * 高さは 100dvh ではなく 100lvh ＋ JS の --ao-app-h（visualViewport）。
+ * iOS「ホーム画面へ追加」では dvh がホームインジケータ分だけ短く、下端に白帯が出ることがある。
+ * html の地図は、万一シェルが短いときの下地（本体の白＋地図 60% に近い見え方）。
  */
+html {
+  background-color: #ffffff;
+}
+
+@media (max-width: 767px) {
+  html {
+    min-height: 100%;
+    min-height: 100lvh;
+    min-height: -webkit-fill-available;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)),
+      url("/template/bg/map-bg1.png");
+    background-repeat: no-repeat, repeat-y;
+    background-position: center top;
+    background-size: auto, 1536px 1024px;
+  }
+
+  body {
+    min-height: 100%;
+    min-height: 100lvh;
+    min-height: -webkit-fill-available;
+    overscroll-behavior: none;
+  }
+}
+
 @media (max-width: 359px) {
   .ao-mobile-stack-scale {
     zoom: 0.72;
@@ -109,18 +138,25 @@
      * zoom で見た目だけ縮む。height も 1/zoom 倍しないと下端に body 背景の帯が出る。
      * h-[100dvh] だけだと見た目は約 72dvh になり下余白ができる。
      */
-    height: calc(100dvh / 0.72);
-    min-height: calc(100dvh / 0.72);
-    max-height: calc(100dvh / 0.72);
+    height: calc(max(var(--ao-app-h, 0px), 100lvh, 100dvh) / 0.72);
+    min-height: calc(max(var(--ao-app-h, 0px), 100lvh, 100dvh) / 0.72);
+    max-height: none;
   }
 }
 
 @media (min-width: 360px) and (max-width: 767px) {
   .ao-mobile-stack-scale {
     zoom: 0.82;
-    height: calc(100dvh / 0.82);
-    min-height: calc(100dvh / 0.82);
-    max-height: calc(100dvh / 0.82);
+    height: calc(max(var(--ao-app-h, 0px), 100lvh, 100dvh) / 0.82);
+    min-height: calc(max(var(--ao-app-h, 0px), 100lvh, 100dvh) / 0.82);
+    max-height: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .ao-mobile-stack-scale {
+    height: 100dvh;
+    max-height: 100dvh;
   }
 }
 

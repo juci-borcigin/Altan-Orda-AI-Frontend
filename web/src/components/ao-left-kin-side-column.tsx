@@ -336,13 +336,16 @@ export function AoLeftKinSideColumn({
   );
 
   return (
-    <div ref={measureRef} className="min-w-0 w-full max-w-full self-start">
+    <div
+      ref={measureRef}
+      className={`min-w-0 w-full max-w-full ${drawerKin ? "h-full min-h-full self-stretch" : "self-start"}`}
+    >
       {drawerKin ? (
         <AoTemplateFrame
           preset="frame_AL"
-          className="relative flex max-h-max min-h-0 w-full max-w-full min-w-0 flex-col"
-          style={{ boxSizing: "border-box", boxShadow: AO_DROP_SHADOW_MAIN_FRAME }}
-          contentClassName="flex max-h-max min-w-0 w-full flex-col items-stretch"
+          className="relative flex min-h-full min-w-0 w-full max-w-full flex-col"
+          style={{ boxSizing: "border-box" }}
+          contentClassName="flex min-h-full min-w-0 w-full flex-col items-stretch"
         >
           {kinColumnInner}
         </AoTemplateFrame>

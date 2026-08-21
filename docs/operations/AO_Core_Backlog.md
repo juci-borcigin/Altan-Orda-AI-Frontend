@@ -3,7 +3,7 @@
 **更新**: 2026-08-20  
 **位置づけ**: 着手前の構想・残課題の置き場。勝手に実装しない。優先順位は殿下の指示に従う。
 
-関連: [AO_Handoff_to_Core_2026-08-02.md](./AO_Handoff_to_Core_2026-08-02.md) ・ [AO_Phase7_Planning.md](../phase7/AO_Phase7_Planning.md) ・ [version-2-layout.md](../version-2-layout.md)
+関連: [AO_Handoff_2026-08-20.md](./AO_Handoff_2026-08-20.md)（現行） ・ [AO_Handoff_to_Core_2026-08-02.md](./AO_Handoff_to_Core_2026-08-02.md) ・ [AO_Phase7_Planning.md](../phase7/AO_Phase7_Planning.md) ・ [version-2-layout.md](../version-2-layout.md)
 
 ---
 
@@ -26,7 +26,7 @@
 | Lab と Git | **α**: Git に残す。本番には **載せない**（正本 `web/.vercelignore`） |
 | 旧 `/sample` on Vercel | **次の製品デプロイで載せない**（Git からも削除し `/lab` へ寄せる） |
 | A（env 同居）／B（Preview）／D（独立 PJ） | **当面やらない** |
-| `page.tsx` 三段 | **本体フェーズ**（この PR 外） |
+| `page.tsx` 三段 | **済**（2026-08-20・`a99ba95`。シェル／session／チャット分割＋テンプレ掃除） |
 | 同期・永続・残高 UX | **2.5** で想起 |
 | **デプロイ既定（2026-08-04）** | **localhost まで**。本番（`vercel --prod`）は殿下が明示したときのみ。前回の本番反映は例外 |
 
@@ -82,10 +82,14 @@ PR: https://github.com/juci-borcigin/Altan-Orda-AI-Frontend/pull/1
    - 単価鮮度: AO 動作時に付帯単価 env 再読込・OR キャッシュ破棄（約 14 日）  
    - A4: 巷間は永続する／embedding・RAG 対象外（方針一致）  
    - （任意・未）一覧 50 件ページング
-3. **レイアウト Ver2 ＋ モジュール化** — **進行中**（正本: [version-2-layout.md](../version-2-layout.md)）  
-   - シェル／チャット分割／KM 第1弾（埋め込み）まで到達。論タブ `frame_AS` は **完了扱い**（2026-08-20）  
-   - **次（2026-08-20）**: 整理の一括 commit 後、左カラム（スマホ）の既存不具合。その後 **第二テンプレを用意し A/B 切替で試験**（マルチユーザーより先）  
+3. **レイアウト Ver2 ＋ モジュール化** — **区切り済**（正本: [version-2-layout.md](../version-2-layout.md) ・引継ぎ [AO_Handoff_2026-08-20.md](./AO_Handoff_2026-08-20.md)）  
+   - シェル／チャット分割／KM 第1弾（埋め込み）／論タブ〜削除確認まで `frame_AS`  
+   - チェックポイント `a99ba95`（シェル分割＋テンプレ掃除）＋ compact 左カラム修正  
+   - 左カラム compact（幅・下端・右端線）：**済**（2026-08-20・殿下判定）  
+   - **次**: **第二テンプレ A/B**（殿下がテンプレ B＝AO Ver2 見た目を用意し、切替を検証。マルチユーザーより先）  
+   - 任意残り: `AO_P5_*` リネーム、未使用 CSS、`/phase5-preview` 二重。`map-bg-mobile` 配線は別判断  
    - KM 第2弾（文末チャット等）はテンプレ A/B のあとで可  
+   - **据え置き（Side track）**: コンプ（Master.png 型）から皮スロット（`@theme`・枠・背景・ボタン・タイトル）を起こす。A/B 切替の**あと**。内部向けは実現性中〜高（枠の九分割は人が一段見る）。不特定ユーザー向けの「アップロードしてスキン完成」は別ゲート  
 4. **独立モジュール（旧 Phase 7 機能本体）** — 情報 Push・巷間の右サイド移設・画像生成論。チャット／テンプレが落ち着いたら戻る  
 5. **マルチユーザー** — テンプレ A/B のあとに検討（切替試験の前提ではない）
 

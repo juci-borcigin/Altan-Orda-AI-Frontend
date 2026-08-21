@@ -47,7 +47,7 @@ export function AoSidebarSettingsRow({
               {selectable && onSelectFeature ? (
                 <button
                   type="button"
-                  className={`w-full border-0 px-1 py-1.5 text-center font-serif text-[12px] leading-tight tracking-wide text-[#3D1C08] outline-none ${
+                  className={`w-full whitespace-nowrap border-0 px-0.5 py-1.5 text-center font-serif text-[12px] leading-tight tracking-wide text-[#3D1C08] outline-none ${
                     on
                       ? "bg-black/[0.06] font-semibold shadow-[inset_0_1px_4px_rgba(0,0,0,0.12)]"
                       : "bg-transparent opacity-80 hover:bg-black/[0.04]"
@@ -59,7 +59,7 @@ export function AoSidebarSettingsRow({
                 </button>
               ) : (
                 <div
-                  className={`px-1 py-1.5 text-center font-serif text-[12px] leading-tight tracking-wide text-[#3D1C08] ${
+                  className={`whitespace-nowrap px-0.5 py-1.5 text-center font-serif text-[12px] leading-tight tracking-wide text-[#3D1C08] ${
                     on
                       ? "bg-black/[0.06] font-semibold shadow-[inset_0_1px_4px_rgba(0,0,0,0.12)]"
                       : "opacity-50"

@@ -2,7 +2,7 @@
 
 **更新**: 2026-08-20  
 **位置づけ**: AO 本体レイアウト Ver2 の**枠・情報アーキテクチャ**の正本。  
-**関連**: [AO_Core_Backlog.md](./operations/AO_Core_Backlog.md) ・ [AO_Phase7_Planning.md](./phase7/AO_Phase7_Planning.md)
+**関連**: [AO_Core_Backlog.md](./operations/AO_Core_Backlog.md) ・ [AO_Handoff_2026-08-20.md](./operations/AO_Handoff_2026-08-20.md) ・ [AO_Phase7_Planning.md](./phase7/AO_Phase7_Planning.md)
 
 開発用語と UI 表示用語の対応はコード・コメントではシステム用語、画面上は世界観用語を維持する。
 
@@ -218,8 +218,10 @@ LLM チャットはアプリ全体の一部。機能は互いに疎結合なモ�
 | 講義管理（再利用） | `web/src/components/course-maker/CourseAdminView.tsx` |
 | 講義 Generic | `web/src/app/courses/**` |
 | 公開受講 | `web/src/app/l/**` |
+| 枠トークン／資産 | `web/src/lib/template/`（`ao-frame-tokens.ts`・`ao-template-assets.ts`・`ao-chrome.ts`） |
+| 枠コンポーネント | `web/src/components/ao-phase5/AoTemplateFrame.tsx` |
 
-`page.tsx` 分割（2026-08-19）: ルート → `AoHomeScreen`。チャット state は `useAoChatSession`（シェルで 1 回、束に分割）。メインは `AoChatModule` がユーザー／ビュー二段を載せる。ナレッジは同じシェルのメイン枠で切替。
+`page.tsx` 分割（2026-08-19〜20）: ルート → `AoHomeScreen`。チャット state は `useAoChatSession`（シェルで 1 回、束に分割）。メインは `AoChatModule` がユーザー／ビュー二段を載せる。ナレッジは同じシェルのメイン枠で切替。チェックポイント `a99ba95`。
 
 ---
 
@@ -447,14 +449,19 @@ Generic には**二つ**あり、区別する。
 
 現行の講義メーカー画面は **状態2** として残置。新規にテンプレ化されていない箇所は **状態1**（点線）で示す運用を可とする。
 
-### 10.7 実装の後回し事項（掃除フェーズ）
+### 10.7 実装の後回し事項
 
-命名・参照・移行順の正本は **§11**。以下は残作業のメモ。
+命名・参照の正本は **§11**。掃除の作業ログは [AO_Cleanup_Ledger.md](./operations/AO_Cleanup_Ledger.md)。
 
 - `lib/phase5/*` 内部名リネームは**別作業・当面温存**（DB／API 同期あり）
-- 論タブの `frame_AS` は **完了扱い**。議事一覧／設定の重ねパネル・削除確認も `AoTemplateFrame` `frame_AS`（2026-08-20）
-- フック巨大化・未使用 import の掃除 — **chunk-01 着手（2026-08-20）**。残りは [AO_Cleanup_Ledger.md](../operations/AO_Cleanup_Ledger.md)
-- チャット session は `shell` / `thread` / `compose` / `ron` / `overlay` / `history` / `raw` の束（`useAoChatSession`）
+- 中枠 `frame_AS`: 論タブ・左区画・議事一覧／設定重ね・削除確認まで **到達**（2026-08-20）
+- フック未使用 import・旧 Ornamental・試作コンポーネント削除は **済**（`a99ba95`）
+- 任意残り: `AO_P5_*` リネーム、未使用 CSS、`/phase5-preview` 二重 redirect
+- チャット session は `shell` / `thread` / `compose` / `ron` / `overlay` / `history` / `raw` の束
+
+**次の実装（2026-08-20 夕）**: 左カラム compact は済。次は第二テンプレ A/B（殿下がテンプレ B を用意し切替を検証）。引継ぎ [AO_Handoff_2026-08-20.md](./operations/AO_Handoff_2026-08-20.md)。
+
+**据え置き（Side track・A/B のあと）**: コンプ 1 枚から皮を起こす。配色・ロゴ・ボタンは自動に近い。枠は空洞の九分割マスターの再構成（生成＋keyout＋slice、Lab 確認）。内部向けなら実現性は中〜高。公開時のユーザー機能は切替スロットが固まってから別判断。A/B 先行は妥当（生成の受け皿が切替だから）。
 
 ---
 
@@ -563,7 +570,7 @@ web/public/template/
 
 ---
 
-**次の実装合図（2026-08-20）**: 第二テンプレを用意し、本体（または Lab）で **A/B 切替試験**。マルチユーザーより先。`lib/phase5` リネームは別ゲート。
+**次の実装合図（2026-08-20 夕）**: 左カラム compact は済。第二テンプレ A/B（殿下が B を用意）。コンプからの皮起こしは Side track（A/B のあと）。`lib/phase5` リネームは別ゲート。引継ぎ [AO_Handoff_2026-08-20.md](./operations/AO_Handoff_2026-08-20.md)。
 
 ### 11.9 A1 実装メモ（2026-08-14）
 

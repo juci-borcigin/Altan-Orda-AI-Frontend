@@ -58,11 +58,29 @@ function readAoViewportCompactFromWindow(): boolean {
   }
 }
 
+/** 実画面の高さ（PWA の dvh 不足・ホーム画面余白対策）。未設定時は CSS の 100lvh。 */
+export function syncAoAppViewportCssVar(): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  const vv = window.visualViewport;
+  const h = Math.max(
+    vv && typeof vv.height === "number" ? vv.height : 0,
+    window.innerHeight || 0,
+    document.documentElement?.clientHeight ?? 0,
+  );
+  if (h > 0) {
+    document.documentElement.style.setProperty("--ao-app-h", `${Math.round(h)}px`);
+  }
+}
+
 export function subscribeAoViewportCompact(onStoreChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
-  const handler = () => onStoreChange();
+  const handler = () => {
+    syncAoAppViewportCssVar();
+    onStoreChange();
+  };
   const timers: number[] = [];
   const rafs: number[] = [];
+  syncAoAppViewportCssVar();
 
   const enableClientSnapshot = () => {
     if (aoViewportCompactClientReady) return;
@@ -165,6 +183,16 @@ export function aoKinCenterSwipeClosesDrawer(dx: number, dy: number): boolean {
   if (Math.abs(dx) < minAbs) return false;
   if (Math.abs(dx) < Math.abs(dy) * AO_COMPACT_KIN_HORIZONTAL_DOMINANCE_RATIO) return false;
   return dx < 0;
+}
+
+/** CSS zoom 実効値。getBoundingClientRect を layout px に戻すときに使う。 */
+export function aoCssZoomFromElement(el: HTMLElement | null): number {
+  if (!el) return 1;
+  const layoutW = el.offsetWidth;
+  const visualW = el.getBoundingClientRect().width;
+  if (layoutW <= 0 || visualW <= 0) return 1;
+  const z = visualW / layoutW;
+  return z > 0.2 && z < 2.5 ? z : 1;
 }
 
 export function aoKinCompactKinSwipeContentTopPx(
