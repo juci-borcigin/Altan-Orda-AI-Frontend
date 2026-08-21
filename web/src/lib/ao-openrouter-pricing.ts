@@ -61,3 +61,8 @@ export async function getOpenRouterTokenRates(modelId: string): Promise<OpenRout
   const map = await loadPricingMap();
   return map.get(id) ?? null;
 }
+
+/** 鮮度更新時にメモリキャッシュを捨てる（次回ロードで再取得） */
+export function invalidateOpenRouterPricingCache(): void {
+  memoryCache = null;
+}

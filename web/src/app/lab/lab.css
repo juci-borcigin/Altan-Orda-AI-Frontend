@@ -1,0 +1,125 @@
+/** Lab（実験室）— /lab 公式開発エリア */
+.ao-lab {
+  --lab-ink: #101820;
+  --lab-muted: #4a5a68;
+  --lab-bg0: #e6eef3;
+  --lab-bg1: #d5e0e8;
+  --lab-panel: #f5f8fa;
+  --lab-accent: #0b6e4f;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 1.75rem 1.1rem 3.5rem;
+  background:
+    radial-gradient(ellipse 80% 45% at 0% 0%, #cfe0d8 0%, transparent 50%),
+    linear-gradient(165deg, var(--lab-bg0), var(--lab-bg1));
+  color: var(--lab-ink);
+  font-family: "Hiragino Sans", "Noto Sans JP", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+.ao-lab-hero {
+  max-width: 40rem;
+  margin: 0 auto 2rem;
+}
+
+.ao-lab-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--lab-muted);
+}
+
+.ao-lab-brand {
+  margin: 0.35rem 0 0.55rem;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Iowan Old Style", Georgia,
+    serif;
+  font-size: clamp(2.25rem, 6vw, 3.15rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.ao-lab-lead {
+  margin: 0;
+  max-width: 36rem;
+  line-height: 1.65;
+  color: var(--lab-muted);
+  font-size: 0.98rem;
+}
+
+.ao-lab-section {
+  max-width: 40rem;
+  margin: 0 auto 1.75rem;
+}
+
+.ao-lab-section h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.ao-lab-section-blurb {
+  margin: 0 0 0.75rem;
+  color: var(--lab-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.ao-lab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.ao-lab-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--lab-panel);
+  border-left: 3px solid var(--lab-accent);
+  padding: 0.85rem 1rem;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.ao-lab-card:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.ao-lab-card-title {
+  display: block;
+  font-weight: 650;
+  font-size: 1rem;
+}
+
+.ao-lab-card-note {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 0.82rem;
+  color: var(--lab-muted);
+  line-height: 1.5;
+}
+
+.ao-lab-ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.86rem;
+  line-height: 1.7;
+  color: var(--lab-muted);
+}
+
+.ao-lab code {
+  font-size: 0.84em;
+}
+
+.ao-lab-docs {
+  margin: 0.9rem 0 0;
+  font-size: 0.82rem;
+  color: var(--lab-muted);
+}
+
+.ao-lab a {
+  color: var(--lab-accent);
+}

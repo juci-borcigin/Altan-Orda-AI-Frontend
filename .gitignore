@@ -2,3 +2,23 @@
 
 # Cursor MCP（トークン等を含むためコミットしない）
 .cursor/mcp.json
+
+.DS_Store
+**/.DS_Store
+
+# Sample / Lab オフライン用 zip（中身は session1-visual-lab/ と重複）
+web/public/lab/session1-visual-lab-offline.zip
+
+# Lab の巨大生成物はローカル保管（Git 肥大化防止。コードと小さな manifest のみ追跡）
+web/public/lab/session1-visual-lab/
+web/public/lab/image-lab/
+
+.vercel
+.env*
+
+# Cursor ローカル設定（エージェント用。リポには載せない）
+.cursor/
+
+# 掃除退避（ローカルのみ。Ledger: docs/operations/AO_Cleanup_Ledger.md）
+_archive/*
+!_archive/README.md

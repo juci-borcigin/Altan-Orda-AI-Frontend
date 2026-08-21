@@ -27,6 +27,23 @@ const nextConfig: NextConfig = {
     root: ".",
   },
   ...(mergedAllowedDevOrigins.length > 0 ? { allowedDevOrigins: mergedAllowedDevOrigins } : {}),
+  /** 旧 Sample（/sample）→ Lab（/lab）。ブックマーク・ドキュメント互換 */
+  async redirects() {
+    return [
+      { source: "/sample", destination: "/lab", permanent: true },
+      { source: "/sample/:path*", destination: "/lab/:path*", permanent: true },
+      { source: "/api/sample/:path*", destination: "/api/lab/:path*", permanent: true },
+      { source: "/phase5-preview", destination: "/lab/template-tokens", permanent: false },
+    ];
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/apple-touch-icon-precomposed.png",
+        destination: "/apple-touch-icon.png",
+      },
+    ];
+  },
   /** 静的アセットのブラウザキャッシュ（HTML/API は対象外） */
   async headers() {
     return [
@@ -35,7 +52,7 @@ const nextConfig: NextConfig = {
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       {
-        source: "/phase5/:path*",
+        source: "/template/:path*",
         headers: [
           {
             key: "Cache-Control",
@@ -49,7 +66,15 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/apple-touch-icon.png",
-        headers: [{ key: "Cache-Control", value: "public, max-age=604800, immutable" }],
+        headers: [{ key: "Cache-Control", value: "public, max-age=300, must-revalidate" }],
+      },
+      {
+        source: "/apple-touch-icon-precomposed.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=300, must-revalidate" }],
+      },
+      {
+        source: "/icon.png",
+        headers: [{ key: "Cache-Control", value: "public, max-age=300, must-revalidate" }],
       },
       {
         source: "/favicon.ico",

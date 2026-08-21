@@ -57,7 +57,8 @@ export function isAoNativeThread(t: { sourceProvider?: string }): boolean {
 
 /**
  * 論タブに応じた僚友ハイライト（主担当＋副担当。クリックでは切り替えない）。
- * メイン投稿時の project_id は `aoPostingProjectIdForTopic` を参照（巷間論 chat は DB 永続化なし）。
+ * メイン投稿時の project_id は `aoPostingProjectIdForTopic` を参照。
+ * 巷間論（chat）もスレ／メッセージは Supabase に永続する（embedding／RAG 対象外）。
  */
 export function activeNokorNamesForTopic(topicId: TopicUiId | null): Set<string> {
   if (!topicId) return new Set();
@@ -110,7 +111,7 @@ export function aoPostingProjectIdForTopic(topicId: TopicUiId): ProjectId {
 }
 
 /**
- * 年代記・議事一覧：当該論の議事（Supabase 同期済みは取り込み nblm 等も含む。巷間論 chat は ephemeral 空も可）
+ * 年代記・議事一覧：当該論の議事（Supabase 同期済みは取り込み nblm 等も含む。巷間論 chat も永続可）
  */
 export function threadsForTopicGiList(threads: Thread[], topicId: TopicUiId): Thread[] {
   const pids = projectIdsForTopic(topicId);
@@ -205,10 +206,18 @@ export function isGakkyuTopic(topicId: TopicUiId | null): boolean {
   return topicId === "gakkyu";
 }
 
+/** 起動時の既定論。復元しない場合はタイトル未設定の新規巷間論 */
+export const AO_LAUNCH_TOPIC: TopicUiId = "koukan";
+
 /**
  * 典籍論タブ切替用：最新議事を自動選択せずブランク（ephemeral）のみ。
  * threads/list も messages も触らず、一覧オーバーレイからの選択待ち。
  */
 export function focusStateOnGakkyuBlank(state: AppState): AppState {
   return focusStateOnTopic(state, "gakkyu", { preferLatest: false });
+}
+
+/** 起動用：巷間論の空プレースホルダー（初回送信まで DB 行なし） */
+export function focusStateOnLaunchBlank(state: AppState): AppState {
+  return focusStateOnTopic(state, AO_LAUNCH_TOPIC, { preferLatest: false });
 }

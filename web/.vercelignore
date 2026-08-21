@@ -1,0 +1,22 @@
+# Root Directory = web のため、パスは web/ からの相対
+
+# ビルド成果・依存
+.next
+node_modules
+
+# 秘密は Vercel Env（ローカル .env を上げない）
+.env
+.env.local
+
+# ---------------------------------------------------------------------------
+# Lab（実験室）— 本番・Preview には載せない（ローカル専用）
+# 方針: docs/lab/README.md
+# ---------------------------------------------------------------------------
+src/app/lab
+src/app/api/lab
+public/lab
+
+# 旧 Sample（削除済み想定の保険）
+src/app/sample
+src/app/api/sample
+public/sample

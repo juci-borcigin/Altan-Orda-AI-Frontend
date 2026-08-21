@@ -34,14 +34,16 @@ import { historyCompressionToDbJson, pinnedThreadIdsFromDbJson } from "@/lib/ao-
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { addCompletionUsageToAgg } from "@/lib/ao-completion-usage";
 import { estimateCompletionUsdForModel } from "@/lib/ao-usage-estimate";
+import { buildTurnCostBreakdown, maybeRefreshPricingOnAoActivity } from "@/lib/ao-turn-cost";
 import { chatSseStream } from "@/lib/ao-chat-sse";
 import { postOpenAiChatCompletionStream } from "@/lib/ao-openai-stream";
 import type { AoMsgAttachment } from "@/lib/ao-attachments";
-import { applyCompletionBudgetToPayload } from "@/lib/llm/completion-payload";
+import { applyCompletionBudgetToPayload, applyChatCompletionsToolReasoningCompat, stripUnsupportedSamplingFromPayload } from "@/lib/llm/completion-payload";
 import {
   buildOutboundChatMessages,
   completionHeaders,
   hasAnyLlmCredential,
+  isPerplexitySonarModelId,
   resolveEnvLlmDefaults,
   resolveLlmRoute,
   serializeOutboundChatMessages,
@@ -302,14 +304,14 @@ async function tavilySearch(
     snippetMaxChars?: number;
     resultMaxChars?: number;
   },
-): Promise<string> {
+): Promise<{ text: string; billed: boolean }> {
   const key = process.env.TAVILY_API_KEY?.trim();
   if (!key) {
-    return JSON.stringify({ error: "TAVILY_API_KEY is not configured" });
+    return { text: JSON.stringify({ error: "TAVILY_API_KEY is not configured" }), billed: false };
   }
   const q = query.trim();
   if (!q) {
-    return JSON.stringify({ error: "empty query" });
+    return { text: JSON.stringify({ error: "empty query" }), billed: false };
   }
 
   const res = await fetch("https://api.tavily.com/search", {
@@ -327,11 +329,14 @@ async function tavilySearch(
 
   const rawText = await res.text().catch(() => "");
   if (!res.ok) {
-    return JSON.stringify({
-      error: "Tavily request failed",
-      status: res.status,
-      detail: rawText.slice(0, 800),
-    });
+    return {
+      text: JSON.stringify({
+        error: "Tavily request failed",
+        status: res.status,
+        detail: rawText.slice(0, 800),
+      }),
+      billed: false,
+    };
   }
 
   let data: {
@@ -341,7 +346,10 @@ async function tavilySearch(
   try {
     data = JSON.parse(rawText) as typeof data;
   } catch {
-    return JSON.stringify({ error: "invalid Tavily JSON", detail: rawText.slice(0, 400) });
+    return {
+      text: JSON.stringify({ error: "invalid Tavily JSON", detail: rawText.slice(0, 400) }),
+      billed: true,
+    };
   }
 
   const lines: string[] = [];
@@ -359,8 +367,11 @@ async function tavilySearch(
   }
   const joined = lines.length ? lines.join("\n\n---\n\n") : "(検索結果なし)";
   const maxChars = Math.max(2000, opts?.resultMaxChars ?? 12_000);
-  if (joined.length <= maxChars) return joined;
-  return `${joined.slice(0, maxChars)}\n\n---\n\n（以下 Tavily 結果は長さのため省略）`;
+  if (joined.length <= maxChars) return { text: joined, billed: true };
+  return {
+    text: `${joined.slice(0, maxChars)}\n\n---\n\n（以下 Tavily 結果は長さのため省略）`,
+    billed: true,
+  };
 }
 
 type CompletionJson = {
@@ -394,6 +405,7 @@ type ChatTurnUsagePayload = {
   modelId: string;
   provider?: string;
   apiModel?: string;
+  costBreakdown?: ReturnType<typeof buildTurnCostBreakdown>;
 };
 
 async function buildTurnUsagePayload(
@@ -401,15 +413,32 @@ async function buildTurnUsagePayload(
   opts: { provider?: string; apiModel?: string } | null,
   promptTokens: number,
   completionTokens: number,
+  extras?: {
+    summaryUsd?: number | null;
+    summaryPromptTokens?: number;
+    summaryCompletionTokens?: number;
+    tavilyQueries?: number;
+    embeddingChars?: number;
+  },
 ): Promise<ChatTurnUsagePayload> {
+  const llmUsd = await estimateCompletionUsdForModel(promptTokens, completionTokens, modelId);
+  const costBreakdown = buildTurnCostBreakdown({
+    llmUsd,
+    summaryUsd: extras?.summaryUsd ?? null,
+    summaryPromptTokens: extras?.summaryPromptTokens,
+    summaryCompletionTokens: extras?.summaryCompletionTokens,
+    tavilyQueries: extras?.tavilyQueries,
+    embeddingChars: extras?.embeddingChars,
+  });
   return {
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens,
-    estimatedUsd: await estimateCompletionUsdForModel(promptTokens, completionTokens, modelId),
+    estimatedUsd: costBreakdown.totalUsd ?? llmUsd,
     modelId,
     ...(opts?.provider ? { provider: opts.provider } : {}),
     ...(opts?.apiModel ? { apiModel: opts.apiModel } : {}),
+    costBreakdown,
   };
 }
 
@@ -542,8 +571,9 @@ function normalizeDbSourceProvider(sp: string | null | undefined): string | null
   return t.length ? t : null;
 }
 
-/** 巷間論（chat）は Supabase に残さない */
+/** 巷間論（chat）もスレ／メッセージは永続する。embedding／RAG 対象外は別判定。 */
 function allowsSupabaseThreadPersist(projectId: ProjectId): boolean {
+  void projectId;
   return true;
 }
 
@@ -660,7 +690,10 @@ export async function POST(req: Request) {
   const envLlm = resolveEnvLlmDefaults();
   if (!hasAnyLlmCredential() && !mockMode && !dryRunMode) {
     return NextResponse.json(
-      { error: "LLM API key is not set (LLM_API_KEY / OPENAI / GEMINI / ANTHROPIC)" },
+      {
+        error:
+          "LLM API key is not set（脱 OR: OPENAI / ANTHROPIC / GEMINI / XAI / DEEPSEEK / PERPLEXITY。例外時のみ LLM_API_KEY+OpenRouter）",
+      },
       { status: 500 },
     );
   }
@@ -676,6 +709,14 @@ export async function POST(req: Request) {
     }
   }
   const llmRoute = resolveLlmRoute(configuredModelId);
+  if (!llmRoute.apiKey?.trim() && !mockMode && !dryRunMode) {
+    return NextResponse.json(
+      {
+        error: `直結 API キーがありません（provider=${llmRoute.provider}, model=${configuredModelId}）。脱 OR 方針のため OpenRouter へは自動フォールバックしません。AO_LLM_FORCE_OPENROUTER=1 は例外時のみ。`,
+      },
+      { status: 500 },
+    );
+  }
   const { baseUrl, apiKey } = llmRoute;
   const effectiveModel = configuredModelId;
   const userMsgs = Array.isArray(body.messages) ? body.messages : [];
@@ -699,6 +740,7 @@ export async function POST(req: Request) {
 
   return chatSseStream(async (emit) => {
     emit("phase", { phase: "preparing" });
+    void maybeRefreshPricingOnAoActivity().catch(() => {});
     let phase5Ctx: Awaited<ReturnType<typeof tryBuildPhase5ChatSystem>> = null;
     if (phase5Required) {
       emit("phase", { phase: "compressing_history" });
@@ -746,8 +788,10 @@ export async function POST(req: Request) {
 
   const userTurnCount = trimmed.filter((m) => m.role === "user").length;
   const webSearchMinRounds = phase5Ctx?.bundle.runtime.web_search_min_rounds ?? 0;
+  /** Sonar は内蔵検索のため Tavily を付けない（二重検索・二重課金防止） */
   const tavilyEnabled =
     Boolean(process.env.TAVILY_API_KEY?.trim()) &&
+    !isPerplexitySonarModelId(effectiveModel) &&
     (phase5Ctx ? phase5Ctx.bundle.runtime.web_search_enabled : true) &&
     userTurnCount > webSearchMinRounds;
   const tavilySuffix = tavilyEnabled
@@ -979,6 +1023,7 @@ export async function POST(req: Request) {
   let completionRoundCount = 0;
   let webSearchInvocationCount = 0;
   let webSearchSkippedByLimit = 0;
+  let tavilyBilledQueries = 0;
   let lastFinishReason: string | null = null;
   let lastNativeFinishReason: string | null = null;
   const webSearchQueriesForDebug: string[] = [];
@@ -1001,12 +1046,13 @@ export async function POST(req: Request) {
         finalCompletionPhaseSent = true;
         emit("phase", { phase: "final_completion" });
       }
+      // temperature 等の sampling は送らない（ベンダー既定）。拒否モデルでの 400 を避ける。
       const payload: Record<string, unknown> = {
         model: llmRoute.modelId,
-        temperature: 0.7,
         messages,
       };
       applyCompletionBudgetToPayload(payload, llmRoute, completionBudget);
+      stripUnsupportedSamplingFromPayload(payload, llmRoute);
       if (tools && !forceNoTools) {
         payload.tools = tools;
         payload.tool_choice = "auto";
@@ -1014,6 +1060,7 @@ export async function POST(req: Request) {
         payload.tools = tools;
         payload.tool_choice = "none";
       }
+      applyChatCompletionsToolReasoningCompat(payload, llmRoute);
 
       const useLlmStream = forceNoTools || !tools;
       let json: CompletionJson;
@@ -1170,8 +1217,9 @@ export async function POST(req: Request) {
             );
           }
           try {
-            const toolText = await tavilySearch(plan.query, tavilyTimeout, tavilyOpts);
-            webContentByCallId.set(plan.toolCallId, toolText);
+            const toolResult = await tavilySearch(plan.query, tavilyTimeout, tavilyOpts);
+            if (toolResult.billed) tavilyBilledQueries += 1;
+            webContentByCallId.set(plan.toolCallId, toolResult.text);
           } catch (e: unknown) {
             webContentByCallId.set(
               plan.toolCallId,
@@ -1247,12 +1295,25 @@ export async function POST(req: Request) {
       return;
     }
 
+    const embeddingCharsForTurn =
+      (phase5Ctx?.ragMeta.queryEmbedChars ?? 0) +
+      (projectId !== "chat" && finalContent.trim()
+        ? finalContent.trim().length
+        : 0);
+
     const usagePayload = await buildTurnUsagePayload(
-    effectiveModel,
-    { provider: llmRoute.provider, apiModel: llmRoute.modelId },
-    usageAgg.prompt,
-    usageAgg.completion,
-  );
+      effectiveModel,
+      { provider: llmRoute.provider, apiModel: llmRoute.modelId },
+      usageAgg.prompt,
+      usageAgg.completion,
+      {
+        summaryUsd: phase5Ctx?.summaryUsage?.estimatedUsd ?? null,
+        summaryPromptTokens: phase5Ctx?.summaryUsage?.promptTokens,
+        summaryCompletionTokens: phase5Ctx?.summaryUsage?.completionTokens,
+        tavilyQueries: tavilyBilledQueries,
+        embeddingChars: embeddingCharsForTurn,
+      },
+    );
 
   const trimmedFinal = finalContent.trim();
   const defaultSpeaker =
@@ -1320,6 +1381,9 @@ export async function POST(req: Request) {
       ` format_retries=${formatRetry} empty_fallback=${emptyAssistantFallback}`,
   );
 
+  let persistOk: boolean | null = null;
+  let persistError: string | null = null;
+
   if (supa && body.clientThreadId?.trim() && allowsSupabaseThreadPersist(projectId) && chunks.length > 0) {
     try {
       const plan = await prepareChatPersistence(supa, body);
@@ -1337,8 +1401,11 @@ export async function POST(req: Request) {
           content_type: firstAttach ? "image" : "text",
           artifact_url: firstAttach?.storagePath ?? null,
         });
-        if (ue) console.error("[chat] persist user message:", ue.message);
-        else {
+        if (ue) {
+          console.error("[chat] persist user message:", ue.message);
+          persistOk = false;
+          persistError = ue.message;
+        } else {
           const rawPayload = {
             rawContent: finalContent,
             completion: lastCompletionJson,
@@ -1366,7 +1433,13 @@ export async function POST(req: Request) {
             .from("ao_messages")
             .insert(rows)
             .select("id, text");
-          if (ae) console.error("[chat] persist assistant messages:", ae.message);
+          if (ae) {
+            console.error("[chat] persist assistant messages:", ae.message);
+            persistOk = false;
+            persistError = ae.message;
+          } else {
+            persistOk = true;
+          }
           const threadPatch: Record<string, unknown> = {
             updated_at: new Date().toISOString(),
           };
@@ -1376,7 +1449,7 @@ export async function POST(req: Request) {
           await supa.from("ao_threads").update(threadPatch).eq("id", persistedThreadUuid);
 
           const oai = process.env.OPENAI_API_KEY?.trim();
-          // 巷間論（chat）は Supabase へ保存するが、ベクトル化／RAG 対象にはしない
+          // 巷間論（chat）は永続するが、ベクトル化／RAG 対象にはしない
           if (oai && insertedRows?.length && projectId !== "chat") {
             const { data: threadMeta } = await supa
               .from("ao_threads")
@@ -1398,9 +1471,14 @@ export async function POST(req: Request) {
             ).catch((e) => console.error("[chat] embedding pipeline", e));
           }
         }
+      } else {
+        persistOk = false;
+        persistError = "thread uuid missing for persist";
       }
     } catch (e) {
       console.error("[chat] supabase turn persist", e);
+      persistOk = false;
+      persistError = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -1412,6 +1490,7 @@ export async function POST(req: Request) {
       rawPrompts: { sent: rawPromptSentLive, received: rawPromptReceivedLive },
       ...(phase5Ctx?.historyCompression ? { historyCompression: phase5Ctx.historyCompression } : {}),
       ...(persistMessages && persistedThreadUuid ? { supabaseThreadId: persistedThreadUuid } : {}),
+      ...(persistOk != null ? { persistOk, ...(persistError ? { persistError } : {}) } : {}),
       ...(isChatDebugMode()
         ? {
             chatDebug: {

@@ -312,7 +312,7 @@ export const AoReijitsuOverlay = forwardRef<AoReijitsuOverlayHandle, Props>(func
                 </option>
               ))}
             </optgroup>
-            <optgroup label="試験・テキストのみ（添付不可）">
+            <optgroup label="試験（直結・検証用）">
               {AO_LLM_MODEL_PRESETS_TEXT_EXPERIMENTAL.map((p) => (
                 <option key={p.label + p.value} value={p.value}>
                   {p.label}

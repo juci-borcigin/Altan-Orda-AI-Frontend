@@ -24,6 +24,12 @@ function providerDisplayLabel(provider?: string): string {
       return "Google";
     case "openai":
       return "OpenAI";
+    case "xai":
+      return "xAI";
+    case "deepseek":
+      return "DeepSeek";
+    case "perplexity":
+      return "Perplexity";
     default:
       return provider?.trim() || "—";
   }
@@ -133,6 +139,39 @@ export function AoUsageChipPanel({
         トークン: 入力 {usage.promptTokens} / 出力 {usage.completionTokens} / 計 {usage.totalTokens}{" "}
         <span className="whitespace-nowrap">(概算$ {usd != null ? usd.toFixed(6) : "—"})</span>
       </div>
+      {usage.costBreakdown ? (
+        <ul className="mb-0.5 shrink-0 list-none space-y-0.5 pl-0 leading-snug text-[0.95em]">
+          <li>
+            ・LLM: ${usage.costBreakdown.llmUsd != null ? usage.costBreakdown.llmUsd.toFixed(6) : "—"}
+          </li>
+          <li>
+            ・要約 Haiku: $
+            {usage.costBreakdown.summaryUsd != null ? usage.costBreakdown.summaryUsd.toFixed(6) : "—"}
+            {usage.costBreakdown.summaryPromptTokens || usage.costBreakdown.summaryCompletionTokens
+              ? `（in ${usage.costBreakdown.summaryPromptTokens ?? 0} / out ${usage.costBreakdown.summaryCompletionTokens ?? 0}）`
+              : ""}
+          </li>
+          <li>
+            ・Tavily: $
+            {usage.costBreakdown.tavilyUsd != null ? usage.costBreakdown.tavilyUsd.toFixed(6) : "—"}
+            {usage.costBreakdown.tavilyQueries > 0
+              ? `（${usage.costBreakdown.tavilyQueries} 回）`
+              : ""}
+          </li>
+          <li>
+            ・Embedding: $
+            {usage.costBreakdown.embeddingUsd != null
+              ? usage.costBreakdown.embeddingUsd.toFixed(6)
+              : "—"}
+            {usage.costBreakdown.embeddingApproxTokens
+              ? `（≈${usage.costBreakdown.embeddingApproxTokens} tok）`
+              : ""}
+          </li>
+          {usage.costBreakdown.pricingAsOf ? (
+            <li className="opacity-80">・単価基準日: {usage.costBreakdown.pricingAsOf}</li>
+          ) : null}
+        </ul>
+      ) : null}
 
       <ul className="mb-0.5 shrink-0 list-none space-y-0.5 pl-0 leading-snug">
         <li>・システム ({localeChars(digest?.systemCharsWithoutRag ?? 0)}字)</li>

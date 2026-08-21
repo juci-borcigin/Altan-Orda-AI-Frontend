@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { IcoPopupNo, IcoPopupOk } from "@/components/ao-action-icons";
 import { AoMessageMarkdown } from "@/components/AoMessageMarkdown";
-import { AoOrnamentalFrame, AoP5NineSliceBubble } from "@/components/ao-phase5";
+import { AoP5NineSliceBubble, AoTemplateFrame } from "@/components/ao-phase5";
 import {
   AO_POPUP_AI_BUBBLE_BG,
   aoPopupDeleteConfirmBandHPx,
@@ -40,8 +40,6 @@ function aoPopupPlainForTypewriter(markdown: string): string {
 export type AoDeleteConfirmPopupProps = {
   kinColumn: ReactNode;
   messageMarkdown: string;
-  frameInsetPx: number;
-  parchmentPadStr: string;
   onConfirm: () => void;
   onCancel: () => void;
   confirmDisabled?: boolean;
@@ -49,13 +47,11 @@ export type AoDeleteConfirmPopupProps = {
 
 /**
  * 年代記・論議事オーバーレイ下揃えの確認ポップアップ
- * 帯の高さ＝コルグズ顔グラ＋名札（＋約10%）、吹き出し内側 #F1E8D8
+ * 帯の高さ＝コルグズ顔グラ＋名札（＋約10%）、吹き出し内側 #F1E9D9（ao-bubble-system）
  */
 export function AoDeleteConfirmPopup({
   kinColumn,
   messageMarkdown,
-  frameInsetPx,
-  parchmentPadStr,
   onConfirm,
   onCancel,
   confirmDisabled,
@@ -88,7 +84,7 @@ export function AoDeleteConfirmPopup({
 
   const kinStackH = aoPopupKorguzKinStackHPx();
   const rowH = Math.max(POPUP_SPEECH_BLOCK_H_PX, kinStackH);
-  const bandH = aoPopupDeleteConfirmBandHPx(frameInsetPx, POPUP_SPEECH_BLOCK_H_PX);
+  const bandH = aoPopupDeleteConfirmBandHPx(POPUP_SPEECH_BLOCK_H_PX);
   const bubbleFramePadYPx = Math.max(2, Math.round(rowH * POPUP_BUBBLE_FRAME_PAD_Y_RATIO));
   const bubbleShiftYPx = Math.max(1, Math.round(rowH * POPUP_BUBBLE_SHIFT_Y_RATIO));
   const bubbleShiftXPx = -Math.max(4, Math.round(rowH * Math.abs(POPUP_BUBBLE_SHIFT_X_RATIO)));
@@ -108,13 +104,10 @@ export function AoDeleteConfirmPopup({
       aria-modal="true"
       aria-labelledby="ao-delete-popup-msg"
     >
-      <AoOrnamentalFrame
-        scale={0.5}
-        rootDisplay="flex"
-        contentInsetPx={frameInsetPx}
+      <AoTemplateFrame
+        preset="frame_AS"
         className="box-border flex h-full min-h-0 w-full flex-col overflow-visible"
         contentClassName="flex min-h-0 flex-1 flex-col overflow-visible"
-        contentStyle={{ padding: parchmentPadStr }}
       >
         <div
           className="ao-p5-parchment-surface flex h-full min-h-0 flex-col justify-end gap-0 overflow-visible"
@@ -199,7 +192,7 @@ export function AoDeleteConfirmPopup({
             </div>
           </div>
         </div>
-      </AoOrnamentalFrame>
+      </AoTemplateFrame>
     </div>
   );
 }

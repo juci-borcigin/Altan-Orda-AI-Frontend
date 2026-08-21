@@ -34,7 +34,14 @@ export function chatSseStream(run: (emit: ChatSseEmit) => Promise<void>): Respon
           await run(emit);
         } catch (e: unknown) {
           const detail = e instanceof Error ? e.message : String(e);
-          emit("error", { error: "chat_turn_failed", detail: detail.slice(0, 2000) });
+          const { classifyLlmErrorMessage } = await import("@/lib/ao-llm-error-classify");
+          const classified = classifyLlmErrorMessage(detail);
+          emit("error", {
+            error: "chat_turn_failed",
+            code: classified.code,
+            detail: classified.detail.slice(0, 2000),
+            messageJa: classified.messageJa,
+          });
         } finally {
           controller.close();
         }
@@ -148,8 +155,18 @@ export async function readChatSseDone(
         } else if (ev.event === "done") {
           donePayload = JSON.parse(ev.data) as Record<string, unknown>;
         } else if (ev.event === "error") {
-          const err = JSON.parse(ev.data) as { detail?: string; error?: string };
-          const parts = [err.detail, err.error].filter((x): x is string => typeof x === "string" && x.length > 0);
+          const err = JSON.parse(ev.data) as {
+            detail?: string;
+            error?: string;
+            messageJa?: string;
+            code?: string;
+          };
+          if (typeof err.messageJa === "string" && err.messageJa.trim()) {
+            throw new Error(err.messageJa.trim());
+          }
+          const parts = [err.detail, err.error].filter(
+            (x): x is string => typeof x === "string" && x.length > 0,
+          );
           throw new Error(parts.join(" — ").trim() || "chat error");
         }
       }

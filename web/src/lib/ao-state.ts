@@ -12,12 +12,26 @@ export type MsgTurnUsage = {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** 合計概算 USD（内訳があるときは total） */
   estimatedUsd: number | null;
   modelId: string;
   /** 実際に叩いた経路（openrouter / google / anthropic / openai など） */
   provider?: string;
   /** API に送った model 名（直結時は vendor プレフィックス無しの場合がある） */
   apiModel?: string;
+  /** 可変費内訳（LLM / 要約 / Tavily / embedding） */
+  costBreakdown?: {
+    llmUsd: number | null;
+    summaryUsd: number | null;
+    tavilyUsd: number | null;
+    embeddingUsd: number | null;
+    totalUsd: number | null;
+    tavilyQueries: number;
+    summaryPromptTokens?: number;
+    summaryCompletionTokens?: number;
+    embeddingApproxTokens?: number;
+    pricingAsOf?: string;
+  };
 };
 
 /** /api/chat が返す LLM 往復全文（Supabase assistant 先頭行にも保存） */
@@ -431,7 +445,7 @@ export function downloadBackupFile(state: AppState): void {
   URL.revokeObjectURL(url);
 }
 
-/** localStorage 用の初期議事（page.tsx と GET /api/state の空DB時のフォールバックで共通） */
+/** localStorage 用の初期議事（起動は巷間論の空プレースホルダー。GET /api/state の空DB時も同じ） */
 export function aoUid(prefix: string): string {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
@@ -440,17 +454,18 @@ export function makeDefaultAppState(): AppState {
   const now = Date.now();
   const t0: Thread = {
     id: aoUid("th"),
-    projectId: "work",
+    projectId: "chat",
     title: "",
     createdAt: now,
     updatedAt: now,
     messages: [],
     sourceProvider: "ao",
+    ephemeral: true,
   };
 
   return {
     version: 1,
-    currentProjectId: "work",
+    currentProjectId: "chat",
     currentThreadId: t0.id,
     threads: [t0],
   };

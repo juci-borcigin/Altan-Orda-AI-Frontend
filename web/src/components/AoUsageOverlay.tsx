@@ -49,9 +49,14 @@ type Props = {
   onClose: () => void;
   /** メイン帯に埋め込むとき true（absolute 全画面ラッパーを付けない） */
   embedded?: boolean;
+  /**
+   * ビューエリア大枠内など、外側でスクロールするとき true。
+   * 内側の細い枠＋枠内スクロールを付けない。
+   */
+  outerScroll?: boolean;
 };
 
-export function AoUsageOverlay({ open, onClose, embedded = false }: Props) {
+export function AoUsageOverlay({ open, onClose, embedded = false, outerScroll = false }: Props) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<SummaryJson | null>(null);
@@ -84,11 +89,25 @@ export function AoUsageOverlay({ open, onClose, embedded = false }: Props) {
   const modelEntries = data?.byModel ? Object.entries(data.byModel).sort((a, b) => b[1].estimatedUsd - a[1].estimatedUsd) : [];
 
   const rootClass = embedded
-    ? "flex min-h-0 min-w-0 flex-1 flex-col box-border overflow-x-hidden px-1.5 pb-1 pt-0 ao-p5-parchment-surface"
+    ? outerScroll
+      ? "flex w-full min-w-0 flex-col box-border overflow-x-hidden px-1.5 pb-1 pt-0"
+      : "flex min-h-0 min-w-0 flex-1 flex-col box-border overflow-x-hidden px-1.5 pb-1 pt-0 ao-p5-parchment-surface"
     : "absolute inset-0 z-[55] flex min-h-0 min-w-0 flex-col box-border overflow-x-hidden p-3 ao-p5-parchment-surface";
 
+  const bodyClass = outerScroll
+    ? "w-full min-w-0 px-0.5 py-1"
+    : "min-h-0 flex-1 overflow-y-auto border border-solid px-2 py-1 [scrollbar-gutter:stable]";
+  const bodyStyle = outerScroll
+    ? undefined
+    : { borderColor: AO_INK, backgroundColor: "#faf6ee" };
+
   return (
-    <div className={rootClass} style={{ backgroundColor: AO_PARCHMENT }} role="dialog" aria-label="使用量">
+    <div
+      className={rootClass}
+      style={outerScroll ? undefined : { backgroundColor: AO_PARCHMENT }}
+      role="dialog"
+      aria-label="使用量"
+    >
       {!embedded ? (
         <div className="flex shrink-0 items-center justify-between gap-2 pb-2 pr-[10px] pt-1">
           <h3 className="pl-2 font-serif text-[14px] font-semibold text-[#3D1C08]">AI API 使用量（集計）</h3>
@@ -105,10 +124,7 @@ export function AoUsageOverlay({ open, onClose, embedded = false }: Props) {
 
       {err ? <div className="shrink-0 px-2 pb-2 text-center text-[12px] text-red-300">{err}</div> : null}
 
-      <div
-        className="min-h-0 flex-1 overflow-y-auto border border-solid px-2 py-1 [scrollbar-gutter:stable]"
-        style={{ borderColor: AO_INK, backgroundColor: "#faf6ee" }}
-      >
+      <div className={bodyClass} style={bodyStyle}>
         {loading ? (
           <div className="py-6 text-center text-[#3D1C08]/60">読み込み中…</div>
         ) : (
@@ -140,7 +156,7 @@ export function AoUsageOverlay({ open, onClose, embedded = false }: Props) {
             </div>
 
             <h4 className="mb-0.5 mt-2 text-[10px] font-semibold text-[#3D1C08]">モデル別（直近 {data?.windowDays ?? 30} 日）</h4>
-            <div className="max-h-[40vh] space-y-1 overflow-y-auto font-mono text-[10px] text-[#3D1C08]/70">
+            <div className={`space-y-1 font-mono text-[10px] text-[#3D1C08]/70${outerScroll ? "" : " max-h-[40vh] overflow-y-auto"}`}>
               {modelEntries.length === 0 ? (
                 <div>（データなし）</div>
               ) : (

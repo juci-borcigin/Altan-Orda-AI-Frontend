@@ -29,12 +29,20 @@ export type ChatSystemBuildResult = {
   bundle: Phase5ChatBundle;
   trimmedEncoded: Array<{ role: "user" | "assistant"; content: string }>;
   historyCompression: ThreadHistoryCompression | null;
+  /** 今回の履歴要約課金（未実施なら null） */
+  summaryUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    modelId: string;
+    estimatedUsd: number | null;
+  } | null;
   ragMeta: {
     block: string;
     hitCount: number;
     topSimilarity: number | null;
     injected: boolean;
     threshold: number;
+    queryEmbedChars?: number;
   };
 };
 
@@ -80,6 +88,7 @@ export async function tryBuildPhase5ChatSystem(opts: {
     topSimilarity: null as number | null,
     injected: false,
     threshold: bundle.runtime.rag_match_threshold,
+    queryEmbedChars: 0,
   };
 
   let pinnedBlock = "";
@@ -117,6 +126,7 @@ export async function tryBuildPhase5ChatSystem(opts: {
       topSimilarity: rag.topSimilarity,
       injected: Boolean(rag.block.trim()),
       threshold: bundle.runtime.rag_match_threshold,
+      queryEmbedChars: rag.queryEmbedChars ?? 0,
     };
     if (rag.block.trim()) ragBlock = rag.block.trim();
   }
@@ -171,6 +181,7 @@ export async function tryBuildPhase5ChatSystem(opts: {
     bundle,
     trimmedEncoded,
     historyCompression: compressed.cache,
+    summaryUsage: compressed.summaryUsage,
     ragMeta,
   };
 }
