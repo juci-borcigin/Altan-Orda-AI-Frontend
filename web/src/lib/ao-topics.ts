@@ -206,10 +206,18 @@ export function isGakkyuTopic(topicId: TopicUiId | null): boolean {
   return topicId === "gakkyu";
 }
 
+/** 起動時の既定論。復元しない場合はタイトル未設定の新規巷間論 */
+export const AO_LAUNCH_TOPIC: TopicUiId = "koukan";
+
 /**
  * 典籍論タブ切替用：最新議事を自動選択せずブランク（ephemeral）のみ。
  * threads/list も messages も触らず、一覧オーバーレイからの選択待ち。
  */
 export function focusStateOnGakkyuBlank(state: AppState): AppState {
   return focusStateOnTopic(state, "gakkyu", { preferLatest: false });
+}
+
+/** 起動用：巷間論の空プレースホルダー（初回送信まで DB 行なし） */
+export function focusStateOnLaunchBlank(state: AppState): AppState {
+  return focusStateOnTopic(state, AO_LAUNCH_TOPIC, { preferLatest: false });
 }

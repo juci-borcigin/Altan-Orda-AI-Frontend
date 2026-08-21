@@ -46,6 +46,20 @@ function isPublicLearnPath(pathname: string): boolean {
   return false;
 }
 
+/** iOS のホーム画面追加は Cookie なしでアイコン／manifest を取りに来る */
+function isPublicPwaChromePath(pathname: string): boolean {
+  return (
+    pathname === "/favicon.ico" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/apple-touch-icon.png" ||
+    pathname === "/apple-touch-icon-precomposed.png" ||
+    pathname === "/icon" ||
+    pathname === "/icon.png" ||
+    pathname === "/apple-icon" ||
+    pathname === "/apple-icon.png"
+  );
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   // middleware が常に Auth を通すため、ローカルではフォールバックを用意する（本番では必ず AUTH_SECRET を設定すること）
@@ -63,7 +77,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     authorized({ auth, request }) {
       const pathname = request.nextUrl.pathname;
       if (pathname.startsWith("/_next")) return true;
-      if (pathname === "/favicon.ico") return true;
+      if (isPublicPwaChromePath(pathname)) return true;
 
       if (isPublicLearnPath(pathname)) return true;
 

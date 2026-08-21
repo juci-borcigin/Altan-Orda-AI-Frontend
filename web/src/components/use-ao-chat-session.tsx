@@ -13,6 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
+  AO_LAUNCH_TOPIC,
   AO_TOPICS,
   type TopicUiId,
   activeNokorNamesForTopic,
@@ -20,6 +21,7 @@ import {
   threadMatchesTopicProjectIds,
   focusStateOnTopic,
   focusStateOnGakkyuBlank,
+  focusStateOnLaunchBlank,
   isGakkyuTopic,
   isAoNativeThread,
   projectIdsForTopic,
@@ -140,8 +142,9 @@ export function useAoChatSession() {
   const [state, setState] = useState<AppState>(() => makeDefaultAppState());
   /** localStorage 復元より先に既定 state で saveState が走ると上書き事故になるため 1 回スキップ */
   const persistReadyRef = useRef(false);
-  /** 初期議事が兵馬論（work）に合わせる */
-  const [selectedTopic, setSelectedTopic] = useState<TopicUiId | null>("heiba");
+  /** 起動は巷間論の空プレースホルダー。論タブ切替時のみ最新へ寄せる */
+  const [selectedTopic, setSelectedTopic] = useState<TopicUiId | null>(AO_LAUNCH_TOPIC);
+  const skipTopicAlignOnMountRef = useRef(true);
   /** 年代記オーバーレイから議事を開いたあとはメイン入力をロックする（投稿メニュー等で解除） */
   const [composeLocked, setComposeLocked] = useState(false);
   const [titleEditing, setTitleEditing] = useState(false);
@@ -444,11 +447,15 @@ export function useAoChatSession() {
 
   useEffect(() => {
     const loaded = loadAoAppState();
-    setState(focusStateOnTopic(loaded, selectedTopic ?? "heiba"));
+    setState(focusStateOnLaunchBlank(loaded));
   }, []);
 
   /** 論タブ変更時：表示中議事が論とずれていれば最新（またはブランク）へ合わせる */
   useEffect(() => {
+    if (skipTopicAlignOnMountRef.current) {
+      skipTopicAlignOnMountRef.current = false;
+      return;
+    }
     if (!selectedTopic) return;
     if (isGakkyuTopic(selectedTopic)) {
       setState((prev) => {
