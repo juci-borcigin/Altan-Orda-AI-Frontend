@@ -1,0 +1,164 @@
+@import "../_kamakura/tokens.css";
+
+.klr {
+  min-height: 100dvh;
+  background: var(--kcs-paper);
+  color: var(--kcs-ink);
+  font-family: var(--kcs-font-ui);
+  padding: 3rem var(--kcs-pad) 5rem;
+  line-height: 1.75;
+}
+
+.klr-hero,
+.klr-section,
+.klr-foot {
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
+.klr-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--kcs-mute);
+  margin: 0 0 1rem;
+}
+
+.klr-hero h1 {
+  font-family: var(--kcs-font-display);
+  font-weight: 500;
+  font-size: clamp(1.6rem, 4vw, 2.15rem);
+  line-height: 1.35;
+  margin: 0 0 1rem;
+}
+
+.klr-lede {
+  color: var(--kcs-mute);
+  margin: 0 0 1.25rem;
+}
+
+.klr-lede strong {
+  color: var(--kcs-ink);
+  font-weight: 600;
+}
+
+.klr-back a {
+  color: var(--kcs-ink);
+  font-size: 0.9rem;
+}
+
+.klr-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--kcs-line);
+}
+
+.klr-section h2 {
+  font-family: var(--kcs-font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  margin: 0 0 1rem;
+}
+
+.klr-section ul,
+.klr-section ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--kcs-mute);
+}
+
+.klr-section li {
+  margin-bottom: 0.85rem;
+}
+
+.klr-section li strong {
+  color: var(--kcs-ink);
+}
+
+.klr-section code {
+  font-size: 0.85em;
+  background: var(--kcs-paper-lift);
+  padding: 0.1em 0.35em;
+}
+
+.klr-note {
+  color: var(--kcs-mute);
+  font-size: 0.92rem;
+  margin: 0 0 1.5rem;
+}
+
+.klr-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 800px) {
+  .klr-grid {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 56rem;
+    margin-inline: auto;
+  }
+
+  .klr-samples {
+    max-width: 56rem;
+  }
+}
+
+.klr-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--kcs-paper-lift);
+  border: 1px solid var(--kcs-line);
+  padding: 1.25rem 1.15rem 1.4rem;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.klr-card:hover {
+  border-color: var(--kcs-ink);
+  transform: translateY(-2px);
+}
+
+.klr-code {
+  display: inline-block;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: var(--kcs-seal);
+  margin-bottom: 0.5rem;
+}
+
+.klr-card h3 {
+  font-family: var(--kcs-font-display);
+  font-weight: 600;
+  font-size: 1.2rem;
+  margin: 0 0 0.5rem;
+}
+
+.klr-one {
+  color: var(--kcs-ink);
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+}
+
+.klr-card p {
+  margin: 0 0 0.65rem;
+  font-size: 0.84rem;
+  color: var(--kcs-mute);
+  line-height: 1.65;
+}
+
+.klr-label {
+  display: inline-block;
+  min-width: 2.4rem;
+  margin-right: 0.4rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--kcs-seal);
+}
+
+.klr-foot {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--kcs-line);
+  color: var(--kcs-mute);
+  font-size: 0.9rem;
+}

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>第1回 文章＋画像比較（静的）</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: linear-gradient(180deg, #f2efe7, #e8eef3);
+        color: #172033;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 1rem 0.75rem 3rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        margin: 0.3rem 0;
+      }
+      .meta {
+        font-size: 0.78rem;
+        color: #64748b;
+        line-height: 1.5;
+      }
+      .nav,
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin: 0.7rem 0;
+      }
+      button,
+      label {
+        font-size: 0.78rem;
+      }
+      button {
+        border: 1px solid #173f5f;
+        background: transparent;
+        color: #173f5f;
+        padding: 0.4rem 0.6rem;
+        cursor: pointer;
+      }
+      button.active {
+        background: #173f5f;
+        color: #fff;
+      }
+      .grid {
+        display: grid;
+        gap: 0.75rem;
+      }
+      @media (min-width: 800px) {
+        .grid.two {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      article {
+        background: rgba(255, 255, 255, 0.92);
+        border-top: 3px solid #173f5f;
+        overflow: hidden;
+      }
+      article header {
+        padding: 0.7rem 0.8rem 0.35rem;
+      }
+      article img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        background: #0f172a;
+      }
+      .body {
+        padding: 0.85rem;
+        white-space: pre-wrap;
+        line-height: 1.75;
+        font-size: 0.86rem;
+      }
+      details {
+        margin-top: 0.7rem;
+        font-size: 0.78rem;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #eef3f7;
+        padding: 0.65rem;
+        font-size: 0.7rem;
+        line-height: 1.5;
+      }
+      .missing {
+        aspect-ratio: 16 / 9;
+        display: grid;
+        place-items: center;
+        background: #dbe4ec;
+        color: #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="meta">STATIC SAMPLE · SESSION 1 VISUAL LAB</p>
+      <h1>第1回 · 文章＋画像比較（静的ビューア）</h1>
+      <p class="meta" id="meta">manifest.json を読み込み中…</p>
+      <div class="nav" id="nav"></div>
+      <div class="filters" id="filters"></div>
+      <div class="grid two" id="grid"></div>
+    </main>
+    <script>
+      const VARIANTS = [
+        { id: "sonnet_mid", label: "現行 Sonnet · mid" },
+        { id: "luna_low", label: "Luna · low" },
+        { id: "luna_mid", label: "Luna · mid" },
+        { id: "terra_low", label: "Terra · low" },
+        { id: "terra_mid", label: "Terra · mid" },
+      ];
+      let manifest = null;
+      let sectionNo = 1;
+      const visible = Object.fromEntries(VARIANTS.map((v) => [v.id, true]));
+
+      function usd(v) {
+        return v == null ? "—" : "$" + Number(v).toFixed(4);
+      }
+
+      function render() {
+        if (!manifest) return;
+        const section = manifest.sections.find((s) => s.section_no === sectionNo);
+        document.getElementById("meta").textContent =
+          (manifest.notes || "") +
+          " / 生成 " +
+          manifest.totals.generated_count +
+          "枚 · " +
+          usd(manifest.totals.cost_usd) +
+          " · " +
+          (manifest.totals.latency_ms / 1000).toFixed(1) +
+          "秒";
+
+        const nav = document.getElementById("nav");
+        nav.innerHTML = "";
+        for (const s of manifest.sections) {
+          const b = document.createElement("button");
+          b.textContent = "sec" + s.section_no;
+          if (s.section_no === sectionNo) b.className = "active";
+          b.onclick = () => {
+            sectionNo = s.section_no;
+            render();
+          };
+          nav.appendChild(b);
+        }
+
+        const filters = document.getElementById("filters");
+        filters.innerHTML = "";
+        for (const v of VARIANTS) {
+          const label = document.createElement("label");
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = visible[v.id];
+          input.onchange = () => {
+            visible[v.id] = input.checked;
+            render();
+          };
+          label.appendChild(input);
+          label.append(" " + v.label);
+          filters.appendChild(label);
+        }
+
+        const grid = document.getElementById("grid");
+        grid.innerHTML = "";
+        for (const v of VARIANTS.filter((x) => visible[x.id])) {
+          const cell = section && section.cells[v.id];
+          const article = document.createElement("article");
+          if (!cell) {
+            article.innerHTML =
+              "<header><strong>" +
+              v.label +
+              "</strong></header><div class='missing'>なし</div>";
+            grid.appendChild(article);
+            continue;
+          }
+          let imgHtml = "<div class='missing'>画像未生成</div>";
+          if (cell.image_url) {
+            const file = String(cell.image_url).split("/").pop();
+            imgHtml = "<img src='" + file + "' alt='' />";
+          }
+          let body = String(cell.markdown || "").trim();
+          const heading = String(cell.heading || "");
+          if (body.startsWith("##")) {
+            const nl = body.indexOf("\n");
+            body = (nl >= 0 ? body.slice(nl + 1) : "").trim();
+          }
+          article.innerHTML =
+            "<header><strong>" +
+            v.label +
+            "</strong><div class='meta'>" +
+            usd(cell.cost_usd) +
+            " · " +
+            (cell.latency_ms != null ? (cell.latency_ms / 1000).toFixed(1) + "秒" : "—") +
+            "</div></header>" +
+            imgHtml +
+            "<div class='body'><h3 style='margin:0 0 .4rem;font-size:1rem'>" +
+            heading +
+            "</h3>" +
+            body +
+            "<details><summary>料金・時間・画像生成プロンプト</summary><pre>" +
+            (cell.prompt || "（なし）") +
+            "</pre></details></div>";
+          grid.appendChild(article);
+        }
+      }
+
+      fetch("./manifest.json?ts=" + Date.now())
+        .then((r) => r.json())
+        .then((m) => {
+          manifest = m;
+          sectionNo = (m.sections && m.sections[0] && m.sections[0].section_no) || 1;
+          render();
+        })
+        .catch((e) => {
+          document.getElementById("meta").textContent = "読み込み失敗: " + e;
+        });
+    </script>
+  </body>
+</html>
