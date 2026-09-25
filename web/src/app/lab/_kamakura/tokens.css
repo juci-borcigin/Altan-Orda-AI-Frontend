@@ -1,0 +1,121 @@
+/* Kamakura Culture Studio — shared tokens
+   Research basis:
+   - Museum / gallery sites: neutral paper+ink, one accent (seal), art dominates UI
+   - Artwork presentation: contain + mat, fixed ratios — never crop calligraphy
+   - Atmosphere photos: controlled height, optional soft desaturate toward ink/paper
+   - Mobile: ≥60% traffic pattern for culture sites; single column; thumb-friendly dock
+*/
+
+:root {
+  --kcs-ink: #111111;
+  --kcs-ink-soft: #2a2a2a;
+  --kcs-paper: #eae6e0;
+  --kcs-paper-lift: #f4f4f0;
+  --kcs-mat: #ddd6cb;
+  --kcs-seal: #a84430;
+  --kcs-mute: #6a645c;
+  --kcs-line: #cfc7bb;
+  --kcs-on-ink: #ebe6de;
+  --kcs-on-ink-mute: #a8a29a;
+
+  --kcs-font-display: var(--font-zen-old-mincho), "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --kcs-font-ui: var(--font-geist-sans), system-ui, sans-serif;
+
+  --kcs-pad: clamp(1rem, 4vw, 1.75rem);
+  --kcs-pad-y: clamp(2.5rem, 8vh, 5rem);
+  --kcs-max-text: 28rem;
+  --kcs-max-work: min(22rem, 86vw);
+  --kcs-max-work-wide: min(34rem, 92vw);
+  --kcs-hero-h: min(92dvh, 900px);
+  --kcs-hero-h-m: min(86dvh, 760px);
+  --kcs-atmos-h: min(42vh, 28rem);
+  --kcs-atmos-h-m: min(36vh, 18rem);
+  --kcs-radius: 0;
+  --kcs-ease: 0.25s ease;
+}
+
+/* Artwork: sacred object — never crop glyphs */
+.kcs-work {
+  margin: 0 auto;
+  max-width: var(--kcs-max-work-wide);
+  text-align: center;
+}
+
+.kcs-work--portrait {
+  max-width: var(--kcs-max-work);
+}
+
+.kcs-work__mat {
+  background: var(--kcs-mat);
+  padding: clamp(0.75rem, 2.5vw, 1.25rem);
+  border: 1px solid var(--kcs-line);
+}
+
+.kcs-work__mat img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(68vh, 36rem);
+  object-fit: contain;
+  object-position: center;
+  background: var(--kcs-paper-lift);
+  /* unify photo color cast toward paper/ink */
+  filter: saturate(0.88) contrast(1.03) brightness(1.01);
+}
+
+.kcs-work figcaption {
+  margin-top: 0.85rem;
+  font-family: var(--kcs-font-ui);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  color: var(--kcs-mute);
+}
+
+.kcs-work figcaption .kcs-tag {
+  display: inline-block;
+  margin-right: 0.55rem;
+  color: var(--kcs-seal);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+
+/* Atmosphere / process — bounded, not full-bleed domination */
+.kcs-atmos {
+  margin: 0 auto;
+  max-width: 48rem;
+  padding-inline: var(--kcs-pad);
+}
+
+.kcs-atmos__frame {
+  overflow: hidden;
+  background: var(--kcs-ink);
+  border: 1px solid var(--kcs-line);
+  height: var(--kcs-atmos-h);
+}
+
+.kcs-atmos__frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  filter: saturate(0.75) contrast(1.04) brightness(0.96);
+  display: block;
+}
+
+@media (max-width: 719px) {
+  .kcs-atmos__frame {
+    height: var(--kcs-atmos-h-m);
+  }
+
+  .kcs-work__mat img {
+    max-height: min(58vh, 26rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

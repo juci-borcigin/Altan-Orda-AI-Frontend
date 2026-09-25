@@ -1,0 +1,323 @@
+@import "../_kamakura/tokens.css";
+
+.ma {
+  background: var(--kcs-paper);
+  color: var(--kcs-ink);
+  min-height: 100dvh;
+  font-family: var(--kcs-font-display);
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.ma-nav {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: calc(0.65rem + env(safe-area-inset-top, 0px)) var(--kcs-pad) 0.65rem;
+  font-family: var(--kcs-font-ui);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--kcs-on-ink);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.45), transparent);
+  pointer-events: none;
+}
+
+.ma-nav a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+  padding: 0.4rem 0;
+}
+
+.ma-hero {
+  min-height: var(--kcs-hero-h-m);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  padding: 5rem var(--kcs-pad) 4.5rem;
+  position: relative;
+  overflow: hidden;
+  color: var(--kcs-on-ink);
+}
+
+@media (min-width: 720px) {
+  .ma-hero {
+    min-height: var(--kcs-hero-h);
+  }
+}
+
+.ma-hero-media {
+  position: absolute;
+  inset: 0;
+}
+
+.ma-hero-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% 40%;
+  filter: saturate(0.7) contrast(1.05) brightness(0.9);
+}
+
+.ma-hero-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(17, 17, 17, 0.42) 0%,
+      rgba(17, 17, 17, 0.58) 50%,
+      rgba(17, 17, 17, 0.78) 100%
+    );
+}
+
+.ma-hero-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 22rem;
+  margin-inline: auto;
+}
+
+.ma-brand-en {
+  font-family: var(--kcs-font-ui);
+  font-size: 0.65rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--kcs-on-ink-mute);
+  margin: 0 0 1.75rem;
+}
+
+.ma-brand-ja {
+  display: flex;
+  justify-content: center;
+  gap: clamp(0.85rem, 3.5vw, 1.75rem);
+  font-size: clamp(2.6rem, 11vw, 4.75rem);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  margin: 0 0 1.5rem;
+  line-height: 1;
+}
+
+.ma-brand-ja span {
+  display: inline-block;
+  animation: ma-rise 1.2s ease both;
+}
+
+.ma-brand-ja span:nth-child(2) {
+  animation-delay: 0.1s;
+}
+.ma-brand-ja span:nth-child(3) {
+  animation-delay: 0.2s;
+}
+.ma-brand-ja span:nth-child(4) {
+  animation-delay: 0.3s;
+}
+
+@keyframes ma-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ma-line {
+  font-size: clamp(0.92rem, 2.2vw, 1.1rem);
+  letter-spacing: 0.28em;
+  color: var(--kcs-on-ink-mute);
+  margin: 0;
+}
+
+.ma-scroll {
+  position: absolute;
+  bottom: 1.75rem;
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  width: 1px;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.3));
+  overflow: hidden;
+}
+
+.ma-scroll span {
+  display: block;
+  width: 1px;
+  height: 14px;
+  background: var(--kcs-on-ink);
+  animation: ma-drip 2.4s ease-in-out infinite;
+}
+
+@keyframes ma-drip {
+  0% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+
+.ma-chapter {
+  max-width: var(--kcs-max-text);
+  margin: 0 auto;
+  padding: clamp(3.5rem, 12vh, 7rem) var(--kcs-pad);
+  text-align: center;
+}
+
+.ma-chapter-ink {
+  max-width: none;
+  background: var(--kcs-ink);
+  color: var(--kcs-on-ink);
+}
+
+.ma-chapter-ink .ma-num,
+.ma-chapter-ink p {
+  color: var(--kcs-on-ink-mute);
+}
+
+.ma-chapter-ink h2 {
+  color: var(--kcs-on-ink);
+}
+
+.ma-num {
+  font-family: var(--kcs-font-ui);
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--kcs-seal);
+  margin: 0 0 1rem;
+}
+
+.ma-chapter h2 {
+  font-size: clamp(1.55rem, 4.5vw, 2.2rem);
+  font-weight: 500;
+  letter-spacing: 0.35em;
+  margin: 0 0 1.35rem;
+}
+
+.ma-chapter p {
+  font-size: 0.98rem;
+  line-height: 1.95;
+  color: var(--kcs-mute);
+  margin: 0;
+  text-align: left;
+  letter-spacing: 0.03em;
+}
+
+.ma-block {
+  padding-block: 0.5rem 2.5rem;
+  padding-inline: var(--kcs-pad);
+}
+
+.ma-gates {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  display: grid;
+  gap: 1.15rem;
+}
+
+.ma-gates li {
+  display: grid;
+  gap: 0.3rem;
+  padding-bottom: 1.15rem;
+  border-bottom: 1px solid var(--kcs-line);
+}
+
+.ma-gates strong {
+  font-family: var(--kcs-font-ui);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.ma-gates span {
+  color: var(--kcs-mute);
+  letter-spacing: 0.04em;
+  line-height: 1.65;
+  font-size: 0.95rem;
+}
+
+.ma-close .ma-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  margin-top: 2rem;
+  padding: 0.75rem 1.4rem;
+  border: 1px solid var(--kcs-ink);
+  color: var(--kcs-ink);
+  text-decoration: none;
+  font-family: var(--kcs-font-ui);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  transition: background var(--kcs-ease), color var(--kcs-ease);
+}
+
+.ma-close .ma-cta:hover {
+  background: var(--kcs-ink);
+  color: var(--kcs-paper);
+}
+
+.ma-foot {
+  padding: 2.5rem var(--kcs-pad) 2rem;
+  text-align: center;
+  font-family: var(--kcs-font-ui);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  color: var(--kcs-mute);
+}
+
+.ma-foot a {
+  color: var(--kcs-ink);
+}
+
+/* Mobile booking dock — culture LPs: one persistent action */
+.ma-dock {
+  display: none;
+}
+
+@media (max-width: 719px) {
+  .ma-dock {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    padding: 0.65rem var(--kcs-pad) calc(0.65rem + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--kcs-paper) 92%, transparent);
+    border-top: 1px solid var(--kcs-line);
+    backdrop-filter: blur(10px);
+  }
+
+  .ma-dock a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    background: var(--kcs-ink);
+    color: var(--kcs-paper);
+    text-decoration: none;
+    font-family: var(--kcs-font-ui);
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+  }
+
+  .ma-scroll {
+    display: none;
+  }
+}
