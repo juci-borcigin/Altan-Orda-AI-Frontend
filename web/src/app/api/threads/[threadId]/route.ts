@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { pinnedThreadIdsFromDbJson } from "@/lib/ao-history-compression-db";
+import { deleteStoredEmbeddingsForThread } from "@/lib/embedding-pipeline";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type RouteCtx = { params: Promise<{ threadId: string }> };
 
 /**
- * 議事（ao_threads）削除。messages / embeddings は DB cascade。
- * DELETE /api/threads/{supabase_thread_uuid}
- *
  * PATCH body: { pinnedThreadIds?: string[] }
  */
 export async function PATCH(req: Request, ctx: RouteCtx) {
@@ -58,7 +56,8 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
 }
 
 /**
- * 議事（ao_threads）削除。messages / embeddings は DB cascade。
+ * 議事（ao_threads）削除。ao_messages は DB cascade。
+ * ao_embeddings.source_id の FK は外れているので、削除前にベクトル行と Qdrant 点を消す。
  * DELETE /api/threads/{supabase_thread_uuid}
  */
 export async function DELETE(_req: Request, ctx: RouteCtx) {
@@ -96,6 +95,9 @@ export async function DELETE(_req: Request, ctx: RouteCtx) {
       { status: 403 },
     );
   }
+
+  const embedErr = await deleteStoredEmbeddingsForThread(supa, id);
+  if (embedErr) return NextResponse.json({ error: embedErr }, { status: 500 });
 
   const { error: delErr } = await supa.from("ao_threads").delete().eq("id", id);
   if (delErr) {

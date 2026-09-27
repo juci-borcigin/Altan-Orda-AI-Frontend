@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { deleteStoredEmbeddingsForMessages } from "@/lib/embedding-pipeline";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -88,7 +89,8 @@ export async function POST(req: Request, ctx: RouteCtx) {
   }
 
   if (ids.length) {
-    await supa.from("ao_embeddings").delete().in("source_id", ids);
+    const embedErr = await deleteStoredEmbeddingsForMessages(supa, ids);
+    if (embedErr) return NextResponse.json({ error: embedErr }, { status: 500 });
     const { error: me } = await supa.from("ao_messages").delete().in("id", ids);
     if (me) return NextResponse.json({ error: me.message }, { status: 500 });
   }

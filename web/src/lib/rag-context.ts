@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  mergeRagHits,
+  planRagBackendSearch,
+  ragBackendFromEnv,
+} from "./conversation-embeddings";
+import { searchConversationHits } from "./qdrant-conversations";
+import {
   buildRagEmbedQuery,
   normalizeEmbedProjectId,
   normalizeRagQuery,
@@ -95,20 +101,34 @@ export async function searchRagChunksWithVector(
   const match_count = opts?.match_count ?? 5;
   const match_threshold = opts?.match_threshold ?? RAG_MATCH_THRESHOLD;
   const excludeThreadId = opts?.exclude_thread_id?.trim() || null;
+  const backend = ragBackendFromEnv(process.env.RAG_BACKEND);
+  const plan = planRagBackendSearch(backend, filterKind);
 
-  const { data, error } = await supa.rpc("match_embeddings", {
-    query_embedding: queryEmbedding,
-    match_count,
-    match_threshold,
-    filter_project_id: filterProjectId,
-    filter_kind: filterKind,
-    exclude_thread_id: excludeThreadId,
-  });
-  if (error) {
-    console.error("[rag] match_embeddings:", error.message);
-    return empty;
+  const parts: RagMatchRow[] = [];
+  if (plan.qdrant) {
+    parts.push(
+      ...(await searchRagChunksViaQdrant(supa, queryEmbedding, {
+        match_count,
+        match_threshold,
+        filterProjectId,
+        filterKind: plan.qdrant.filterKind,
+        excludeThreadId,
+      })),
+    );
   }
-  const rows = (Array.isArray(data) ? data : []) as RagMatchRow[];
+  if (plan.supabase) {
+    parts.push(
+      ...(await searchRagChunksViaSupabase(supa, queryEmbedding, {
+        match_count,
+        match_threshold,
+        filterProjectId,
+        filterKind: plan.supabase.filterKind,
+        excludeThreadId,
+      })),
+    );
+  }
+  const rows =
+    plan.qdrant && plan.supabase ? mergeRagHits(parts, match_count) : parts;
   if (rows.length === 0) {
     console.info(
       `[rag] 0 hits threshold=${match_threshold} project=${filterProjectId ?? "*"} kind=${filterKind}`,
@@ -118,7 +138,7 @@ export async function searchRagChunksWithVector(
   const topSimilarity =
     typeof rows[0]?.similarity === "number" ? rows[0].similarity : null;
   console.info(
-    `[rag] ${rows.length} hits top_sim=${topSimilarity?.toFixed(4) ?? "?"} kind=${filterKind} project=${filterProjectId ?? "*"}`,
+    `[rag] backend=${backend} ${rows.length} hits top_sim=${topSimilarity?.toFixed(4) ?? "?"} kind=${filterKind ?? "*"} project=${filterProjectId ?? "*"}`,
   );
   let block = rows
     .map((row) => row.chunk_text?.trim() ?? "")
@@ -129,6 +149,82 @@ export async function searchRagChunksWithVector(
     block = `${block.slice(0, maxChars)}\n\n---\n\n（RAG ブロックは長さのため省略）`;
   }
   return { block, hitCount: rows.length, topSimilarity };
+}
+
+async function searchRagChunksViaSupabase(
+  supa: SupabaseClient,
+  queryEmbedding: number[],
+  opts: {
+    match_count: number;
+    match_threshold: number;
+    filterProjectId: string | null;
+    filterKind: string | null;
+    excludeThreadId: string | null;
+  },
+): Promise<RagMatchRow[]> {
+  const { data, error } = await supa.rpc("match_embeddings", {
+    query_embedding: queryEmbedding,
+    match_count: opts.match_count,
+    match_threshold: opts.match_threshold,
+    filter_project_id: opts.filterProjectId,
+    filter_kind: opts.filterKind,
+    exclude_thread_id: opts.excludeThreadId,
+  });
+  if (error) {
+    console.error("[rag] match_embeddings:", error.message);
+    return [];
+  }
+  return (Array.isArray(data) ? data : []) as RagMatchRow[];
+}
+
+async function searchRagChunksViaQdrant(
+  supa: SupabaseClient,
+  queryEmbedding: number[],
+  opts: {
+    match_count: number;
+    match_threshold: number;
+    filterProjectId: string | null;
+    filterKind: string | null;
+    excludeThreadId: string | null;
+  },
+): Promise<RagMatchRow[]> {
+  const hits = await searchConversationHits({
+    vector: queryEmbedding,
+    matchCount: opts.match_count,
+    matchThreshold: opts.match_threshold,
+    filterProjectId: opts.filterProjectId,
+    filterKind: opts.filterKind,
+    excludeThreadId: opts.excludeThreadId,
+  });
+  if (hits.length === 0) return [];
+
+  const textById = new Map<string, string>();
+  for (let i = 0; i < hits.length; i += 100) {
+    const chunk = hits.slice(i, i + 100).map((hit) => hit.id);
+    const { data, error } = await supa.from("ao_embeddings").select("id, chunk_text").in("id", chunk);
+    if (error) {
+      console.error("[rag] load chunk text:", error.message);
+      continue;
+    }
+    for (const row of (data ?? []) as Array<{ id?: string; chunk_text?: string | null }>) {
+      if (!row.id) continue;
+      textById.set(row.id.toLowerCase(), row.chunk_text ?? "");
+    }
+  }
+
+  const rows: RagMatchRow[] = [];
+  for (const hit of hits) {
+    const chunkText = textById.get(hit.id)?.trim() ?? "";
+    if (!chunkText) continue;
+    rows.push({
+      chunk_text: chunkText,
+      similarity: hit.score,
+      project_id: hit.payload.project_id ?? null,
+      kind: hit.payload.kind ?? null,
+    });
+    if (rows.length >= opts.match_count) break;
+  }
+  return rows;
 }
 
 async function openAiEmbed(text: string, apiKey: string): Promise<number[]> {
