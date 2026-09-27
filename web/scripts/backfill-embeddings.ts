@@ -159,6 +159,7 @@ async function main() {
       batch.push({
         id: m.id,
         text,
+        threadId: m.thread_id,
         threadSourceProvider: meta.source_provider,
         threadTitle: meta.title,
         embedProjectId: normalizeEmbedProjectId(meta.project_id),
