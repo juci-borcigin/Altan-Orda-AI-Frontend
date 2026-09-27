@@ -1388,6 +1388,7 @@ export async function POST(req: Request) {
               insertedRows.map((r: { id: string; text: string }) => ({
                 id: r.id,
                 text: r.text,
+                threadId: persistedThreadUuid,
                 threadSourceProvider: threadMeta?.source_provider ?? null,
                 threadTitle: threadMeta?.title ?? null,
                 embedProjectId: normalizeEmbedProjectId(
