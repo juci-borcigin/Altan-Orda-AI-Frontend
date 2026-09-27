@@ -6,6 +6,7 @@ import {
 } from "./course-master-schema";
 import type { CourseTraceRow, CourseTraceSummary } from "./course-trace";
 import { summarizeTraces } from "./course-trace";
+import { artifactUrlHasImage } from "./course-visual-ref";
 
 export type ProcessingLogEvent = {
   id: string;
@@ -223,12 +224,7 @@ export type VisualRow = {
 export function visualHasArtifact(v: VisualRow | null | undefined): boolean {
   if (!v) return false;
   if (v.has_artifact) return true;
-  const url = v.artifact_url ?? "";
-  return (
-    url.startsWith("data:image") ||
-    url.startsWith("http") ||
-    url.startsWith("/")
-  );
+  return artifactUrlHasImage(v.artifact_url);
 }
 
 export function visualForSection(

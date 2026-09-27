@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCourse } from "@/lib/course-maker/course-db";
 import { generateCourseVisualImage } from "@/lib/course-maker/course-image";
+import { resolveCourseVisualArtifactUrl } from "@/lib/course-maker/course-visual-storage";
 import { recordCourseTrace } from "@/lib/course-maker/course-trace";
 import type { CourseMaster } from "@/lib/course-maker/course-master-schema";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -89,9 +90,15 @@ export async function POST(req: Request, ctx: Ctx) {
       },
     });
 
+    const displayUrl = await resolveCourseVisualArtifactUrl(supa, img.artifact_url);
     return NextResponse.json({
-      visual: { slot_id: slotId, session_no: sessionNo, artifact_url: img.artifact_url, prompt },
-      image: img,
+      visual: {
+        slot_id: slotId,
+        session_no: sessionNo,
+        artifact_url: displayUrl,
+        prompt,
+      },
+      image: { ...img, b64_png: undefined, artifact_url: displayUrl },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

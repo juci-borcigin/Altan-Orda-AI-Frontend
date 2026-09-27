@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { getCourse, listSessions } from "@/lib/course-maker/course-db";
 import { generateCourseVisualImage } from "@/lib/course-maker/course-image";
+import { readCourseVisualBytes } from "@/lib/course-maker/course-visual-storage";
 import { rewriteSectionImagePrompt } from "@/lib/course-maker/course-llm";
 import { getSectionMarkdown } from "@/lib/course-maker/course-admin-view";
 import type { CourseMaster } from "@/lib/course-maker/course-master-schema";
@@ -166,10 +167,14 @@ export async function POST(req: Request) {
       const baselineName = `s${IMAGE_LAB_SESSION}_sec${sectionNo}_baseline_mid.png`;
       const baselinePath = path.join(imageLabPublicDir(), baselineName);
       const artifact = visual?.artifact_url as string | null;
-      if (artifact?.startsWith("data:image")) {
-        const b64 = artifact.replace(/^data:image\/\w+;base64,/, "");
-        await fs.writeFile(baselinePath, Buffer.from(b64, "base64"));
-        slot.files.baseline_mid = publicUrlForLabFile(baselineName);
+      if (artifact) {
+        const bytes = await readCourseVisualBytes(supa, artifact);
+        if (bytes && bytes.length > 0) {
+          await fs.writeFile(baselinePath, bytes);
+          slot.files.baseline_mid = publicUrlForLabFile(baselineName);
+        } else if (prev?.files.baseline_mid) {
+          slot.files.baseline_mid = prev.files.baseline_mid;
+        }
       } else if (prev?.files.baseline_mid) {
         slot.files.baseline_mid = prev.files.baseline_mid;
       }
@@ -194,14 +199,13 @@ export async function POST(req: Request) {
             quality: "medium",
             size: IMAGE_LAB_SIZE_16_9,
             skipLabelNote: true,
+            persistFile: false,
           });
+          if (!img.b64_png) throw new Error("image bytes missing");
           const fileName = `s${IMAGE_LAB_SESSION}_sec${sectionNo}_style_a.png`;
           await fs.writeFile(
             path.join(imageLabPublicDir(), fileName),
-            Buffer.from(
-              img.b64_png ?? img.artifact_url.replace(/^data:image\/\w+;base64,/, ""),
-              "base64",
-            ),
+            Buffer.from(img.b64_png, "base64"),
           );
           slot.files.style_a = publicUrlForLabFile(fileName);
           slot.costs.style_a = img.cost_usd;
@@ -251,14 +255,13 @@ export async function POST(req: Request) {
             quality: "medium",
             size: IMAGE_LAB_SIZE_16_9,
             skipLabelNote: true,
+            persistFile: false,
           });
+          if (!img.b64_png) throw new Error("image bytes missing");
           const fileName = `s${IMAGE_LAB_SESSION}_sec${sectionNo}_style_b.png`;
           await fs.writeFile(
             path.join(imageLabPublicDir(), fileName),
-            Buffer.from(
-              img.b64_png ?? img.artifact_url.replace(/^data:image\/\w+;base64,/, ""),
-              "base64",
-            ),
+            Buffer.from(img.b64_png, "base64"),
           );
           slot.files.style_b = publicUrlForLabFile(fileName);
           slot.costs.style_b = img.cost_usd;

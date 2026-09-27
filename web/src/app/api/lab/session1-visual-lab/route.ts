@@ -184,7 +184,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "section_no が不正です" }, { status: 400 });
     }
 
-    let manifest = (await readSession1VisualManifest()) ?? (await ensureSeededManifest());
+    const manifest = (await readSession1VisualManifest()) ?? (await ensureSeededManifest());
     const section = manifest.sections.find((s) => s.section_no === sectionNo);
     if (!section) {
       return NextResponse.json({ error: `section ${sectionNo} がありません` }, { status: 404 });
@@ -203,16 +203,15 @@ export async function POST(req: Request) {
       quality: body.quality,
       size: IMAGE_LAB_SIZE_16_9,
       skipLabelNote: false,
+      persistFile: false,
     });
+    if (!img.b64_png) throw new Error("image bytes missing");
 
     const fileName = `${body.llm}_s1_sec${sectionNo}_${body.quality === "low" ? "low" : "mid"}.png`;
     await fs.mkdir(session1VisualPublicDir(), { recursive: true });
     await fs.writeFile(
       path.join(session1VisualPublicDir(), fileName),
-      Buffer.from(
-        img.b64_png ?? img.artifact_url.replace(/^data:image\/\w+;base64,/, ""),
-        "base64",
-      ),
+      Buffer.from(img.b64_png, "base64"),
     );
 
     const nextCell: Session1VisualCell = {

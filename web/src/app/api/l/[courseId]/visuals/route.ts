@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCourse } from "@/lib/course-maker/course-db";
 import { isPublicLearnCourse } from "@/lib/course-maker/course-public-learn";
+import { resolveCourseVisualArtifactUrl } from "@/lib/course-maker/course-visual-storage";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -48,7 +49,11 @@ export async function GET(req: Request, ctx: Ctx) {
     if (error) throw new Error(error.message);
     if (!data) return NextResponse.json({ error: "Visual not found" }, { status: 404 });
 
-    return NextResponse.json({ visual: data });
+    const artifact_url = await resolveCourseVisualArtifactUrl(
+      supa,
+      typeof data.artifact_url === "string" ? data.artifact_url : null,
+    );
+    return NextResponse.json({ visual: { ...data, artifact_url } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

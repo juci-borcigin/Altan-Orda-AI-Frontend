@@ -10,6 +10,8 @@
     "seed:prompts": "npx tsx scripts/seed-ao-prompt-sections.ts",
     "backfill:embeddings": "npx tsx scripts/backfill-embeddings.ts",
     "backfill:embeddings:dry": "npx tsx scripts/backfill-embeddings.ts --dry-run",
+    "backfill:course-visuals": "npx tsx scripts/backfill-course-visuals-storage.ts --apply",
+    "backfill:course-visuals:dry": "npx tsx scripts/backfill-course-visuals-storage.ts",
     "probe:rag": "npx tsx scripts/probe-rag.ts",
     "probe:books": "npx tsx scripts/probe-books-rag.ts",
     "init:qdrant": "npx tsx scripts/init-qdrant.ts",

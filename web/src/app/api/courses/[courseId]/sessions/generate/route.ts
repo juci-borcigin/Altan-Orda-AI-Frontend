@@ -8,6 +8,7 @@ import {
 import { mergeSessionMarkdown } from "@/lib/course-maker/course-admin-view";
 import { parseTier2OutputMode, type Tier2OutputMode } from "@/lib/course-maker/course-dev";
 import { generateCourseVisualImage } from "@/lib/course-maker/course-image";
+import { resolveCourseVisualArtifactUrl } from "@/lib/course-maker/course-visual-storage";
 import {
   generateSessionContent,
   generateSessionSection,
@@ -146,12 +147,15 @@ async function generateOneSession(
 
   // image / both: 回メイン画像のみ（Image2 Low）
   let hero: { artifact_url: string; cost_usd: number } | null = null;
+  let heroStorageRef: string | null = null;
   if (opts.output === "image" || opts.output === "both") {
     if (opts.section_no != null) {
       // セクション単位の画像生成は v2 ではしない（Wikimedia）
     } else {
       const img = await generateSessionHeroImage(supa, courseId, workingMaster, sessionNo);
-      hero = { artifact_url: img.artifact_url, cost_usd: img.cost_usd };
+      heroStorageRef = img.artifact_url;
+      const display = await resolveCourseVisualArtifactUrl(supa, img.artifact_url);
+      hero = { artifact_url: display ?? img.artifact_url, cost_usd: img.cost_usd };
     }
   }
 
@@ -195,7 +199,7 @@ async function generateOneSession(
       fallback_used,
       llm_call_count,
       format: "v2",
-      hero_url: hero?.artifact_url ?? null,
+      hero_url: heroStorageRef,
     },
   };
   if (markdown_body != null) {

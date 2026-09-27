@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { estimateLlmCostUsd, imageGenerationUsdPerImage } from "./course-pricing";
+import { omitInlineDataImage } from "./course-visual-ref";
 
 export type CourseTracePhase =
   | "tier1_outline"
@@ -76,7 +77,7 @@ export async function recordCourseTrace(
     provider: input.provider ?? null,
     system_prompt: input.system_prompt ?? null,
     user_prompt: input.user_prompt ?? null,
-    response_text: input.response_text ?? null,
+    response_text: omitInlineDataImage(input.response_text),
     ui_display_ref: input.ui_display_ref ?? null,
     prompt_tokens: input.prompt_tokens ?? 0,
     completion_tokens: input.completion_tokens ?? 0,
