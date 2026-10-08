@@ -110,7 +110,7 @@ curl -X POST http://localhost:3000/api/notebook/ingest \
 ## 8. 冷起動（Free）
 
 1 週間使わないとクラスタ **suspend**。最初の検索が遅いことがある。  
-対策: 月 1 回 `npm run init:qdrant` や ingest で触る / 許容。
+対策: GitHub Actions「Qdrant keepalive」（`.github/workflows/qdrant-keepalive.yml`）が毎週月曜 06:17 JST に `GET /collections/juci_conversations` する（読み取りのみ）。リポジトリ secret `QDRANT_API_KEY` が必要。
 
 ---
 

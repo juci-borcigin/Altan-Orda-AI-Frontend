@@ -1,0 +1,48 @@
+# Qdrant Cloud Free は約 1 週間アイドルだとクラスタが suspend する。
+# 読み取り専用の GET だけで起こしておく。書き込みはしない。
+# 必要なリポジトリ secret: QDRANT_API_KEY
+# 任意のリポジトリ variable: QDRANT_URL（未設定なら下記の既定クラスタ）
+
+name: Qdrant keepalive
+
+on:
+  schedule:
+    # 毎週月曜 06:17 JST（UTC 日曜 21:17）
+    - cron: "17 21 * * 0"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET juci_conversations
+        env:
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          QDRANT_URL: ${{ vars.QDRANT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${QDRANT_API_KEY:-}" ]; then
+            echo "Repository secret QDRANT_API_KEY is missing. Add it in GitHub Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          base="${QDRANT_URL:-}"
+          if [ -z "${base}" ]; then
+            base="https://69651ea1-9b3f-4da2-bb10-5784f10880b3.us-east-1-1.aws.cloud.qdrant.io"
+          fi
+          base="${base%/}"
+          body="$(mktemp)"
+          trap 'rm -f "${body}"' EXIT
+          status="$(
+            curl --silent --show-error --output "${body}" --write-out '%{http_code}' \
+              --request GET \
+              --max-time 60 \
+              --header "api-key: ${QDRANT_API_KEY}" \
+              "${base}/collections/juci_conversations" || true
+          )"
+          points="$(jq -r '.result.points_count // empty' "${body}" 2>/dev/null || true)"
+          echo "status=${status}"
+          echo "points_count=${points}"
+          [ "${status}" = "200" ]
