@@ -23,7 +23,11 @@ import {
 import { normalizeProjectId, type ProjectId } from "@/lib/ao-types";
 import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
 import { buildJapanNowSystemPrefix } from "@/lib/ao-chat-context";
-import { appendAoUserContext, loadAoUserContextBody } from "@/lib/ao-user-context";
+import {
+  loadAoUserContextBody,
+  mainPersonaInjectsUserContext,
+  prependAoUserContext,
+} from "@/lib/ao-user-context";
 import {
   RAG_DEFAULT_KIND,
   RAG_MATCH_THRESHOLD,
@@ -783,8 +787,12 @@ export async function POST(req: Request) {
   }
 
   const nowPrefix = buildJapanNowSystemPrefix();
-  const userContextBody = supa ? await loadAoUserContextBody(supa) : "";
-  const withUserContext = (base: string) => appendAoUserContext(base, userContextBody);
+  const injectUserContext = supa
+    ? await mainPersonaInjectsUserContext(supa, phase5Ctx?.bundle.project.main_persona_key)
+    : false;
+  const userContextBody =
+    supa && injectUserContext ? await loadAoUserContextBody(supa) : "";
+  const withUserContext = (base: string) => prependAoUserContext(base, userContextBody);
 
   let system = withUserContext(
     phase5Ctx
