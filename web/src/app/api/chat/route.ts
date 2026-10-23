@@ -23,6 +23,7 @@ import {
 import { normalizeProjectId, type ProjectId } from "@/lib/ao-types";
 import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
 import { buildJapanNowSystemPrefix } from "@/lib/ao-chat-context";
+import { appendAoUserContext, loadAoUserContextBody } from "@/lib/ao-user-context";
 import {
   RAG_DEFAULT_KIND,
   RAG_MATCH_THRESHOLD,
@@ -782,22 +783,26 @@ export async function POST(req: Request) {
   }
 
   const nowPrefix = buildJapanNowSystemPrefix();
+  const userContextBody = supa ? await loadAoUserContextBody(supa) : "";
+  const withUserContext = (base: string) => appendAoUserContext(base, userContextBody);
 
-  let system = phase5Ctx
-    ? phase5Ctx.system
-    : nowPrefix +
-      "\n\n" +
-      buildAoSystemPrompt(
-        {
-          projectId,
-          lastUserText: lastUserPre,
-          isFirstUserTurn,
-          casualMode,
-          namedSpeaker,
-        },
-        promptOverrides,
-      ) +
-      tavilySuffix;
+  let system = withUserContext(
+    phase5Ctx
+      ? phase5Ctx.system
+      : nowPrefix +
+        "\n\n" +
+        buildAoSystemPrompt(
+          {
+            projectId,
+            lastUserText: lastUserPre,
+            isFirstUserTurn,
+            casualMode,
+            namedSpeaker,
+          },
+          promptOverrides,
+        ) +
+        tavilySuffix,
+  );
 
   let phase5RagMeta = phase5Ctx?.ragMeta;
 
@@ -946,21 +951,22 @@ export async function POST(req: Request) {
       }
     }
 
-    system =
+    system = withUserContext(
       nowPrefix +
-      "\n\n" +
-      buildAoSystemPrompt(
-        {
-          projectId,
-          lastUserText: lastUserPre,
-          isFirstUserTurn,
-          casualMode,
-          namedSpeaker,
-          injectionBlock: injectionBlock || undefined,
-        },
-        promptOverrides,
-      ) +
-      tavilySuffix;
+        "\n\n" +
+        buildAoSystemPrompt(
+          {
+            projectId,
+            lastUserText: lastUserPre,
+            isFirstUserTurn,
+            casualMode,
+            namedSpeaker,
+            injectionBlock: injectionBlock || undefined,
+          },
+          promptOverrides,
+        ) +
+        tavilySuffix,
+    );
   }
 
   let persistedThreadUuid: string | null = null;
