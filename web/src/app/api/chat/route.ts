@@ -24,6 +24,11 @@ import { normalizeProjectId, type ProjectId } from "@/lib/ao-types";
 import { storeEmbeddingsForMessageTexts } from "@/lib/embedding-pipeline";
 import { buildJapanNowSystemPrefix } from "@/lib/ao-chat-context";
 import {
+  loadAoUserContextBody,
+  mainPersonaInjectsUserContext,
+  prependAoUserContext,
+} from "@/lib/ao-user-context";
+import {
   RAG_DEFAULT_KIND,
   RAG_MATCH_THRESHOLD,
   normalizeEmbedProjectId,
@@ -782,22 +787,30 @@ export async function POST(req: Request) {
   }
 
   const nowPrefix = buildJapanNowSystemPrefix();
+  const injectUserContext = supa
+    ? await mainPersonaInjectsUserContext(supa, phase5Ctx?.bundle.project.main_persona_key)
+    : false;
+  const userContextBody =
+    supa && injectUserContext ? await loadAoUserContextBody(supa) : "";
+  const withUserContext = (base: string) => prependAoUserContext(base, userContextBody);
 
-  let system = phase5Ctx
-    ? phase5Ctx.system
-    : nowPrefix +
-      "\n\n" +
-      buildAoSystemPrompt(
-        {
-          projectId,
-          lastUserText: lastUserPre,
-          isFirstUserTurn,
-          casualMode,
-          namedSpeaker,
-        },
-        promptOverrides,
-      ) +
-      tavilySuffix;
+  let system = withUserContext(
+    phase5Ctx
+      ? phase5Ctx.system
+      : nowPrefix +
+        "\n\n" +
+        buildAoSystemPrompt(
+          {
+            projectId,
+            lastUserText: lastUserPre,
+            isFirstUserTurn,
+            casualMode,
+            namedSpeaker,
+          },
+          promptOverrides,
+        ) +
+        tavilySuffix,
+  );
 
   let phase5RagMeta = phase5Ctx?.ragMeta;
 
@@ -946,21 +959,22 @@ export async function POST(req: Request) {
       }
     }
 
-    system =
+    system = withUserContext(
       nowPrefix +
-      "\n\n" +
-      buildAoSystemPrompt(
-        {
-          projectId,
-          lastUserText: lastUserPre,
-          isFirstUserTurn,
-          casualMode,
-          namedSpeaker,
-          injectionBlock: injectionBlock || undefined,
-        },
-        promptOverrides,
-      ) +
-      tavilySuffix;
+        "\n\n" +
+        buildAoSystemPrompt(
+          {
+            projectId,
+            lastUserText: lastUserPre,
+            isFirstUserTurn,
+            casualMode,
+            namedSpeaker,
+            injectionBlock: injectionBlock || undefined,
+          },
+          promptOverrides,
+        ) +
+        tavilySuffix,
+    );
   }
 
   let persistedThreadUuid: string | null = null;
